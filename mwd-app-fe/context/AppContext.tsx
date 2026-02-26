@@ -38,7 +38,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     thresholds: [],
     display: {
       density: 'comfortable' as const,
-      theme: 'dark' as const,
+      theme: 'light' as const,
       autoRefresh: true,
       refreshInterval: 5
     },
