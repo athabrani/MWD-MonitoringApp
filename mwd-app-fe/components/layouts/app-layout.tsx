@@ -543,19 +543,22 @@ function IconRail({
   activeSection,
   onChange,
   allowedItems,
+  isDark,
 }: {
   activeSection: AppPage;
   onChange: (page: AppPage) => void;
   allowedItems: NavigationItem[];
+  isDark: boolean;
 }) {
   return (
-    <aside className="hidden h-[calc(100vh-5rem)] w-[72px] shrink-0 border-r border-white/10 bg-[#0f1b2d] bg-card/80 p-3 backdrop-blur lg:flex lg:flex-col">
-      {/* <div className="mb-3 flex justify-center">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <TrendingUp className="size-5" />
-        </div>
-      </div> */}
-
+    <aside
+      className={cn(
+        "sticky top-20 hidden h-[calc(100vh-5rem)] w-[72px] shrink-0 border-r p-3 backdrop-blur lg:flex lg:flex-col",
+        isDark
+          ? "border-white/10 bg-[#0f1b2d]"
+          : "border-border/70 bg-card/90"
+      )}
+    >
       <div className="flex flex-col items-center gap-2">
         {allowedItems.map((item) => (
           <IconRailButton
@@ -649,6 +652,7 @@ function ExpandableNavGroup({
   active,
   open,
   collapsed,
+  isDark,
   onToggle,
   children,
 }: {
@@ -657,6 +661,7 @@ function ExpandableNavGroup({
   active?: boolean;
   open?: boolean;
   collapsed?: boolean;
+  isDark: boolean;
   onToggle: () => void;
   children: React.ReactNode;
 }) {
@@ -667,10 +672,13 @@ function ExpandableNavGroup({
         onClick={onToggle}
         title={label}
         className={cn(
-          "flex h-11 w-11 items-center justify-center rounded-xl border transition-all duration-300",
+          "flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-300",
           active
-            ? "border-primary/30 bg-primary/10"
-            : "border-transparent hover:border-border hover:bg-muted/70"
+            ? "border-transparent bg-transparent text-primary shadow-none"
+            : isDark
+              ? "border-transparent bg-transparent text-muted-foreground hover:border-white/10 hover:bg-white/5 hover:text-foreground"
+              : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground"
+
         )}
       >
         <Icon className="size-4" />
@@ -743,12 +751,14 @@ function DesktopDetailSidebar({
   activeSection,
   setActiveSection,
   activeAlarms,
+  isDark,
 }: {
   currentPage: AppPage;
   onNavigate: (page: AppPage) => void;
   activeSection: AppPage;
   setActiveSection: (page: AppPage) => void;
   activeAlarms: number;
+  isDark: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
@@ -758,8 +768,8 @@ function DesktopDetailSidebar({
 
   const filteredSections = useMemo(() => {
     if (!search.trim()) return meta.sections;
-
     const q = search.toLowerCase();
+
     return meta.sections
       .map((section) => ({
         ...section,
@@ -775,83 +785,31 @@ function DesktopDetailSidebar({
   return (
     <aside
       className={cn(
-        "hidden h-screen shrink-0 border-r border-white/10 bg-card/80 backdrop-blur lg:flex lg:flex-col",
-        collapsed ? "w-[88px] px-4 py-4" : "w-[320px] px-4 py-4"
+        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0 border-l lg:flex lg:flex-col",
+        isDark ? "border-white/10 bg-[#0f1b2d]" : "border-border/70 bg-card",
+        collapsed ? "w-[88px] px-3 py-4" : "w-[320px] px-4 py-4"
       )}
       style={{
         transition: `width 500ms ${softEasing}, padding 500ms ${softEasing}`,
       }}
     >
-      {!collapsed}
-      {/* {!collapsed && <BrandMark />} */}
+      {collapsed ? (
+        <div className="flex flex-1 flex-col overflow-y-auto">
+          <div className="flex flex-col items-center gap-2">
+            <CollapsedActionButton
+              icon={PanelLeftOpen}
+              label="Expand sidebar"
+              onClick={() => setCollapsed(false)}
+              isDark={isDark}
+            />
 
-      <div className={cn("mt-2", collapsed ? "flex justify-center" : "")}>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setCollapsed((v) => !v)}
-          className="rounded-xl"
-        >
-          {collapsed ? (
-            <PanelLeftOpen className="size-4" />
-          ) : (
-            <PanelLeftClose className="size-4" />
-          )}
-        </Button>
-      </div>
-
-      <div className="mt-4">
-        {!collapsed && (
-          <div className="mb-3">
-            <h2 className="text-lg font-semibold text-foreground">{meta.title}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{meta.subtitle}</p>
-          </div>
-        )}
-
-        <SearchBox collapsed={collapsed} value={search} onChange={setSearch} />
-      </div>
-
-      <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
-        {filteredSections.map((section) => (
-          <div key={section.title}>
-            {!collapsed && (
-              <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {section.title}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {section.items.map((item) => {
-                if (item.id === "trajectory-analysis" || item.id === "trajectory-well-plot") {
-                  return (
-                    <ExpandableNavGroup
-                      key="trajectory-group"
-                      icon={TrendingUp}
-                      label="Trajectory"
-                      active={isChildPage(currentPage) || currentPage === "trajectory"}
-                      open={openTrajectory}
-                      collapsed={collapsed}
-                      onToggle={() => {
-                        setOpenTrajectory((v) => !v);
-                        setActiveSection("trajectory");
-                      }}
-                    >
-                      <DetailNavItem
-                        icon={Radar}
-                        label="Trajectory Analysis"
-                        description="Directional path and deviation review"
-                        active={currentPage === "trajectory-analysis"}
-                        onClick={() => onNavigate("trajectory-analysis")}
-                      />
-                      <DetailNavItem
-                        icon={Gauge}
-                        label="Well Plots"
-                        description="Depth-based stacked measurements"
-                        active={currentPage === "trajectory-well-plot"}
-                        onClick={() => onNavigate("trajectory-well-plot")}
-                      />
-                    </ExpandableNavGroup>
-                  );
+            {filteredSections.flatMap((section) =>
+              section.items.map((item) => {
+                if (
+                  item.id === "trajectory-analysis" ||
+                  item.id === "trajectory-well-plot"
+                ) {
+                  return null;
                 }
 
                 return (
@@ -861,39 +819,166 @@ function DesktopDetailSidebar({
                     label={item.label}
                     description={item.description}
                     active={currentPage === item.id}
-                    collapsed={collapsed}
+                    collapsed
                     onClick={() => {
                       setActiveSection(getParentSection(item.id));
                       onNavigate(item.id);
                     }}
-                    badge={
-                      item.id === "alerts" && activeAlarms > 0 && !collapsed ? (
-                        <Badge variant="destructive" className="ml-auto">
-                          {activeAlarms}
-                        </Badge>
-                      ) : undefined
-                    }
                   />
                 );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {!collapsed && (
-        <div className="mt-4 border-t pt-4">
-          <div className="rounded-2xl border bg-background/60 p-3">
-            <div className="mb-2 text-sm font-medium text-foreground">
-              Quick status
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Navigate across monitoring modules from the side panels.
-            </div>
+              })
+            )}
           </div>
         </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-end">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setCollapsed(true)}
+              className="shrink-0 rounded-xl"
+            >
+              <PanelLeftClose className="size-4" />
+            </Button>
+          </div>
+
+          <div className="mt-4">
+            <h2 className="text-lg font-semibold text-foreground">{meta.title}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{meta.subtitle}</p>
+          </div>
+
+          <div className="mt-4">
+            <SearchBox collapsed={false} value={search} onChange={setSearch} />
+          </div>
+
+          <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
+            {filteredSections.map((section) => (
+              <div key={section.title}>
+                <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {section.title}
+                </div>
+
+                <div className="space-y-2">
+                  {section.items.map((item) => {
+                    if (
+                      item.id === "trajectory-analysis" ||
+                      item.id === "trajectory-well-plot"
+                    ) {
+                      return (
+                        <ExpandableNavGroup
+                          key="trajectory-group"
+                          icon={TrendingUp}
+                          label="Trajectory"
+                          active={
+                            isChildPage(currentPage) || currentPage === "trajectory"
+                          }
+                          open={openTrajectory}
+                          collapsed={false}
+                          isDark={isDark}
+                          onToggle={() => {
+                            setOpenTrajectory((v) => !v);
+                            setActiveSection("trajectory");
+                          }}
+                        >
+                          <DetailNavItem
+                            icon={Radar}
+                            label="Trajectory Analysis"
+                            description="Directional path and deviation review"
+                            active={currentPage === "trajectory-analysis"}
+                            onClick={() => onNavigate("trajectory-analysis")}
+                          />
+                          <DetailNavItem
+                            icon={Gauge}
+                            label="Well Plots"
+                            description="Depth-based stacked measurements"
+                            active={currentPage === "trajectory-well-plot"}
+                            onClick={() => onNavigate("trajectory-well-plot")}
+                          />
+                        </ExpandableNavGroup>
+                      );
+                    }
+
+                    return (
+                      <DetailNavItem
+                        key={`${section.title}-${item.id}`}
+                        icon={item.icon}
+                        label={item.label}
+                        description={item.description}
+                        active={currentPage === item.id}
+                        collapsed={false}
+                        onClick={() => {
+                          setActiveSection(getParentSection(item.id));
+                          onNavigate(item.id);
+                        }}
+                        badge={
+                          item.id === "alerts" && activeAlarms > 0 ? (
+                            <Badge variant="destructive" className="ml-auto">
+                              {activeAlarms}
+                            </Badge>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className={cn(
+              "mt-4 border-t pt-4",
+              isDark ? "border-white/10" : "border-border/70"
+            )}
+          >
+            <div
+              className={cn(
+                "rounded-2xl border p-3",
+                isDark
+                  ? "border-white/10 bg-[#0f1b2d]"
+                  : "border-border/70 bg-background/80"
+              )}
+            >
+              <div className="mb-2 text-sm font-medium text-foreground">
+                Quick status
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Navigate across monitoring modules from the side panels.
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </aside>
+  );
+}
+
+function CollapsedActionButton({
+  icon: Icon,
+  label,
+  onClick,
+  isDark,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+  isDark: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className={cn(
+        "group flex h-11 w-11 items-center justify-center rounded-xl border border-transparent bg-transparent text-muted-foreground transition-all duration-300 hover:text-foreground",
+        isDark ? "hover:border-white/10 hover:bg-white/5" : "hover:border-border hover:bg-muted/70"
+      )}
+    >
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-muted-foreground transition-colors duration-300 group-hover:text-foreground">
+        <Icon className="size-4" />
+      </div>
+    </button>
   );
 }
 
@@ -991,6 +1076,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 }) => {
   const { user, logout } = useAuth();
   const { connectionState, reconnect, settings, updateSettings } = useApp();
+  const isDark = settings.display.theme === "dark";
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AppPage>(
@@ -1028,7 +1114,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-card/90 backdrop-blur supports-[backdrop-filter]:bg-card/70">
+      <header className="sticky top-0 z-50 border-white/10 bg-card/90 backdrop-blur supports-[backdrop-filter]:bg-card/70">
         <div className="flex h-20 items-center gap-3 px-4 md:px-6">
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild className="lg:hidden">
@@ -1043,9 +1129,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               </SheetHeader>
 
               <div className="py-4">
-                {/* <div className="mb-6">
-                  <BrandMark />
-                </div> */}
+            
 
                 <MobileNav
                   items={filteredNavItems}
@@ -1058,10 +1142,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </Sheet>
 
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-              <TrendingUp className="size-5" />
-            </div>
-
             <div className="min-w-0">
               <h1 className="truncate text-sm font-semibold sm:text-base">
                 MWD Monitor
@@ -1131,11 +1211,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       </header>
 
       
-        <div className="flex min-h-screen">
+        <div className="flex min-h-[calc(100vh-5rem)] items-start">
           <IconRail
             activeSection={activeSection}
             onChange={setActiveSection}
             allowedItems={filteredNavItems}
+            isDark={isDark}
           />
 
           <DesktopDetailSidebar
@@ -1144,6 +1225,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             activeSection={activeSection}
             setActiveSection={setActiveSection}
             activeAlarms={activeAlarms}
+            isDark={isDark}
           />
 
          <main className="flex-1 p-4 md:p-6">
