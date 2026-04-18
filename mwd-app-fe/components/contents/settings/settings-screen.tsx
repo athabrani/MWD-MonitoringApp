@@ -1,18 +1,18 @@
 import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Switch } from '../components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Separator } from '../components/ui/separator';
-import { Settings, Bell, Eye, Gauge } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Bell, Eye, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockKPIData } from '../data/mock-data';
+import { mockKPIData } from '@/data/mock-data';
 
-export const SettingsPage: React.FC = () => {
+export const SettingsScreen: React.FC = () => {
   const { settings, updateSettings } = useApp();
   const [thresholds, setThresholds] = useState<any>({
     rop: { warning: 10, critical: 5 },

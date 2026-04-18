@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Input } from '../components/ui/input';
-import { Textarea } from '../components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
-import { Label } from '../components/ui/label';
-import { Event } from '../types';
+import { useApp } from '@/context/AppContext';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Event } from '@/lib/types';
 import { AlertCircle, AlertTriangle, Check, Search, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils';
 
-export const AlertsPage: React.FC = () => {
+export const AlertsScreen: React.FC = () => {
   const { events, acknowledgeAlarm } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);

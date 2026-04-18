@@ -1,10 +1,9 @@
 import React from 'react';
-import { Card } from '../components/ui/card';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
-import { Badge } from '../components/ui/badge';
-import { HelpCircle, Book, Video, MessageCircle } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Book, Video, MessageCircle } from 'lucide-react';
 
-export const HelpPage: React.FC = () => {
+export const HelpScreen: React.FC = () => {
   return (
     <div className="space-y-6 max-w-4xl page-surface page-help">
       <div>

@@ -1,10 +1,13 @@
+"use client";
+
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
-import { VerticalTrajectory } from '../components/VerticalTrajectory';
+import { VerticalTrajectory } from '@/components/contents/trajectory/vertical-trajectory';
 import {
   ScatterChart,
   Scatter,
@@ -15,7 +18,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import { mockTrajectoryData } from '../data/mock-data';
+import { mockTrajectoryData } from '@/data/mock-data';
 import { Download, Camera, Maximize2, Target } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -65,6 +68,9 @@ export const TrajectoryPage: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" asChild>
+              <Link href="/trajectory/well-plot">Well Plots</Link>
+            </Button>
             <Button variant="outline" size="sm" onClick={handleSnapshot}>
               <Camera className="size-4 mr-2" />
               Snapshot
@@ -323,3 +329,5 @@ export const TrajectoryPage: React.FC = () => {
     </div>
   );
 };
+
+export default TrajectoryPage;

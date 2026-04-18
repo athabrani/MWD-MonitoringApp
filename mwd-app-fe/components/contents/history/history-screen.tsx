@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Calendar } from '../components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { RealTimeChart } from '../components/RealTimeChart';
-import { generateMockChartData } from '../data/mock-data';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
+import { generateMockChartData } from '@/data/mock-data';
 import { Calendar as CalendarIcon, Download } from 'lucide-react';
 import { format } from 'date-fns';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-export const HistoryPage: React.FC = () => {
+export const HistoryScreen: React.FC = () => {
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(new Date());
   const historicalData = generateMockChartData(24); // 24 hours of data

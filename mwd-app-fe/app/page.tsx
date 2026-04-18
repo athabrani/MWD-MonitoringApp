@@ -1,27 +1,26 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { AuthProvider, useAuth } from "../context/AuthContext";
-import { AppProvider, useApp } from "../context/AppContext";
-
-import { Toaster } from "@/components/ui/sonner";
+import { useAuth } from "@/context/AuthContext";
+import { useApp } from "@/context/AppContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { X, Download, RefreshCw } from "lucide-react";
 
-import { AppLayout } from "../components/AppLayout";
+import { AppLayout } from "@/components/layouts/app-layout";
 
-import { LoginPage } from "../pages/LoginPage";
-import { DashboardPage } from "../pages/DashboardPage";
-import { TrajectoryPage } from "../pages/TrajectoryPage";
-import { ChartsPage } from "../pages/ChartsPage";
-import { AlertsPage } from "../pages/AlertsPage";
-import { HistoryPage } from "../pages/HistoryPage";
-import { ExportPage } from "../pages/ExportPage";
-import { SettingsPage } from "../pages/SettingsPage";
-import { AdminPage } from "../pages/AdminPage";
-import { HelpPage } from "../pages/HelpPage";
+import LoginPage from "./login/page";
+import DashboardPage from "./dashboard/page";
+import TrajectoryPage from "./trajectory/page";
+import ChartsPage from "./charts/page";
+import AlertsPage from "./alerts/page";
+import HistoryPage from "./history/page";
+import ExportPage from "./export/page";
+import SettingsPage from "./settings/page";
+import AdminPage from "./admin/page";
+import HelpPage from "./help/page";
+import WellPlotPage from "./trajectory/well-plot/page";
 
 const AppContent: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -36,6 +35,8 @@ const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<
     | "dashboard"
     | "trajectory"
+    | "trajectory-analysis"
+    | "trajectory-well-plot"
     | "charts"
     | "alerts"
     | "history"
@@ -64,7 +65,7 @@ const AppContent: React.FC = () => {
         setCurrentPage("dashboard");
         break;
       case "admin":
-        setCurrentPage("admin");
+        setCurrentPage("dashboard");
         break;
       default:
         setCurrentPage("dashboard");
@@ -81,6 +82,9 @@ const AppContent: React.FC = () => {
       case "dashboard":
         return <DashboardPage />;
       case "trajectory":
+      case "trajectory-well-plot":
+        return <WellPlotPage/>;
+      case "trajectory-analysis":
         return <TrajectoryPage />;
       case "charts":
         return <ChartsPage />;
@@ -164,17 +168,10 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-      <Toaster position="top-right" />
     </>
   );
 };
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
-    </AuthProvider>
-  );
+  return <AppContent />;
 }

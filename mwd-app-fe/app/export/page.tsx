@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Label } from '../components/ui/label';
-import { Checkbox } from '../components/ui/checkbox';
-import { Calendar } from '../components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Download, Calendar as CalendarIcon, FileText, FileSpreadsheet, FileJson } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils';
 
 export const ExportPage: React.FC = () => {
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
@@ -186,3 +186,5 @@ export const ExportPage: React.FC = () => {
     </div>
   );
 };
+
+export default ExportPage;

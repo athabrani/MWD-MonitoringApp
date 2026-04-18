@@ -1,11 +1,11 @@
 import React from 'react';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Users, Activity, FileText, Shield } from 'lucide-react';
-import { mockUsers, mockAuditLogs, mockSystemHealth } from '../data/mock-data';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Users, Activity, FileText } from 'lucide-react';
+import { mockUsers, mockAuditLogs, mockSystemHealth } from '@/data/mock-data';
 import { format } from 'date-fns';
 
 export const AdminPage: React.FC = () => {
@@ -166,3 +166,5 @@ export const AdminPage: React.FC = () => {
     </div>
   );
 };
+
+export default AdminPage;

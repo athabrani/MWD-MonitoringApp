@@ -1,0 +1,136 @@
+import React from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { 
+  Wifi, 
+  WifiOff, 
+  AlertTriangle, 
+  RefreshCw,
+  Database,
+  Clock,
+  Activity
+} from 'lucide-react';
+import { ConnectionState } from '../types';
+import { cn } from '@/lib/utils';
+
+interface ConnectionStatusProps {
+  connectionState: ConnectionState;
+  onReconnect: () => void;
+  compact?: boolean;
+}
+
+export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({ 
+  connectionState, 
+  onReconnect,
+  compact = false 
+}) => {
+  const { status, latency, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'connected':
+        return <Wifi className="size-4" />;
+      case 'degraded':
+        return <AlertTriangle className="size-4" />;
+      case 'offline':
+        return <WifiOff className="size-4" />;
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'connected':
+        return 'bg-green-500/10 text-green-500 border-green-500/20';
+      case 'degraded':
+        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
+      case 'offline':
+        return 'bg-red-500/10 text-red-500 border-red-500/20';
+    }
+  };
+
+  const timeSinceLastData = Math.floor((Date.now() - lastReceived.getTime()) / 1000);
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className={cn("gap-1.5", getStatusColor())}>
+          {getStatusIcon()}
+          <span className="capitalize">{status}</span>
+        </Badge>
+        {status !== 'connected' && (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={onReconnect}
+            disabled={reconnecting}
+          >
+            {reconnecting ? (
+              <>
+                <RefreshCw className="size-3 mr-1 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="size-3 mr-1" />
+                Reconnect
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-4 bg-card border rounded-lg p-3">
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className={cn("gap-1.5", getStatusColor())}>
+          {getStatusIcon()}
+          <span className="capitalize">{status}</span>
+        </Badge>
+      </div>
+
+      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+        <Activity className="size-3" />
+        <span>{latency.toFixed(0)} ms</span>
+      </div>
+
+      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+        <span>Loss: {packetLoss.toFixed(1)}%</span>
+      </div>
+
+      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+        <Clock className="size-3" />
+        <span>{timeSinceLastData}s ago</span>
+      </div>
+
+      <div className="flex items-center gap-1 text-sm">
+        <Database className="size-3" />
+        <Badge variant="secondary" className="text-xs">
+          {dataSource === 'primary' ? 'Primary' : 'Backup'}
+        </Badge>
+      </div>
+
+      {status !== 'connected' && (
+        <Button 
+          size="sm" 
+          variant="outline" 
+          onClick={onReconnect}
+          disabled={reconnecting}
+        >
+          {reconnecting ? (
+            <>
+              <RefreshCw className="size-4 mr-2 animate-spin" />
+              Connecting...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="size-4 mr-2" />
+              Reconnect
+            </>
+          )}
+        </Button>
+      )}
+    </div>
+  );
+};

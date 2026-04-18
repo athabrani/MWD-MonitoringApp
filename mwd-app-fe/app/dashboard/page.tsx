@@ -1,11 +1,14 @@
+'use client';
+
+
 import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
-import { useAuth } from '../context/AuthContext';
-import { KPICard } from '../components/KPICard';
-import { RealTimeChart } from '../components/RealTimeChart';
-import { EventStream } from '../components/EventStream';
-import { ConnectionStatus } from '../components/ConnectionStatus';
-import { ToolfaceIndicator } from '../components/ToolfaceIndicator';
+import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { KPICard } from '@/components/kpi-card';
+import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
+import { EventStream } from '@/components/event-stream';
+import { ConnectionStatus } from '@/components/connection-status';
+import { ToolfaceIndicator } from '@/components/toolface-indicator';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -231,3 +234,5 @@ export const DashboardPage: React.FC = () => {
     </div>
   );
 };
+
+export default DashboardPage;
