@@ -44,7 +44,7 @@ const canAccessSession = (
   sessionUserId: number,
 ) => {
   const user = (req as AuthenticatedRequest).user;
-  return !!user && (user.roleName === "Admin" || user.userId === sessionUserId);
+  return !!user && (user.roleName === "Engineer" || user.userId === sessionUserId);
 };
 
 const handleSessionWriteError = (error: unknown, res: Response) => {
@@ -116,7 +116,7 @@ export const createSession = async (req: Request, res: Response) => {
     }
 
     const userId =
-      authUser.roleName === "Admin" && requestedUserId !== null
+      authUser.roleName === "Engineer" && requestedUserId !== null
         ? requestedUserId
         : authUser.userId;
 
@@ -167,7 +167,7 @@ export const getAllSessions = async (req: Request, res: Response) => {
     }
 
     const sessions = await sessionService.getAllSessions(
-      authUser.roleName === "Admin" ? undefined : authUser.userId,
+      authUser.roleName === "Engineer" ? undefined : authUser.userId,
     );
 
     res.json(sessions);
@@ -240,7 +240,7 @@ export const updateSession = async (req: Request, res: Response) => {
     } = {};
 
     if (req.body?.userId !== undefined) {
-      if (authUser.roleName !== "Admin") {
+      if (authUser.roleName !== "Engineer") {
         return res.status(403).json({ message: "Forbidden" });
       }
 
