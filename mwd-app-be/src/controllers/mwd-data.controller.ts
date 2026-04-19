@@ -37,15 +37,15 @@ const parsePositiveBigInt = (value: unknown) => {
 
 const parseOptionalDateInput = (value: unknown) => {
   if (value === undefined || value === null || value === "") {
-    return null;
+    return undefined;
   }
 
   if (typeof value !== "string" || !value.trim()) {
-    return null;
+    return "invalid" as const;
   }
 
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+  return Number.isNaN(date.getTime()) ? ("invalid" as const) : date;
 };
 
 const parseOptionalDecimal = (value: unknown) => {
@@ -190,6 +190,10 @@ export const createMWDData = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Valid sessionId is required" });
     }
 
+    if (measuredAt === "invalid") {
+      return res.status(400).json({ message: "measuredAt must be a valid date" });
+    }
+
     const session = await sessionService.getSessionById(sessionId);
 
     if (!session) {
@@ -209,7 +213,7 @@ export const createMWDData = async (req: Request, res: Response) => {
     const { measuredAt: syncedMeasuredAt, syncInfo } =
       await syncTimestampAndDepth({
         sessionId,
-        measuredAt,
+        ...(measuredAt !== undefined ? { measuredAt } : {}),
         depthMd: measurementResult.parsedFields.depthMd.value ?? null,
       });
 
@@ -361,7 +365,7 @@ export const updateMWDData = async (req: Request, res: Response) => {
     if (req.body?.measuredAt !== undefined) {
       const measuredAt = parseOptionalDateInput(req.body.measuredAt);
 
-      if (!measuredAt) {
+      if (measuredAt === "invalid" || measuredAt === undefined) {
         return res.status(400).json({ message: "measuredAt must be a valid date" });
       }
 
@@ -378,6 +382,27 @@ export const updateMWDData = async (req: Request, res: Response) => {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    const targetSessionId = updates.sessionId ?? existingData.sessionId;
+    const targetMeasuredAt = updates.measuredAt ?? existingData.measuredAt;
+    const targetDepthMd =
+      updates.depthMd !== undefined ? updates.depthMd : existingData.depthMd;
+
+    if (
+      updates.sessionId !== undefined ||
+      updates.measuredAt !== undefined ||
+      updates.depthMd !== undefined
+    ) {
+      const syncInput = {
+        sessionId: targetSessionId,
+        ...(targetMeasuredAt !== null ? { measuredAt: targetMeasuredAt } : {}),
+        depthMd: targetDepthMd,
+        excludeId: id,
+      };
+      const { measuredAt: syncedMeasuredAt } = await syncTimestampAndDepth(syncInput);
+
+      updates.measuredAt = syncedMeasuredAt;
     }
 
     const data = await mwdDataService.updateMWDData(id, updates);

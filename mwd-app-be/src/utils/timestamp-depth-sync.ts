@@ -1,4 +1,7 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import * as mwdDataService from "../services/mwd-data.service.js";
+
+type PrismaDbClient = PrismaClient | Prisma.TransactionClient;
 
 const toNumericDepth = (value: unknown) => {
   if (value === null || value === undefined) {
@@ -25,13 +28,19 @@ const toNumericDepth = (value: unknown) => {
 type SyncTimestampAndDepthInput = {
   sessionId: number;
   measuredAt?: Date | null;
-  depthMd?: number | string | null;
+  depthMd?: unknown;
+  excludeId?: bigint;
 };
 
 export const syncTimestampAndDepth = async (
   input: SyncTimestampAndDepthInput,
+  db?: PrismaDbClient,
 ) => {
-  const latestRecord = await mwdDataService.getLatestMWDDataBySessionId(input.sessionId);
+  const latestRecord = await mwdDataService.getLatestMWDDataBySessionId(
+    input.sessionId,
+    input.excludeId,
+    db,
+  );
   const originalMeasuredAt = input.measuredAt ?? null;
   const latestMeasuredAt = latestRecord?.measuredAt ?? null;
   const latestDepthMd = toNumericDepth(latestRecord?.depthMd);
