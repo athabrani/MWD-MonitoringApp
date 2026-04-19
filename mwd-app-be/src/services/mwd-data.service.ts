@@ -1,4 +1,7 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+
+type PrismaDbClient = PrismaClient | Prisma.TransactionClient;
 
 const mwdDataSelect = {
   id: true,
@@ -60,14 +63,20 @@ type MWDDataUpdateInput = {
   standpipePressure?: number | string | null;
 };
 
-export const createMWDData = async (input: MWDDataInput) => {
-  return await prisma.mWDData.create({
+export const createMWDData = async (
+  input: MWDDataInput,
+  db: PrismaDbClient = prisma,
+) => {
+  return await db.mWDData.create({
     data: input,
     select: mwdDataSelect,
   });
 };
 
-export const getAllMWDData = async (sessionId?: number) => {
+export const getAllMWDData = async (
+  sessionId?: number,
+  db: PrismaDbClient = prisma,
+) => {
   const args: {
     where?: { sessionId: number };
     orderBy: [{ measuredAt: "asc" }, { id: "asc" }];
@@ -81,19 +90,32 @@ export const getAllMWDData = async (sessionId?: number) => {
     args.where = { sessionId };
   }
 
-  return await prisma.mWDData.findMany(args);
+  return await db.mWDData.findMany(args);
 };
 
-export const getMWDDataById = async (id: bigint) => {
-  return await prisma.mWDData.findUnique({
+export const getMWDDataById = async (
+  id: bigint,
+  db: PrismaDbClient = prisma,
+) => {
+  return await db.mWDData.findUnique({
     where: { id },
     select: mwdDataSelect,
   });
 };
 
-export const getLatestMWDDataBySessionId = async (sessionId: number) => {
-  return await prisma.mWDData.findFirst({
-    where: { sessionId },
+export const getLatestMWDDataBySessionId = async (
+  sessionId: number,
+  excludeId?: bigint,
+  db: PrismaDbClient = prisma,
+) => {
+  const where: { sessionId: number; id?: { not: bigint } } = { sessionId };
+
+  if (excludeId !== undefined) {
+    where.id = { not: excludeId };
+  }
+
+  return await db.mWDData.findFirst({
+    where,
     orderBy: [{ measuredAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
@@ -103,16 +125,23 @@ export const getLatestMWDDataBySessionId = async (sessionId: number) => {
   });
 };
 
-export const updateMWDData = async (id: bigint, input: MWDDataUpdateInput) => {
-  return await prisma.mWDData.update({
+export const updateMWDData = async (
+  id: bigint,
+  input: MWDDataUpdateInput,
+  db: PrismaDbClient = prisma,
+) => {
+  return await db.mWDData.update({
     where: { id },
     data: input,
     select: mwdDataSelect,
   });
 };
 
-export const deleteMWDData = async (id: bigint) => {
-  return await prisma.mWDData.delete({
+export const deleteMWDData = async (
+  id: bigint,
+  db: PrismaDbClient = prisma,
+) => {
+  return await db.mWDData.delete({
     where: { id },
     select: mwdDataSelect,
   });
