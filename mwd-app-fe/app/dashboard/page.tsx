@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, BellOff, Check, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Bell, BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const DashboardPage: React.FC = () => {
@@ -28,14 +28,34 @@ export const DashboardPage: React.FC = () => {
     acknowledgeAlarm,
     muteAlarms,
     alarmsMuted,
-    toolfaceData
+    toolfaceData,
+    settings
   } = useApp();
+
+  const isDark = settings.display.theme === 'dark';
 
   const [timeWindow, setTimeWindow] = useState<'5min' | '15min' | '1hr'>('15min');
 
   const activeAlarms = events.filter(e => 
     e.type === 'alarm' && !e.acknowledgedBy && !e.resolved
   );
+
+  const getSeverityTone = (count: number) => {
+  if (count >= 3) return 'border-red-300 bg-red-50';
+  if (count >= 1) return 'border-amber-300 bg-amber-50';
+  return 'border-border bg-card';
+};
+
+const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
+  if (!activeAlarms.length) return 'No active alarms';
+  const firstAlarm = activeAlarms[0];
+
+  if (firstAlarm?.title) return firstAlarm.title;
+  if (firstAlarm?.message) return firstAlarm.message;
+  if (firstAlarm?.metric) return `${firstAlarm.metric} requires attention`;
+
+  return 'Operational alarm requires attention';
+};
 
   const handleAcknowledgeAll = () => {
     activeAlarms.forEach(alarm => {
@@ -88,40 +108,85 @@ export const DashboardPage: React.FC = () => {
 
       {/* Active Alarms Banner */}
       {activeAlarms.length > 0 && !alarmsMuted && (
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>
-              <strong>{activeAlarms.length} active alarm{activeAlarms.length > 1 ? 's' : ''}</strong>
-              {' '}requiring attention
-            </span>
-            <div className="flex items-center gap-2">
-              <Button 
-                size="sm" 
+        <section
+          className={`rounded-2xl border p-4 shadow-sm ${
+            isDark
+              ? activeAlarms.length >= 3
+                ? 'border-red-500/50 bg-red-950/50 shadow-red-950/30'
+                : 'border-amber-500/50 bg-amber-600/30 shadow-amber-950/20'
+              : getSeverityTone(activeAlarms.length)
+          }`}
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2">
+              <div
+                className={`flex items-center gap-2 text-sm font-semibold ${
+                  isDark ? 'text-red-500' : 'text-red-700'
+                }`}
+              >
+                <ShieldAlert className="size-4" />
+                Immediate attention required
+              </div>
+              <div
+                className={`text-lg font-semibold ${
+                  isDark ? 'text-slate-50' : 'text-slate-900'
+                }`}
+              >
+                {getPrimaryAlarmMessage(activeAlarms)}
+              </div>
+              <p
+                className={`text-sm ${
+                  isDark ? 'text-slate-300' : 'text-muted-foreground'
+                }`}
+              >
+                {activeAlarms.length} alarm{activeAlarms.length > 1 ? 's are' : ' is'} still
+                active and unacknowledged. Review affected metrics before continuing
+                normal monitoring.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
                 variant="outline"
                 onClick={handleMuteAlarms}
+                className={
+                  isDark
+                    ? 'border-white/15 bg-white/5 text-slate-100 hover:bg-white/10'
+                    : undefined
+                }
               >
-                <BellOff className="size-4 mr-2" />
-                Mute (15 min)
+                <BellOff className="mr-2 size-4" />
+                Mute 15 min
               </Button>
-              <Button 
-                size="sm" 
-                variant="default"
+              <Button
+                size="sm"
                 onClick={handleAcknowledgeAll}
+                className={
+                  isDark
+                    ? 'bg-red-500 text-white hover:bg-red-400'
+                    : undefined
+                }
               >
-                <Check className="size-4 mr-2" />
-                Acknowledge All
+                <Check className="mr-2 size-4" />
+                Acknowledge all
               </Button>
             </div>
-          </AlertDescription>
-        </Alert>
+          </div>
+        </section>
       )}
 
       {alarmsMuted && (
-        <Alert>
+        <Alert
+          className={`rounded-2xl ${
+            isDark
+              ? 'border-amber-500/50 bg-amber-950/45 text-amber-100'
+              : 'border-amber-300 bg-amber-50'
+          }`}
+        >
           <BellOff className="size-4" />
-          <AlertDescription>
-            Alarms are currently muted. You will not receive notifications.
+          <AlertDescription className={isDark ? 'text-amber-100/90' : undefined}>
+            Alarm notifications are muted temporarily. Visual monitoring remains active.
           </AlertDescription>
         </Alert>
       )}

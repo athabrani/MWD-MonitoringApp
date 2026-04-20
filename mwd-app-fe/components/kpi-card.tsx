@@ -12,6 +12,7 @@ interface KPICardProps {
 
 export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) => {
   const { name, value, unit, status, trend, change1min } = parameter;
+  const formattedValue = value.toFixed(1);
 
   const getTrendIcon = () => {
     if (!trend || trend === 'stable') return <Minus className="size-3" />;
@@ -44,19 +45,26 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
 
   if (compact) {
     return (
-      <Card className={cn("p-3", getStatusColor())}>
+      <Card className={cn("min-w-0 p-3", getStatusColor())}>
         <div className="flex items-start justify-between mb-2">
-          <div className="text-xs text-muted-foreground">{name}</div>
+          <div className="min-w-0 text-xs leading-snug text-muted-foreground break-words">
+            {name}
+          </div>
           {getStatusIcon()}
         </div>
-        <div className="flex items-baseline gap-2">
-          <div className="text-2xl font-mono">{value.toFixed(1)}</div>
-          <div className="text-sm text-muted-foreground">{unit}</div>
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <div className="max-w-full text-xl font-mono leading-none tracking-tight sm:text-2xl">
+            {formattedValue}
+          </div>
+          <div className="text-sm text-muted-foreground break-words">{unit}</div>
         </div>
         {change1min !== undefined && (
-          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+          <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
             {getTrendIcon()}
-            <span>{change1min > 0 ? '+' : ''}{change1min.toFixed(1)}</span>
+            <span className="truncate">
+              {change1min > 0 ? '+' : ''}
+              {change1min.toFixed(1)}
+            </span>
           </div>
         )}
       </Card>
@@ -64,23 +72,32 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
   }
 
   return (
-    <Card className={cn("p-4", getStatusColor())}>
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <div className="text-sm text-muted-foreground mb-1">{name}</div>
-          <div className="flex items-baseline gap-2">
-            <div className="text-3xl font-mono font-semibold">{value.toFixed(1)}</div>
-            <div className="text-base text-muted-foreground">{unit}</div>
+    <Card className={cn("flex min-w-0 flex-col p-4", getStatusColor())}>
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 min-h-[3.5rem] text-sm leading-snug text-muted-foreground break-words">
+            {name}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            <div className="max-w-full text-2xl font-mono font-semibold leading-none tracking-tight lg:text-[2rem]">
+              {formattedValue}
+            </div>
+            <div className="text-base text-muted-foreground break-words">
+              {unit}
+            </div>
           </div>
         </div>
-        {getStatusIcon()}
+        <div className="shrink-0">{getStatusIcon()}</div>
       </div>
       
       {change1min !== undefined && (
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="text-xs">
+        <div className="mt-4 flex min-w-0 items-center gap-2">
+          <Badge variant="secondary" className="w-fit max-w-full text-xs">
             {getTrendIcon()}
-            <span className="ml-1">{change1min > 0 ? '+' : ''}{change1min.toFixed(1)} /min</span>
+            <span className="ml-1 truncate">
+              {change1min > 0 ? '+' : ''}
+              {change1min.toFixed(1)} /min
+            </span>
           </Badge>
         </div>
       )}

@@ -60,9 +60,9 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
   };
 
   const sizeConfig = {
-    sm: { container: 'w-48', gauge: 150, fontSize: 'text-2xl', timerSize: 'text-xs' },
-    md: { container: 'w-64', gauge: 200, fontSize: 'text-4xl', timerSize: 'text-sm' },
-    lg: { container: 'w-80', gauge: 260, fontSize: 'text-5xl', timerSize: 'text-base' }
+    sm: { container: 'w-full', gauge: 150, fontSize: 'text-2xl', timerSize: 'text-xs' },
+    md: { container: 'w-full', gauge: 200, fontSize: 'text-4xl', timerSize: 'text-sm' },
+    lg: { container: 'w-full', gauge: 260, fontSize: 'text-5xl', timerSize: 'text-base' }
   };
 
   const config = sizeConfig[size];
@@ -129,7 +129,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
   };
 
   return (
-    <Card className={cn("p-4 flex flex-col items-center", config.container)}>
+    <Card className={cn("w-full p-4 flex flex-col items-center", config.container)}>
       {/* Type Toggle */}
       <div className="flex gap-1 mb-3 w-full">
         <Button

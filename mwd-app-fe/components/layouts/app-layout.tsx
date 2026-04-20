@@ -560,7 +560,9 @@ function IconRail({
       )}
     >
       <div className="flex flex-col items-center gap-2">
-        {allowedItems.map((item) => (
+        {allowedItems
+          .filter((item) => item.id !== "alerts" && item.id !== "settings")
+          .map((item) => (
           <IconRailButton
             key={item.id}
             active={activeSection === item.id}
@@ -572,12 +574,6 @@ function IconRail({
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-2">
-        <IconRailButton
-          active={activeSection === "settings"}
-          onClick={() => onChange("settings")}
-          icon={Settings}
-          label="Settings"
-        />
         <UserAvatar />
       </div>
     </aside>
@@ -785,9 +781,9 @@ function DesktopDetailSidebar({
   return (
     <aside
       className={cn(
-        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0 border-l lg:flex lg:flex-col",
+        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0  lg:flex lg:flex-col",
         isDark ? "border-white/10 bg-[#0f1b2d]" : "border-border/70 bg-card",
-        collapsed ? "w-[88px] px-3 py-4" : "w-[320px] px-4 py-4"
+        collapsed ? "w-[88px] px-3 py-4" : "w-[300px] px-4 py-4"
       )}
       style={{
         transition: `width 500ms ${softEasing}, padding 500ms ${softEasing}`,
@@ -860,46 +856,50 @@ function DesktopDetailSidebar({
                 </div>
 
                 <div className="space-y-2">
-                  {section.items.map((item) => {
-                    if (
+                  {section.items.some(
+                    (item) =>
                       item.id === "trajectory-analysis" ||
                       item.id === "trajectory-well-plot"
-                    ) {
-                      return (
-                        <ExpandableNavGroup
-                          key="trajectory-group"
-                          icon={TrendingUp}
-                          label="Trajectory"
-                          active={
-                            isChildPage(currentPage) || currentPage === "trajectory"
-                          }
-                          open={openTrajectory}
-                          collapsed={false}
-                          isDark={isDark}
-                          onToggle={() => {
-                            setOpenTrajectory((v) => !v);
-                            setActiveSection("trajectory");
-                          }}
-                        >
-                          <DetailNavItem
-                            icon={Radar}
-                            label="Trajectory Analysis"
-                            description="Directional path and deviation review"
-                            active={currentPage === "trajectory-analysis"}
-                            onClick={() => onNavigate("trajectory-analysis")}
-                          />
-                          <DetailNavItem
-                            icon={Gauge}
-                            label="Well Plots"
-                            description="Depth-based stacked measurements"
-                            active={currentPage === "trajectory-well-plot"}
-                            onClick={() => onNavigate("trajectory-well-plot")}
-                          />
-                        </ExpandableNavGroup>
-                      );
-                    }
+                  ) && (
+                    <ExpandableNavGroup
+                      key={`${section.title}-trajectory-group`}
+                      icon={TrendingUp}
+                      label="Trajectory"
+                      active={
+                        isChildPage(currentPage) || currentPage === "trajectory"
+                      }
+                      open={openTrajectory}
+                      collapsed={false}
+                      isDark={isDark}
+                      onToggle={() => {
+                        setOpenTrajectory((v) => !v);
+                        setActiveSection("trajectory");
+                      }}
+                    >
+                      <DetailNavItem
+                        icon={Radar}
+                        label="Trajectory Analysis"
+                        description="Directional path and deviation review"
+                        active={currentPage === "trajectory-analysis"}
+                        onClick={() => onNavigate("trajectory-analysis")}
+                      />
+                      <DetailNavItem
+                        icon={Gauge}
+                        label="Well Plots"
+                        description="Depth-based stacked measurements"
+                        active={currentPage === "trajectory-well-plot"}
+                        onClick={() => onNavigate("trajectory-well-plot")}
+                      />
+                    </ExpandableNavGroup>
+                  )}
 
-                    return (
+                  {section.items
+                    .filter(
+                      (item) =>
+                        item.id !== "trajectory-analysis" &&
+                        item.id !== "trajectory-well-plot"
+                    )
+                    .map((item) => (
                       <DetailNavItem
                         key={`${section.title}-${item.id}`}
                         icon={item.icon}
@@ -919,8 +919,7 @@ function DesktopDetailSidebar({
                           ) : undefined
                         }
                       />
-                    );
-                  })}
+                    ))}
                 </div>
               </div>
             ))}
@@ -1114,7 +1113,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <header className="sticky top-0 z-50 border-white/10 bg-card/90 backdrop-blur supports-[backdrop-filter]:bg-card/70">
+      <header
+        className={cn(
+          "sticky top-0 z-50 backdrop-blur",
+          isDark
+            ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
+            : "border-border/70 bg-card/90 supports-[backdrop-filter]:bg-card/70"
+        )}
+      >
         <div className="flex h-20 items-center gap-3 px-4 md:px-6">
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild className="lg:hidden">
@@ -1143,7 +1149,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
           <div className="flex min-w-0 items-center gap-3">
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold sm:text-base">
+              <h1 className="truncate text-sm font-semibold sm:text-3xl">
                 MWD Monitor
               </h1>
               <p className="truncate text-xs text-muted-foreground">
@@ -1159,6 +1165,39 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               compact
             />
           </div>
+
+          <div className="hidden h-8 w-px bg-border/70 xl:block" />
+
+          <div className="hidden items-center gap-2 xl:flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl"
+              onClick={() => handleNavigate("alerts")}
+              title="Alerts"
+            >
+              <div className="relative">
+                <Bell className="size-5" />
+                {activeAlarms > 0 ? (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                    {activeAlarms}
+                  </span>
+                ) : null}
+              </div>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl"
+              onClick={() => handleNavigate("settings")}
+              title="Settings"
+            >
+              <Settings className="size-5" />
+            </Button>
+          </div>
+
+          <div className="hidden h-8 w-px bg-border/70 xl:block" />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1228,7 +1267,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             isDark={isDark}
           />
 
-         <main className="flex-1 p-4 md:p-6">
+         <main className=" flex-1 p-4 md:p-6">
           <div
             className={cn(
               "min-h-[calc(100vh-5rem)] rounded-r-3xl border border-l-0 bg-card p-4 shadow-sm transition-colors duration-300 md:p-6",
