@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/sheet";
 import {
   LayoutDashboard,
-  TrendingUp,
   LineChart,
   Bell,
   History,
@@ -35,7 +34,6 @@ import {
   Menu,
   Moon,
   Sun,
-  ChevronDown,
   Activity,
   Gauge,
   FileBarChart,
@@ -67,18 +65,11 @@ interface AppLayoutProps {
   onNavigate: (page: AppPage) => void;
 }
 
-interface NavigationChildItem {
-  id: AppPage;
-  label: string;
-  description?: string;
-}
-
 interface NavigationItem {
   id: AppPage;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: Array<"operator" | "engineer" | "admin">;
-  children?: NavigationChildItem[];
 }
 
 const navigationItems: NavigationItem[] = [
@@ -89,22 +80,16 @@ const navigationItems: NavigationItem[] = [
     roles: ["operator", "engineer", "admin"],
   },
   {
-    id: "trajectory",
-    label: "Trajectory",
-    icon: TrendingUp,
+    id: "trajectory-analysis",
+    label: "Trajectory Analysis",
+    icon: Radar,
     roles: ["engineer", "admin", "operator"],
-    children: [
-      {
-        id: "trajectory-analysis",
-        label: "Trajectory Analysis",
-        description: "Directional path and deviation review",
-      },
-      {
-        id: "trajectory-well-plot",
-        label: "Well Plots",
-        description: "Depth-based MWD visualizations",
-      },
-    ],
+  },
+  {
+    id: "trajectory-well-plot",
+    label: "Well Plots",
+    icon: Gauge,
+    roles: ["engineer", "admin", "operator"],
   },
   {
     id: "charts",
@@ -167,11 +152,18 @@ const pageThemeClasses: Record<AppPage, string> = {
 const softEasing = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 function isChildPage(page: AppPage) {
-  return page === "trajectory-analysis" || page === "trajectory-well-plot";
+  return page === "trajectory-well-plot";
 }
 
 function getParentSection(page: AppPage): AppPage {
-  if (isChildPage(page)) return "trajectory";
+  if (
+    page === "trajectory" ||
+    page === "trajectory-analysis" ||
+    page === "trajectory-well-plot" ||
+    page === "charts"
+  ) {
+    return "trajectory-analysis";
+  }
   return page;
 }
 
@@ -193,27 +185,28 @@ function getSectionMeta(activeSection: AppPage) {
               },
             ],
           },
-          {
-            title: "Focus",
-            items: [
-              {
-                id: "alerts" as AppPage,
-                label: "Active Alerts",
-                description: "Alarm state and quick response",
-                icon: Bell,
-              },
-              {
-                id: "charts" as AppPage,
-                label: "Trend Charts",
-                description: "Time-series drilling trends",
-                icon: Activity,
-              },
-            ],
-          },
+          // {
+          //   title: "Focus",
+          //   items: [
+          //     {
+          //       id: "alerts" as AppPage,
+          //       label: "Active Alerts",
+          //       description: "Alarm state and quick response",
+          //       icon: Bell,
+          //     },
+          //     {
+          //       id: "charts" as AppPage,
+          //       label: "Trend Charts",
+          //       description: "Time-series drilling trends",
+          //       icon: Activity,
+          //     },
+          //   ],
+          // },
         ],
       };
 
     case "trajectory":
+    case "trajectory-analysis":
       return {
         title: "Trajectory",
         subtitle: "Directional drilling analysis workspace",
@@ -233,17 +226,17 @@ function getSectionMeta(activeSection: AppPage) {
                 description: "Depth-based MWD stacked plots",
                 icon: Gauge,
               },
-            ],
-          },
-          {
-            title: "Related",
-            items: [
               {
                 id: "charts" as AppPage,
                 label: "Charts",
                 description: "Supporting sensor trends",
                 icon: LineChart,
               },
+            ],
+          },
+          {
+            title: "Related",
+            items: [
               {
                 id: "history" as AppPage,
                 label: "History",
@@ -255,30 +248,30 @@ function getSectionMeta(activeSection: AppPage) {
         ],
       };
 
-    case "charts":
-      return {
-        title: "Charts",
-        subtitle: "Trend and comparative drilling charts",
-        sections: [
-          {
-            title: "Chart Types",
-            items: [
-              {
-                id: "charts" as AppPage,
-                label: "Trend Charts",
-                description: "Sensor and drilling parameter trends",
-                icon: LineChart,
-              },
-              {
-                id: "trajectory-well-plot" as AppPage,
-                label: "Well Plot Companion",
-                description: "Cross-check against depth plots",
-                icon: FileBarChart,
-              },
-            ],
-          },
-        ],
-      };
+    // case "charts":
+    //   return {
+    //     title: "Charts",
+    //     subtitle: "Trend and comparative drilling charts",
+    //     sections: [
+    //       {
+    //         title: "Chart Types",
+    //         items: [
+    //           {
+    //             id: "charts" as AppPage,
+    //             label: "Trend Charts",
+    //             description: "Sensor and drilling parameter trends",
+    //             icon: LineChart,
+    //           },
+    //           {
+    //             id: "trajectory-well-plot" as AppPage,
+    //             label: "Well Plot Companion",
+    //             description: "Cross-check against depth plots",
+    //             icon: FileBarChart,
+    //           },
+    //         ],
+    //       },
+    //     ],
+    //   };
 
     case "alerts":
       return {
@@ -561,12 +554,18 @@ function IconRail({
     >
       <div className="flex flex-col items-center gap-2">
         {allowedItems
-          .filter((item) => item.id !== "alerts" && item.id !== "settings")
+          .filter(
+            (item) =>
+              item.id !== "alerts" &&
+              item.id !== "settings" &&
+              item.id !== "charts" &&
+              item.id !== "trajectory-well-plot"
+          )
           .map((item) => (
           <IconRailButton
             key={item.id}
-            active={activeSection === item.id}
-            onClick={() => onChange(item.id)}
+            active={activeSection === getParentSection(item.id)}
+            onClick={() => onChange(getParentSection(item.id))}
             icon={item.icon}
             label={item.label}
           />
@@ -642,105 +641,6 @@ function DetailNavItem({
   );
 }
 
-function ExpandableNavGroup({
-  icon: Icon,
-  label,
-  active,
-  open,
-  collapsed,
-  isDark,
-  onToggle,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  active?: boolean;
-  open?: boolean;
-  collapsed?: boolean;
-  isDark: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        title={label}
-        className={cn(
-          "flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-300",
-          active
-            ? "border-transparent bg-transparent text-primary shadow-none"
-            : isDark
-              ? "border-transparent bg-transparent text-muted-foreground hover:border-white/10 hover:bg-white/5 hover:text-foreground"
-              : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground"
-
-        )}
-      >
-        <Icon className="size-4" />
-      </button>
-    );
-  }
-
-  return (
-    <div className="w-full">
-      <button
-        type="button"
-        onClick={onToggle}
-        className={cn(
-          "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all duration-300",
-          active
-            ? "border-primary/30 bg-primary/10"
-            : "border-transparent hover:border-border hover:bg-muted/70"
-        )}
-      >
-        <div
-          className={cn(
-            "flex h-9 w-9 shrink-0  rounded-lg",
-            active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-          )}
-        >
-          <Icon className="size-4" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-foreground">
-            {label}
-          </div>
-        </div>
-
-        <ChevronDown
-          className={cn(
-            "size-4 text-muted-foreground transition-transform duration-500",
-            open ? "rotate-180" : "rotate-0"
-          )}
-          style={{ transitionTimingFunction: softEasing }}
-        />
-      </button>
-
-      <div
-        className={cn(
-          "grid transition-all duration-500",
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-        )}
-        style={{ transitionTimingFunction: softEasing }}
-      >
-        <div className="overflow-hidden">
-          <div
-            className={cn(
-              "ml-6 mt-2 space-y-2 border-l pl-4 transition-all duration-500",
-              open ? "translate-y-0" : "-translate-y-2"
-            )}
-            style={{ transitionTimingFunction: softEasing }}
-          >
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function DesktopDetailSidebar({
   currentPage,
   onNavigate,
@@ -758,8 +658,6 @@ function DesktopDetailSidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
-  const [openTrajectory, setOpenTrajectory] = useState(true);
-
   const meta = getSectionMeta(activeSection);
 
   const filteredSections = useMemo(() => {
@@ -800,29 +698,20 @@ function DesktopDetailSidebar({
             />
 
             {filteredSections.flatMap((section) =>
-              section.items.map((item) => {
-                if (
-                  item.id === "trajectory-analysis" ||
-                  item.id === "trajectory-well-plot"
-                ) {
-                  return null;
-                }
-
-                return (
-                  <DetailNavItem
-                    key={`${section.title}-${item.id}`}
-                    icon={item.icon}
-                    label={item.label}
-                    description={item.description}
-                    active={currentPage === item.id}
-                    collapsed
-                    onClick={() => {
-                      setActiveSection(getParentSection(item.id));
-                      onNavigate(item.id);
-                    }}
-                  />
-                );
-              })
+              section.items.map((item) => (
+                <DetailNavItem
+                  key={`${section.title}-${item.id}`}
+                  icon={item.icon}
+                  label={item.label}
+                  description={item.description}
+                  active={currentPage === item.id}
+                  collapsed
+                  onClick={() => {
+                    setActiveSection(getParentSection(item.id));
+                    onNavigate(item.id);
+                  }}
+                />
+              ))
             )}
           </div>
         </div>
@@ -856,70 +745,27 @@ function DesktopDetailSidebar({
                 </div>
 
                 <div className="space-y-2">
-                  {section.items.some(
-                    (item) =>
-                      item.id === "trajectory-analysis" ||
-                      item.id === "trajectory-well-plot"
-                  ) && (
-                    <ExpandableNavGroup
-                      key={`${section.title}-trajectory-group`}
-                      icon={TrendingUp}
-                      label="Trajectory"
-                      active={
-                        isChildPage(currentPage) || currentPage === "trajectory"
-                      }
-                      open={openTrajectory}
+                  {section.items.map((item) => (
+                    <DetailNavItem
+                      key={`${section.title}-${item.id}`}
+                      icon={item.icon}
+                      label={item.label}
+                      description={item.description}
+                      active={currentPage === item.id}
                       collapsed={false}
-                      isDark={isDark}
-                      onToggle={() => {
-                        setOpenTrajectory((v) => !v);
-                        setActiveSection("trajectory");
+                      onClick={() => {
+                        setActiveSection(getParentSection(item.id));
+                        onNavigate(item.id);
                       }}
-                    >
-                      <DetailNavItem
-                        icon={Radar}
-                        label="Trajectory Analysis"
-                        description="Directional path and deviation review"
-                        active={currentPage === "trajectory-analysis"}
-                        onClick={() => onNavigate("trajectory-analysis")}
-                      />
-                      <DetailNavItem
-                        icon={Gauge}
-                        label="Well Plots"
-                        description="Depth-based stacked measurements"
-                        active={currentPage === "trajectory-well-plot"}
-                        onClick={() => onNavigate("trajectory-well-plot")}
-                      />
-                    </ExpandableNavGroup>
-                  )}
-
-                  {section.items
-                    .filter(
-                      (item) =>
-                        item.id !== "trajectory-analysis" &&
-                        item.id !== "trajectory-well-plot"
-                    )
-                    .map((item) => (
-                      <DetailNavItem
-                        key={`${section.title}-${item.id}`}
-                        icon={item.icon}
-                        label={item.label}
-                        description={item.description}
-                        active={currentPage === item.id}
-                        collapsed={false}
-                        onClick={() => {
-                          setActiveSection(getParentSection(item.id));
-                          onNavigate(item.id);
-                        }}
-                        badge={
-                          item.id === "alerts" && activeAlarms > 0 ? (
-                            <Badge variant="destructive" className="ml-auto">
-                              {activeAlarms}
-                            </Badge>
-                          ) : undefined
-                        }
-                      />
-                    ))}
+                      badge={
+                        item.id === "alerts" && activeAlarms > 0 ? (
+                          <Badge variant="destructive" className="ml-auto">
+                            {activeAlarms}
+                          </Badge>
+                        ) : undefined
+                      }
+                    />
+                  ))}
                 </div>
               </div>
             ))}
@@ -992,60 +838,11 @@ function MobileNav({
   onNavigate: (page: AppPage) => void;
   activeAlarms: number;
 }) {
-  const [openTrajectory, setOpenTrajectory] = useState(true);
-
   return (
     <nav className="space-y-2">
       {items.map((item) => {
         const Icon = item.icon;
-        const isActive =
-          currentPage === item.id ||
-          item.children?.some((child) => child.id === currentPage);
-
-        if (item.children?.length) {
-          return (
-            <div key={item.id} className="space-y-2">
-              <Button
-                variant={isActive ? "secondary" : "ghost"}
-                className="w-full justify-start gap-3 rounded-xl"
-                onClick={() => setOpenTrajectory((v) => !v)}
-              >
-                <Icon className="size-4" />
-                <span>{item.label}</span>
-                <ChevronDown
-                  className={cn(
-                    "ml-auto size-4 transition-transform duration-500",
-                    openTrajectory ? "rotate-180" : "rotate-0"
-                  )}
-                />
-              </Button>
-
-              <div
-                className={cn(
-                  "grid transition-all duration-500",
-                  openTrajectory
-                    ? "grid-rows-[1fr] opacity-100"
-                    : "grid-rows-[0fr] opacity-0"
-                )}
-              >
-                <div className="overflow-hidden">
-                  <div className="ml-5 space-y-2 border-l pl-3">
-                    {item.children.map((child) => (
-                      <Button
-                        key={child.id}
-                        variant={currentPage === child.id ? "secondary" : "ghost"}
-                        className="w-full justify-start rounded-xl text-sm"
-                        onClick={() => onNavigate(child.id)}
-                      >
-                        {child.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
+        const isActive = currentPage === item.id;
 
         return (
           <Button
@@ -1147,9 +944,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             </SheetContent>
           </Sheet>
 
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold sm:text-3xl">
+              <h1 className="truncate text-xl font-semibold sm:text-3xl">
                 MWD Monitor
               </h1>
               <p className="truncate text-xs text-muted-foreground">
@@ -1158,94 +955,100 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             </div>
           </div>
 
-          <div className="ml-auto hidden xl:block">
-            <ConnectionStatus
-              connectionState={connectionState}
-              onReconnect={reconnect}
-              compact
-            />
-          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="hidden xl:block">
+              <ConnectionStatus
+                connectionState={connectionState}
+                onReconnect={reconnect}
+                compact
+              />
+            </div>
 
-          <div className="hidden h-8 w-px bg-border/70 xl:block" />
+            <div className="hidden h-8 w-px bg-border/70 xl:block" />
 
-          <div className="hidden items-center gap-2 xl:flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl"
-              onClick={() => handleNavigate("alerts")}
-              title="Alerts"
-            >
-              <div className="relative">
-                <Bell className="size-5" />
-                {activeAlarms > 0 ? (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
-                    {activeAlarms}
-                  </span>
-                ) : null}
-              </div>
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl"
-              onClick={() => handleNavigate("settings")}
-              title="Settings"
-            >
-              <Settings className="size-5" />
-            </Button>
-          </div>
-
-          <div className="hidden h-8 w-px bg-border/70 xl:block" />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="default" size="icon" className="rounded-full">
-                <User className="size-5" />
-              </Button>
-            </DropdownMenuTrigger>
-
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>
-                <div>
-                  <p className="font-medium">{user?.fullName}</p>
-                  <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  <Badge variant="secondary" className="mt-1 text-xs capitalize">
-                    {user?.role}
-                  </Badge>
+            <div className="hidden items-center gap-2 xl:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => handleNavigate("alerts")}
+                title="Alerts"
+              >
+                <div className="relative">
+                  <Bell className="size-5" />
+                  {activeAlarms > 0 ? (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                      {activeAlarms}
+                    </span>
+                  ) : null}
                 </div>
-              </DropdownMenuLabel>
+              </Button>
 
-              <DropdownMenuSeparator />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => handleNavigate("settings")}
+                title="Settings"
+              >
+                <Settings className="size-5" />
+              </Button>
+            </div>
 
-              <DropdownMenuItem onClick={toggleTheme}>
-                {settings.display.theme === "dark" ? (
-                  <>
-                    <Sun className="mr-2 size-4" />
-                    Light Mode
-                  </>
-                ) : (
-                  <>
-                    <Moon className="mr-2 size-4" />
-                    Dark Mode
-                  </>
-                )}
-              </DropdownMenuItem>
+            <div className="hidden h-8 w-px bg-border/70 xl:block" />
 
-              <DropdownMenuItem onClick={() => handleNavigate("settings")}>
-                <Settings className="mr-2 size-4" />
-                Settings
-              </DropdownMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="default"
+                  size="icon"
+                  className="shrink-0 rounded-full"
+                >
+                  <User className="size-5" />
+                </Button>
+              </DropdownMenuTrigger>
 
-              <DropdownMenuSeparator />
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>
+                  <div>
+                    <p className="font-medium">{user?.fullName}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email}</p>
+                    <Badge variant="secondary" className="mt-1 text-xs capitalize">
+                      {user?.role}
+                    </Badge>
+                  </div>
+                </DropdownMenuLabel>
 
-              <DropdownMenuItem onClick={logout} className="text-red-500">
-                <LogOut className="mr-2 size-4" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={toggleTheme}>
+                  {settings.display.theme === "dark" ? (
+                    <>
+                      <Sun className="mr-2 size-4" />
+                      Light Mode
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="mr-2 size-4" />
+                      Dark Mode
+                    </>
+                  )}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => handleNavigate("settings")}>
+                  <Settings className="mr-2 size-4" />
+                  Settings
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={logout} className="text-red-500">
+                  <LogOut className="mr-2 size-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 

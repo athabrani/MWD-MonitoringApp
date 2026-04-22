@@ -229,7 +229,7 @@ function WellPlotTrack({
       className={
         fullWidth
           ? "w-full bg-white dark:bg-slate-950"
-          : "min-w-[240px] border-r border-slate-300 bg-white sm:min-w-[280px] lg:min-w-[320px] xl:min-w-[360px] last:border-r-0 dark:border-slate-700 dark:bg-slate-950"
+          : "w-full border-r border-slate-300 bg-white last:border-r-0 dark:border-slate-700 dark:bg-slate-950"
       }
     >
       <div
@@ -307,14 +307,14 @@ function MobilePlotTabs({
 }
 
 export default function WellPlotPage() {
-  const [activeMobilePlotId, setActiveMobilePlotId] = useState<string>(plotTracks[0].id);
+  const [activePlotId, setActivePlotId] = useState<string>(plotTracks[0].id);
 
-  const plotHeightPx = 900;
-  const plotHeightCss = "clamp(560px, calc(100vh - 260px), 980px)";
+  const plotHeightPx = 1120;
+  const plotHeightCss = "clamp(720px, calc(100vh - 180px), 1280px)";
 
-  const activeMobileTrack = useMemo(
-    () => plotTracks.find((track) => track.id === activeMobilePlotId) ?? plotTracks[0],
-    [activeMobilePlotId]
+  const activeTrack = useMemo(
+    () => plotTracks.find((track) => track.id === activePlotId) ?? plotTracks[0],
+    [activePlotId]
   );
 
   return (
@@ -322,7 +322,6 @@ export default function WellPlotPage() {
       <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <Badge variant="secondary">Live</Badge>
             <Badge variant="outline">Trajectory / Well Plot</Badge>
           </div>
           <h1 className="mt-3 text-xl font-bold sm:text-3xl">Well Plot Viewer</h1>
@@ -334,15 +333,30 @@ export default function WellPlotPage() {
 
       <MobilePlotTabs
         tracks={plotTracks}
-        activePlotId={activeMobilePlotId}
-        onChange={setActiveMobilePlotId}
+        activePlotId={activePlotId}
+        onChange={setActivePlotId}
       />
 
-      {/* Mobile */}
-      <div className="sm:hidden">
+      <div className="hidden sm:grid sm:grid-cols-2 sm:gap-2 xl:hidden">
+        {plotTracks.map((track) => (
+          <Button
+            key={track.id}
+            type="button"
+            variant={activePlotId === track.id ? "default" : "outline"}
+            size="sm"
+            className="justify-center"
+            onClick={() => setActivePlotId(track.id)}
+          >
+            {track.title}
+          </Button>
+        ))}
+      </div>
+
+      {/* Single plot mode */}
+      <div className="2xl:hidden">
         <Card className="overflow-hidden p-0">
           <WellPlotTrack
-            track={activeMobileTrack}
+            track={activeTrack}
             rows={depthRows}
             plotHeightPx={plotHeightPx}
             plotHeightCss={plotHeightCss}
@@ -351,11 +365,10 @@ export default function WellPlotPage() {
         </Card>
       </div>
 
-      {/* Tablet/Desktop */}
-      <div className="hidden sm:block">
+      {/* Wide desktop */}
+      <div className="hidden 2xl:block">
         <Card className="overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <div className="flex min-w-max">
+          <div className="grid grid-cols-1 divide-y divide-slate-300 sm:grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-y-0 2xl:grid-cols-4 dark:divide-slate-700">
               {plotTracks.map((track) => (
                 <WellPlotTrack
                   key={track.id}
@@ -363,9 +376,9 @@ export default function WellPlotPage() {
                   rows={depthRows}
                   plotHeightPx={plotHeightPx}
                   plotHeightCss={plotHeightCss}
+                  fullWidth
                 />
               ))}
-            </div>
           </div>
         </Card>
       </div>

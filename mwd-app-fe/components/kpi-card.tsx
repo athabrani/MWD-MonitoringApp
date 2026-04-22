@@ -13,6 +13,7 @@ interface KPICardProps {
 export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) => {
   const { name, value, unit, status, trend, change1min } = parameter;
   const formattedValue = value.toFixed(1);
+  const valueLength = formattedValue.length;
 
   const getTrendIcon = () => {
     if (!trend || trend === 'stable') return <Minus className="size-3" />;
@@ -43,23 +44,40 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
     }
   };
 
+  const getValueClassName = () => {
+    if (valueLength >= 6) {
+      return "text-[clamp(1.45rem,2.4vw,2.05rem)]";
+    }
+
+    if (valueLength >= 5) {
+      return "text-[clamp(1.55rem,2.7vw,2.2rem)]";
+    }
+
+    return "text-[clamp(1.7rem,3vw,2.35rem)]";
+  };
+
   if (compact) {
     return (
       <Card className={cn("min-w-0 p-3", getStatusColor())}>
         <div className="flex items-start justify-between mb-2">
-          <div className="min-w-0 text-xs leading-snug text-muted-foreground break-words">
+          <div className="min-w-0 text-xs leading-snug text-muted-foreground break-words [overflow-wrap:anywhere]">
             {name}
           </div>
           {getStatusIcon()}
         </div>
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-          <div className="max-w-full text-xl font-mono leading-none tracking-tight sm:text-2xl">
+          <div className={cn(
+            "max-w-full truncate font-mono leading-none tracking-tight",
+            valueLength >= 6
+              ? "text-[clamp(1.1rem,4vw,1.5rem)]"
+              : "text-[clamp(1.25rem,5vw,1.75rem)]"
+          )}>
             {formattedValue}
           </div>
-          <div className="text-sm text-muted-foreground break-words">{unit}</div>
+          <div className="text-xs sm:text-sm text-muted-foreground break-words">{unit}</div>
         </div>
         {change1min !== undefined && (
-          <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <div className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground sm:text-xs">
             {getTrendIcon()}
             <span className="truncate">
               {change1min > 0 ? '+' : ''}
@@ -72,17 +90,20 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
   }
 
   return (
-    <Card className={cn("flex min-w-0 flex-col p-4", getStatusColor())}>
+    <Card className={cn("flex min-w-0 flex-col p-3 sm:p-4", getStatusColor())}>
       <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="mb-2 min-h-[3.5rem] text-sm leading-snug text-muted-foreground break-words">
+          <div className="mb-2 min-h-[3rem] pr-1 text-sm leading-snug text-muted-foreground break-words [overflow-wrap:anywhere] sm:min-h-[3.5rem] sm:text-base">
             {name}
           </div>
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-            <div className="max-w-full text-2xl font-mono font-semibold leading-none tracking-tight lg:text-[2rem]">
+          <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1 overflow-hidden">
+            <div className={cn(
+              "max-w-full truncate font-mono font-semibold leading-none tracking-tight",
+              getValueClassName()
+            )}>
               {formattedValue}
             </div>
-            <div className="text-base text-muted-foreground break-words">
+            <div className="text-sm text-muted-foreground break-words sm:text-base">
               {unit}
             </div>
           </div>
@@ -92,9 +113,9 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
       
       {change1min !== undefined && (
         <div className="mt-4 flex min-w-0 items-center gap-2">
-          <Badge variant="secondary" className="w-fit max-w-full text-xs">
+          <Badge variant="secondary" className="flex max-w-full items-center gap-1 overflow-hidden px-2 py-1 text-[11px] sm:text-xs">
             {getTrendIcon()}
-            <span className="ml-1 truncate">
+            <span className="min-w-0 truncate">
               {change1min > 0 ? '+' : ''}
               {change1min.toFixed(1)} /min
             </span>
