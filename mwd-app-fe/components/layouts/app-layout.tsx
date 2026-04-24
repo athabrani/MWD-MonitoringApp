@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useApp } from "@/context/AppContext";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  SlidersHorizontal,
   LayoutDashboard,
   LineChart,
   Bell,
@@ -34,20 +35,19 @@ import {
   Menu,
   Moon,
   Sun,
-  Activity,
   Gauge,
-  FileBarChart,
   Radar,
   PanelLeftClose,
   PanelLeftOpen,
-  Drill,
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/connection-status";
 
-type AppPage =
+export type AppPage =
   | "dashboard"
+  | "configuration"
+  | "configuration-wellplan-surveys"
   | "trajectory"
   | "trajectory-well-plot"
   | "trajectory-analysis"
@@ -79,6 +79,7 @@ const navigationItems: NavigationItem[] = [
     icon: LayoutDashboard,
     roles: ["operator", "engineer", "admin"],
   },
+ 
   {
     id: "trajectory-analysis",
     label: "Trajectory Analysis",
@@ -127,6 +128,12 @@ const navigationItems: NavigationItem[] = [
     icon: Shield,
     roles: ["admin"],
   },
+   {
+    id: "configuration",
+    label: "Configuration",
+    icon: SlidersHorizontal,
+    roles: ["operator", "engineer", "admin"],
+  },
   {
     id: "help",
     label: "Help",
@@ -137,6 +144,8 @@ const navigationItems: NavigationItem[] = [
 
 const pageThemeClasses: Record<AppPage, string> = {
   dashboard: "page-surface page-dashboard",
+  configuration: "page-surface page-settings",
+  "configuration-wellplan-surveys": "page-surface page-settings",
   trajectory: "page-surface page-trajectory",
   "trajectory-well-plot": "page-surface page-trajectory",
   "trajectory-analysis": "page-surface page-trajectory",
@@ -151,11 +160,42 @@ const pageThemeClasses: Record<AppPage, string> = {
 
 const softEasing = "cubic-bezier(0.22, 1, 0.36, 1)";
 
-function isChildPage(page: AppPage) {
-  return page === "trajectory-well-plot";
+export function getAppPagePath(page: AppPage): string {
+  switch (page) {
+    case "dashboard":
+      return "/";
+    case "configuration":
+      return "/configuration";
+    case "configuration-wellplan-surveys":
+      return "/configuration/wellplan-surveys";
+    case "trajectory":
+    case "trajectory-analysis":
+      return "/trajectory";
+    case "trajectory-well-plot":
+      return "/trajectory/well-plot";
+    case "charts":
+      return "/charts";
+    case "alerts":
+      return "/alerts";
+    case "history":
+      return "/history";
+    case "export":
+      return "/export";
+    case "settings":
+      return "/settings";
+    case "admin":
+      return "/admin";
+    case "help":
+      return "/help";
+    default:
+      return "/";
+  }
 }
 
 function getParentSection(page: AppPage): AppPage {
+  if (page === "configuration-wellplan-surveys") {
+    return "configuration";
+  }
   if (
     page === "trajectory" ||
     page === "trajectory-analysis" ||
@@ -202,6 +242,42 @@ function getSectionMeta(activeSection: AppPage) {
           //     },
           //   ],
           // },
+        ],
+      };
+
+    case "configuration":
+      return {
+        title: "Configuration",
+        subtitle: "Software setup, surveys, WITS IDs, decoder, and system info",
+        sections: [
+          {
+            title: "Software Setup",
+            items: [
+              {
+                id: "configuration" as AppPage,
+                label: "Configuration Workspace",
+                description: "Well info, contacts, surveys, WITS IDs, decoder, and SMTP templates",
+                icon: SlidersHorizontal,
+              },
+            ],
+          },
+          {
+            title: "Related",
+            items: [
+              {
+                id: "settings" as AppPage,
+                label: "Application Settings",
+                description: "Theme, display, and operator preferences",
+                icon: Settings,
+              },
+              {
+                id: "export" as AppPage,
+                label: "Export Center",
+                description: "Output staging for reports and future LAS workflows",
+                icon: Download,
+              },
+            ],
+          },
         ],
       };
 
@@ -450,14 +526,6 @@ function getSectionMeta(activeSection: AppPage) {
 //   );
 // }
 
-function UserAvatar() {
-  return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
-      <User className="size-4" />
-    </div>
-  );
-}
-
 function SearchBox({
   collapsed,
   value,
@@ -570,10 +638,6 @@ function IconRail({
             label={item.label}
           />
         ))}
-      </div>
-
-      <div className="mt-auto flex flex-col items-center gap-2">
-        <UserAvatar />
       </div>
     </aside>
   );
@@ -873,18 +937,23 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const { user, logout } = useAuth();
   const { connectionState, reconnect, settings, updateSettings } = useApp();
   const isDark = settings.display.theme === "dark";
+  const [mounted, setMounted] = useState(false);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AppPage>(
     getParentSection(currentPage)
   );
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const filteredNavItems = useMemo(
     () =>
-      navigationItems.filter(
+      (mounted ? navigationItems : []).filter(
         (item) => user && item.roles.includes(user.role)
       ),
-    [user]
+    [mounted, user]
   );
 
   const activeAlarms = 3;
@@ -961,6 +1030,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 connectionState={connectionState}
                 onReconnect={reconnect}
                 compact
+                showMetricsInCompact
               />
             </div>
 
@@ -1053,7 +1123,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       </header>
 
       
-        <div className="flex min-h-[calc(100vh-5rem)] items-start">
+        <div className="flex min-h-[calc(100vh-5rem)] min-w-0 items-start">
           <IconRail
             activeSection={activeSection}
             onChange={setActiveSection}
@@ -1070,10 +1140,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             isDark={isDark}
           />
 
-         <main className=" flex-1 p-4 md:p-6">
+         <main className="min-w-0 flex-1 p-2 md:p-4">
           <div
             className={cn(
-              "min-h-[calc(100vh-5rem)] rounded-r-3xl border border-l-0 bg-card p-4 shadow-sm transition-colors duration-300 md:p-6",
+              "min-h-[calc(100vh-5rem)] min-w-0 overflow-hidden rounded-r-3xl border border-l-0 bg-card p-2 shadow-sm transition-colors duration-300 md:p-4",
               pageThemeClasses[currentPage]
             )}
           >

@@ -282,6 +282,7 @@ export const generateMockChartData = (hours: number = 1): ChartDataPoint[] => {
       rop: 25 + Math.sin(i / 10) * 5 + Math.random() * 3,
       wob: 18 + Math.cos(i / 15) * 2 + Math.random() * 1,
       rpm: 110 + Math.sin(i / 20) * 10 + Math.random() * 5,
+      temp: 140 + Math.sin(i / 18) * 6 + Math.random() * 2,
       spp: 3200 + Math.cos(i / 12) * 150 + Math.random() * 50,
       flowrate: 850 + Math.sin(i / 25) * 30 + Math.random() * 20,
       gamma: 75 + Math.cos(i / 30) * 15 + Math.random() * 10,

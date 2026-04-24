@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
@@ -17,14 +17,25 @@ interface ConnectionStatusProps {
   connectionState: ConnectionState;
   onReconnect: () => void;
   compact?: boolean;
+  showMetricsInCompact?: boolean;
 }
 
 export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({ 
   connectionState, 
   onReconnect,
-  compact = false 
+  compact = false,
+  showMetricsInCompact = false,
 }) => {
   const { status, latency, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const getStatusIcon = () => {
     switch (status) {
@@ -48,15 +59,33 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     }
   };
 
-  const timeSinceLastData = Math.floor((Date.now() - lastReceived.getTime()) / 1000);
+  const timeSinceLastData = Math.floor((now - lastReceived.getTime()) / 1000);
 
   if (compact) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Badge variant="outline" className={cn("gap-1.5", getStatusColor())}>
           {getStatusIcon()}
           <span className="capitalize">{status}</span>
         </Badge>
+        {showMetricsInCompact && (
+          <>
+            <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
+              <Activity className="size-3" />
+              <span>{latency.toFixed(0)} ms</span>
+            </div>
+            <div className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
+              Loss {packetLoss.toFixed(1)}%
+            </div>
+            <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
+              <Clock className="size-3" />
+              <span>{timeSinceLastData}s</span>
+            </div>
+            <Badge variant="secondary" className="text-xs">
+              {dataSource === 'primary' ? 'Primary' : 'Backup'}
+            </Badge>
+          </>
+        )}
         {status !== 'connected' && (
           <Button 
             size="sm" 

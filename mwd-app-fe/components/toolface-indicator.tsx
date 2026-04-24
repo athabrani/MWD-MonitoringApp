@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -28,14 +27,6 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
 }) => {
   const [activeType, setActiveType] = useState<ToolfaceType>(data.type);
   const [animatedAngle, setAnimatedAngle] = useState<number>(data.angle);
-
-  /**
-   * 4 ring independen:
-   * index 0 = ring terdalam
-   * index 1 = ring kedua
-   * index 2 = ring ketiga
-   * index 3 = ring terluar
-   */
   const [ringAngles, setRingAngles] = useState<Array<number | null>>([
     null,
     null,
@@ -43,12 +34,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
     null,
   ]);
 
-  /**
-   * penunjuk ring mana yang akan diupdate berikutnya
-   * 0 -> 1 -> 2 -> 3 -> 0 -> ...
-   */
   const nextRingIndexRef = useRef(0);
-
   const prevOperationTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -80,27 +66,16 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
     };
 
     requestAnimationFrame(animate);
-  }, [data.angle]);
+  }, [data.angle, animatedAngle]);
 
-  /**
-   * Saat type berubah:
-   * - reset semua ring
-   * - data saat itu masuk ke ring terdalam
-   * - ring berikutnya yang akan diisi = ring ke-2
-   */
   useEffect(() => {
     const normalized = normalizeAngle(data.angle);
 
     setRingAngles([normalized, null, null, null]);
     nextRingIndexRef.current = 1;
     prevOperationTimerRef.current = data.operationTimer;
-  }, [data.type]);
+  }, [data.type, data.angle, data.operationTimer]);
 
-  /**
-   * Independent ring update:
-   * setiap data baru hanya mengubah 1 ring
-   * dan tidak menggeser ring lain
-   */
   useEffect(() => {
     const incomingTimer = data.operationTimer;
 
@@ -127,6 +102,8 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
     onTypeChange?.(type);
   };
 
+  void handleTypeChange;
+
   const formatTimer = (seconds?: number) => {
     const total = seconds ?? 0;
     const hrs = Math.floor(total / 3600);
@@ -140,22 +117,28 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
 
   const sizeConfig = {
     sm: {
-      gauge: 180,
-      timerSize: "text-xs",
-      valueSize: "text-2xl",
-      labelSize: "text-sm",
+      gauge: 162,
+      timerSize: "text-[11px]",
+      valueSize: "text-lg",
+      labelSize: "text-xs",
+      shellPadding: "p-2.5",
+      svgGap: "mt-1.5",
     },
     md: {
-      gauge: 240,
+      gauge: 228,
       timerSize: "text-sm",
-      valueSize: "text-4xl",
-      labelSize: "text-base",
+      valueSize: "text-3xl",
+      labelSize: "text-sm",
+      shellPadding: "p-3.5",
+      svgGap: "mt-2.5",
     },
     lg: {
       gauge: 300,
       timerSize: "text-base",
       valueSize: "text-5xl",
       labelSize: "text-lg",
+      shellPadding: "p-4",
+      svgGap: "mt-3",
     },
   };
 
@@ -223,43 +206,52 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
   });
 
   return (
-    <Card className="w-full p-4 flex flex-col items-center">
-      <div className="flex gap-1 mb-3 w-full">
-        <Button
-          variant={activeType === "GTF" ? "default" : "outline"}
-          size="sm"
-          className="flex-1"
-          onClick={() => handleTypeChange("GTF")}
+    <Card
+      className={cn(
+        "w-full overflow-hidden border-border/70 bg-gradient-to-br from-background via-background to-sky-50/40 shadow-sm",
+        config.shellPadding
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-sky-50/80 px-2.5 py-1 text-[11px] font-medium tracking-wide text-sky-900">
+            <span className="size-2 rounded-full bg-sky-500" />
+            {activeType === "GTF" ? "Gravity" : "Magnetic"}
+          </div>
+          <div className="mt-2">
+            <div className={cn("font-semibold text-foreground", config.labelSize)}>
+              {activeType === "GTF" ? "Toolface Orientation" : "Magnetic Reference"}
+            </div>
+            <div className={cn("text-muted-foreground", size === "sm" ? "text-[10px]" : "text-[11px]")}>
+              {activeType === "GTF" ? "Gravity Toolface" : "Magnetic Toolface"}
+            </div>
+          </div>
+        </div>
+
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0 rounded-full border-slate-300 bg-white/90 px-3 py-1 font-mono shadow-sm",
+            config.timerSize
+          )}
         >
-          GTF
-        </Button>
-        <Button
-          variant={activeType === "MTF" ? "default" : "outline"}
-          size="sm"
-          className="flex-1"
-          onClick={() => handleTypeChange("MTF")}
-        >
-          MTF
-        </Button>
+          {formatTimer(data.operationTimer)}
+        </Badge>
       </div>
 
-      <div className="text-xs text-muted-foreground mb-2">
-        {activeType === "GTF" ? "Gravity Toolface" : "Magnetic Toolface"}
-      </div>
-
-      <Badge
-        variant="outline"
-        className={cn("mb-3 px-4 py-1 font-mono", config.timerSize)}
+      <div
+        className={cn(
+          "relative flex justify-center rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white via-slate-50/70 to-slate-100/70 shadow-inner",
+          size === "sm" ? "p-2" : "p-3",
+          config.svgGap
+        )}
       >
-        {formatTimer(data.operationTimer)}
-      </Badge>
-
-      <div className="relative flex justify-center">
+        <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.9),_transparent_60%)]" />
         <svg
           width={svgSize}
           height={svgSize}
           viewBox={`0 0 ${svgSize} ${svgSize}`}
-          className="overflow-visible"
+          className="relative overflow-visible"
         >
           <rect
             x={frameInset}
@@ -268,7 +260,6 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
             height={svgSize - frameInset * 2}
             rx={gaugeSize * 0.025}
             fill="hsl(var(--muted) / 0.25)"
-            stroke="hsl(var(--border))"
             strokeWidth="1.5"
           />
 
@@ -340,23 +331,27 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         </svg>
       </div>
 
-      <div className={cn("mt-2 font-medium text-foreground", config.labelSize)}>
-        {activeType === "GTF" ? "Gravity" : "Magnetic"}
-      </div>
-
-      <div className="mt-1 rounded-md border bg-background px-6 py-2 shadow-sm">
-        <div className={cn("font-bold leading-none", config.valueSize)}>
-          {animatedAngle.toFixed(1)}
+      <div className={cn("mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-2", size === "sm" && "mt-2")}>
+        <div className={cn("rounded-xl border border-slate-300/80 bg-white/95 shadow-sm", size === "sm" ? "px-3 py-2.5" : "px-4 py-3")}>
+          <div className={cn("uppercase tracking-[0.18em] text-muted-foreground", size === "sm" ? "text-[9px]" : "text-[10px]")}>
+            Current Angle
+          </div>
+          <div className={cn("mt-1 font-bold leading-none text-foreground", config.valueSize)}>
+            {animatedAngle.toFixed(1)}
+          </div>
         </div>
-      </div>
 
-      {typeof data.targetAngle === "number" && (
-        <div className="mt-3">
-          <Badge variant="secondary">
+        {typeof data.targetAngle === "number" && (
+          <div
+            className={cn(
+              "flex items-center rounded-xl border border-emerald-200/80 bg-emerald-50 font-semibold text-emerald-900 shadow-sm",
+              size === "sm" ? "px-3 py-2.5 text-xs" : "px-4 py-3 text-sm"
+            )}
+          >
             Target: {Math.round(data.targetAngle)}°
-          </Badge>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </Card>
   );
 };

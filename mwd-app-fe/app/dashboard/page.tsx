@@ -1,64 +1,60 @@
 'use client';
 
-
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { KPICard } from '@/components/kpi-card';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
 import { EventStream } from '@/components/event-stream';
-import { ConnectionStatus } from '@/components/connection-status';
 import { ToolfaceIndicator } from '@/components/toolface-indicator';
+import { WellPlotPanel } from '@/components/well-plot-panel';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
+import { BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
-  const { 
-    connectionState, 
-    reconnect, 
-    kpiData, 
-    chartData, 
+  const {
+    connectionState,
+    kpiData,
+    chartData,
     events,
     activeWell,
     acknowledgeAlarm,
     muteAlarms,
     alarmsMuted,
     toolfaceData,
-    settings
+    settings,
   } = useApp();
 
   const isDark = settings.display.theme === 'dark';
-
   const [timeWindow, setTimeWindow] = useState<'5min' | '15min' | '1hr'>('15min');
+  const [keyParameterPage, setKeyParameterPage] = useState(0);
 
-  const activeAlarms = events.filter(e => 
-    e.type === 'alarm' && !e.acknowledgedBy && !e.resolved
+  const activeAlarms = events.filter(
+    (event) => event.type === 'alarm' && !event.acknowledgedBy && !event.resolved
   );
 
   const getSeverityTone = (count: number) => {
-  if (count >= 3) return 'border-red-300 bg-red-50';
-  if (count >= 1) return 'border-amber-300 bg-amber-50';
-  return 'border-border bg-card';
-};
+    if (count >= 3) return 'border-red-300 bg-red-50';
+    if (count >= 1) return 'border-amber-300 bg-amber-50';
+    return 'border-border bg-card';
+  };
 
-const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
-  if (!activeAlarms.length) return 'No active alarms';
-  const firstAlarm = activeAlarms[0];
+  const getPrimaryAlarmMessage = (alarmItems: typeof activeAlarms) => {
+    if (!alarmItems.length) return 'No active alarms';
+    const firstAlarm = alarmItems[0];
 
-  if (firstAlarm?.title) return firstAlarm.title;
-  if (firstAlarm?.message) return firstAlarm.message;
-  if (firstAlarm?.metric) return `${firstAlarm.metric} requires attention`;
+    if (firstAlarm?.message) return firstAlarm.message;
+    if (firstAlarm?.parameter) return `${firstAlarm.parameter} requires attention`;
 
-  return 'Operational alarm requires attention';
-};
+    return 'Operational alarm requires attention';
+  };
 
   const handleAcknowledgeAll = () => {
-    activeAlarms.forEach(alarm => {
+    activeAlarms.forEach((alarm) => {
       acknowledgeAlarm(alarm.id, 'Acknowledged from dashboard');
     });
     toast.success('All alarms acknowledged');
@@ -70,23 +66,80 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
   };
 
   const chartParameters = [
-    { key: 'rop', label: 'ROP', color: '#10b981', unit: 'm/hr' },
+    { key: 'spp', label: 'SPP', color: '#f59e0b', unit: 'psi' },
+    { key: 'flowrate', label: 'Flow Rate', color: '#10b981', unit: 'gpm' },
     { key: 'wob', label: 'WOB', color: '#3b82f6', unit: 'klbs' },
-    { key: 'rpm', label: 'RPM', color: '#8b5cf6', unit: 'rpm' },
-    { key: 'spp', label: 'SPP', color: '#f59e0b', unit: 'psi' }
+    { key: 'rop', label: 'ROP', color: '#8b5cf6', unit: 'm/hr' },
   ];
 
   const secondaryChartParameters = [
-    { key: 'inc', label: 'Inclination', color: '#ec4899', unit: '°' },
-    { key: 'azi', label: 'Azimuth', color: '#06b6d4', unit: '°' },
-    { key: 'gamma', label: 'Gamma', color: '#84cc16', unit: 'API' }
+    { key: 'temp', label: 'Temperature', color: '#ef4444', unit: 'degF' },
+    { key: 'rpm', label: 'RPM', color: '#8b5cf6', unit: 'rpm' },
+    { key: 'inc', label: 'Inclination', color: '#ec4899', unit: 'deg' },
+    { key: 'azi', label: 'Azimuth', color: '#06b6d4', unit: 'deg' },
+    { key: 'gamma', label: 'Gamma', color: '#84cc16', unit: 'API' },
   ];
 
+  const keyParameters = useMemo(() => {
+    const currentDepth = activeWell?.activeJob?.currentDepth ?? 0;
+    const inclination = kpiData.inclination.value;
+    const azimuth = kpiData.azimuth.value;
+    const gamma = kpiData.gamma.value;
+    const rop = kpiData.rop.value;
+    const wob = kpiData.wob.value;
+    const standpipePressure = kpiData.standpipePressure.value;
+    const flowRate = kpiData.flowRate.value;
+    const mudWeight = kpiData.mudWeight.value;
+    const temperature = kpiData.temperature.value;
+    const rpm = kpiData.rpm.value;
+    const gravity = toolfaceData.angle;
+
+    return [
+      { label: 'Inclination', value: inclination.toFixed(2), unit: 'deg' },
+      { label: 'Azimuth', value: azimuth.toFixed(2), unit: 'deg' },
+      { label: 'Dip Angle', value: (inclination * 1.78).toFixed(1), unit: 'deg', placeholder: true },
+      { label: 'G Total', value: (1 + Math.abs(gravity - (toolfaceData.targetAngle ?? 180)) / 1000).toFixed(4), unit: 'g', placeholder: true },
+      { label: 'Magnetic Field', value: (58 + azimuth / 1000).toFixed(4), unit: 'uT', placeholder: true },
+      { label: 'Gas Avg', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
+      { label: 'Gamma', value: gamma.toFixed(0), unit: 'API' },
+      { label: 'Confidence', value: `${Math.max(82, 98 - activeAlarms.length * 4).toFixed(0)}%`, unit: '', placeholder: true },
+      { label: 'WOB', value: wob.toFixed(1), unit: kpiData.wob.unit },
+      { label: 'Gamma Depth', value: (currentDepth + 300.98).toFixed(2), unit: 'm', placeholder: true },
+      { label: 'Pulse Amp', value: (flowRate / 190).toFixed(2), unit: 'amp', placeholder: true },
+      { label: 'Gas', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
+      { label: 'Bit Depth', value: (currentDepth - 7.02).toFixed(2), unit: 'm', placeholder: true },
+      { label: 'Decoder Pressure', value: (standpipePressure * 0.92).toFixed(1), unit: 'psi', placeholder: true },
+      { label: 'Pumps Up', value: flowRate > 0 ? 'Yes' : 'No', unit: '', placeholder: true },
+      { label: 'Hole Depth', value: currentDepth.toFixed(2), unit: 'm' },
+      { label: 'Pump Pressure', value: standpipePressure.toFixed(1), unit: 'psi' },
+      { label: 'Pumps Down', value: flowRate < 50 ? 'Yes' : 'No', unit: '', placeholder: true },
+      { label: 'ROP', value: rop.toFixed(2), unit: kpiData.rop.unit },
+      { label: 'Gravity', value: gravity.toFixed(1), unit: 'deg' },
+      { label: 'Mud Weight', value: mudWeight.toFixed(2), unit: kpiData.mudWeight.unit },
+      { label: 'Temp', value: temperature.toFixed(1), unit: kpiData.temperature.unit },
+      { label: 'RPM', value: rpm.toFixed(0), unit: kpiData.rpm.unit },
+    ];
+  }, [activeAlarms.length, activeWell?.activeJob?.currentDepth, kpiData, toolfaceData.angle, toolfaceData.targetAngle]);
+
+  const keyParameterPages = useMemo(() => {
+    const pages: typeof keyParameters[] = [];
+    const firstPageSize = 12;
+
+    pages.push(keyParameters.slice(0, firstPageSize));
+
+    if (keyParameters.length > firstPageSize) {
+      pages.push(keyParameters.slice(firstPageSize));
+    }
+
+    return pages;
+  }, [keyParameters]);
+
+  const visibleKeyParameters = keyParameterPages[keyParameterPage] ?? keyParameterPages[0] ?? [];
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="mb-2 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Real-time Dashboard</h1>
             <p className="text-muted-foreground">
@@ -94,22 +147,15 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
-            <TrendingUp className="size-4 mr-1" />
+            <TrendingUp className="mr-1 size-4" />
             Depth: {activeWell?.activeJob?.currentDepth.toFixed(1)} / {activeWell?.activeJob?.targetDepth} m
           </Badge>
         </div>
       </div>
 
-      {/* Connection Status */}
-      <ConnectionStatus 
-        connectionState={connectionState}
-        onReconnect={reconnect}
-      />
-
-      {/* Active Alarms Banner */}
       {activeAlarms.length > 0 && !alarmsMuted && (
         <section
-          className={`rounded-2xl border p-4 shadow-sm ${
+          className={`rounded-2xl border p-2 shadow-sm ${
             isDark
               ? activeAlarms.length >= 3
                 ? 'border-red-500/50 bg-red-950/50 shadow-red-950/30'
@@ -127,21 +173,12 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
                 <ShieldAlert className="size-4" />
                 Immediate attention required
               </div>
-              <div
-                className={`text-lg font-semibold ${
-                  isDark ? 'text-slate-50' : 'text-slate-900'
-                }`}
-              >
+              <div className={`text-lg font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}>
                 {getPrimaryAlarmMessage(activeAlarms)}
               </div>
-              <p
-                className={`text-sm ${
-                  isDark ? 'text-slate-300' : 'text-muted-foreground'
-                }`}
-              >
-                {activeAlarms.length} alarm{activeAlarms.length > 1 ? 's are' : ' is'} still
-                active and unacknowledged. Review affected metrics before continuing
-                normal monitoring.
+              <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-muted-foreground'}`}>
+                {activeAlarms.length} alarm{activeAlarms.length > 1 ? 's are' : ' is'} still active and unacknowledged.
+                Review affected metrics before continuing normal monitoring.
               </p>
             </div>
 
@@ -151,9 +188,7 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
                 variant="outline"
                 onClick={handleMuteAlarms}
                 className={
-                  isDark
-                    ? 'border-white/15 bg-white/5 text-slate-100 hover:bg-white/10'
-                    : undefined
+                  isDark ? 'border-white/15 bg-white/5 text-slate-100 hover:bg-white/10' : undefined
                 }
               >
                 <BellOff className="mr-2 size-4" />
@@ -162,11 +197,7 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
               <Button
                 size="sm"
                 onClick={handleAcknowledgeAll}
-                className={
-                  isDark
-                    ? 'bg-red-500 text-white hover:bg-red-400'
-                    : undefined
-                }
+                className={isDark ? 'bg-red-500 text-white hover:bg-red-400' : undefined}
               >
                 <Check className="mr-2 size-4" />
                 Acknowledge all
@@ -179,9 +210,7 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
       {alarmsMuted && (
         <Alert
           className={`rounded-2xl ${
-            isDark
-              ? 'border-amber-500/50 bg-amber-950/45 text-amber-100'
-              : 'border-amber-300 bg-amber-50'
+            isDark ? 'border-amber-500/50 bg-amber-950/45 text-amber-100' : 'border-amber-300 bg-amber-50'
           }`}
         >
           <BellOff className="size-4" />
@@ -191,95 +220,116 @@ const getPrimaryAlarmMessage = (activeAlarms: any[]) => {
         </Alert>
       )}
 
-      {/* Offline Mode Warning */}
       {connectionState.status === 'offline' && (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            <strong>Offline Mode:</strong> Displaying last known values. 
-            Data may be outdated. Check your network connection.
+            <strong>Offline Mode:</strong> Displaying last known values. Data may be outdated.
+            Check your network connection.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Main Content Grid */}
-      <div className="grid lg:grid-cols-[1fr_280px] gap-6">
-        {/* Left: KPI Cards and Charts */}
-        <div className="space-y-6">
-          {/* KPI Cards Grid */}
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Key Parameters</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              <KPICard parameter={kpiData.rop} />
-              <KPICard parameter={kpiData.wob} />
-              <KPICard parameter={kpiData.rpm} />
-              <KPICard parameter={kpiData.flowRate} />
-              <KPICard parameter={kpiData.standpipePressure} />
-              <KPICard parameter={kpiData.mudWeight} />
-              <KPICard parameter={kpiData.inclination} />
-              <KPICard parameter={kpiData.azimuth} />
-              <KPICard parameter={kpiData.gamma} />
-              <KPICard parameter={kpiData.temperature} />
-            </div>
-          </div>
+      <div className="grid gap-3 xl:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="space-y-3">
+          <div className="space-y-3">
+            <ToolfaceIndicator data={toolfaceData} size="sm" />
 
-          {/* Charts Section */}
-          <div className="grid lg:grid-cols-2 gap-6">
-            <RealTimeChart
-              data={chartData}
-              title="Drilling Mechanics"
-              availableParameters={chartParameters}
-              defaultParameters={['rop', 'wob']}
-              timeWindow={timeWindow}
-              onTimeWindowChange={setTimeWindow}
-            />
-            <RealTimeChart
-              data={chartData}
-              title="Directional & Formation"
-              availableParameters={secondaryChartParameters}
-              defaultParameters={['inc', 'gamma']}
-              timeWindow={timeWindow}
-              onTimeWindowChange={setTimeWindow}
-            />
+            <Card className="p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Key Parameters</h3>
+                <Badge variant="outline" className="text-[10px]">
+                  Polaris-style
+                </Badge>
+              </div>
+              <div className="mb-2 flex items-center gap-1.5">
+                {keyParameterPages.map((_, index) => (
+                  <Button
+                    key={`key-parameter-page-${index}`}
+                    type="button"
+                    size="sm"
+                    variant={keyParameterPage === index ? 'default' : 'outline'}
+                    className="h-7 min-w-8 rounded-md px-2 text-xs"
+                    onClick={() => setKeyParameterPage(index)}
+                  >
+                    {index + 1}
+                  </Button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {visibleKeyParameters.map((parameter) => (
+                  <div
+                    key={parameter.label}
+                    className="rounded-xl border border-border/80 bg-background/90 px-2.5 py-2 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        {parameter.label}
+                      </span>
+                      {/* {parameter.placeholder ? (
+                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                          mock
+                        </span>
+                      ) : null} */}
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-1">
+                      <span className="font-mono text-lg font-semibold leading-none text-foreground">
+                        {parameter.value}
+                      </span>
+                      {parameter.unit ? (
+                        <span className="text-[10px] text-muted-foreground">{parameter.unit}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
           </div>
         </div>
 
-        {/* Right: Toolface Indicator */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Toolface</h2>
-          <ToolfaceIndicator 
-            data={toolfaceData}
-            size="md"
-          />
-          
-          {/* Quick Directional Info */}
-          <Card className="p-4">
-            <h3 className="font-semibold mb-3">Directional Summary</h3>
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Inclination</span>
-                <span className="font-mono">{kpiData.inclination.value.toFixed(1)}°</span>
+          <Card className="p-3 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-xl font-semibold">Well Plot Overview</h2>
+                <p className="text-sm text-muted-foreground">
+                  All priority well plot tracks stay visible on the main dashboard without being compressed.
+                </p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Azimuth</span>
-                <span className="font-mono">{kpiData.azimuth.value.toFixed(1)}°</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Current MD</span>
-                <span className="font-mono">{activeWell?.activeJob?.currentDepth.toFixed(1)} m</span>
-              </div>
+              <Badge variant="outline">4 tracks visible</Badge>
+            </div>
+            <div className="overflow-x-auto">
+              <WellPlotPanel showHeader={false} showAllTracks dashboardStretch />
             </div>
           </Card>
         </div>
       </div>
 
-      {/* Event Stream */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <RealTimeChart
+          data={chartData}
+          title="Pressure & Hydraulics"
+          availableParameters={chartParameters}
+          defaultParameters={['spp', 'flowrate']}
+          timeWindow={timeWindow}
+          onTimeWindowChange={setTimeWindow}
+        />
+        <RealTimeChart
+          data={chartData}
+          title="Temp, RPM & Directional"
+          availableParameters={secondaryChartParameters}
+          defaultParameters={['temp', 'rpm']}
+          timeWindow={timeWindow}
+          onTimeWindowChange={setTimeWindow}
+        />
+      </div>
+
       <EventStream events={events} maxHeight={300} />
 
-      {/* Role-specific Quick Actions */}
       {user?.role === 'engineer' && (
         <Card className="p-4">
-          <h3 className="font-semibold mb-3">Engineer Quick Actions</h3>
+          <h3 className="mb-3 font-semibold">Engineer Quick Actions</h3>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm">
               Compare Trajectory

@@ -33,19 +33,19 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const defaultSettings: UserSettings = {
-    thresholds: [],
-    display: {
-      density: 'comfortable' as const,
-      theme: 'light' as const,
-      autoRefresh: true,
-      refreshInterval: 5
-    },
-    units: 'metric' as const,
-    favoriteParameters: ['rop', 'wob', 'inc', 'azi']
-  };
+const defaultSettings: UserSettings = {
+  thresholds: [],
+  display: {
+    density: 'comfortable',
+    theme: 'light',
+    autoRefresh: true,
+    refreshInterval: 5,
+  },
+  units: 'metric',
+  favoriteParameters: ['rop', 'wob', 'inc', 'azi'],
+};
 
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'connected',
     latency: 45,
@@ -64,18 +64,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
-  const [settings, setSettings] = useState<UserSettings>(defaultSettings);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [settings, setSettings] = useState<UserSettings>(() => {
+    if (typeof window === 'undefined') return defaultSettings;
     const stored = window.localStorage.getItem('mwd_settings');
-    if (!stored) return;
+    if (!stored) return defaultSettings;
+
     try {
-      setSettings(JSON.parse(stored));
+      return JSON.parse(stored) as UserSettings;
     } catch {
-      setSettings(defaultSettings);
+      return defaultSettings;
     }
-  }, []);
+  });
 
   // Simulate real-time data updates
   useEffect(() => {
@@ -124,6 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           rop: kpiData.rop.value,
           wob: kpiData.wob.value,
           rpm: kpiData.rpm.value,
+          temp: kpiData.temperature.value,
           spp: kpiData.standpipePressure.value,
           flowrate: kpiData.flowRate.value,
           gamma: kpiData.gamma.value,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useApp } from "@/context/AppContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -21,9 +21,11 @@ import SettingsPage from "./settings/page";
 import AdminPage from "./admin/page";
 import HelpPage from "./help/page";
 import WellPlotPage from "./trajectory/well-plot/page";
+import ConfigurationPage from "./configuration/page";
+import WellplanSurveysPage from "./configuration/wellplan-surveys/page";
 
 const AppContent: React.FC = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const {
     showInstallPrompt,
     dismissInstallPrompt,
@@ -34,6 +36,8 @@ const AppContent: React.FC = () => {
 
   const [currentPage, setCurrentPage] = useState<
     | "dashboard"
+    | "configuration"
+    | "configuration-wellplan-surveys"
     | "trajectory"
     | "trajectory-analysis"
     | "trajectory-well-plot"
@@ -45,6 +49,11 @@ const AppContent: React.FC = () => {
     | "admin"
     | "help"
   >("dashboard");
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   // Apply dark mode
   useEffect(() => {
@@ -55,23 +64,9 @@ const AppContent: React.FC = () => {
     }
   }, [settings.display.theme]);
 
-  // Redirect landing page based on role
-  useEffect(() => {
-    if (!user) return;
-
-    switch (user.role) {
-      case "operator":
-      case "engineer":
-        setCurrentPage("dashboard");
-        break;
-      case "admin":
-        setCurrentPage("dashboard");
-        break;
-      default:
-        setCurrentPage("dashboard");
-        break;
-    }
-  }, [user]);
+  if (!mounted) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={() => setCurrentPage("dashboard")} />;
@@ -81,6 +76,10 @@ const AppContent: React.FC = () => {
     switch (currentPage) {
       case "dashboard":
         return <DashboardPage />;
+      case "configuration":
+        return <ConfigurationPage onNavigate={setCurrentPage} />;
+      case "configuration-wellplan-surveys":
+        return <WellplanSurveysPage onNavigate={setCurrentPage} />;
       case "trajectory":
       case "trajectory-well-plot":
         return <WellPlotPage/>;
@@ -95,7 +94,7 @@ const AppContent: React.FC = () => {
       case "export":
         return <ExportPage />;
       case "settings":
-        return <SettingsPage />;
+        return <SettingsPage onNavigate={setCurrentPage} />;
       case "admin":
         return <AdminPage />;
       case "help":

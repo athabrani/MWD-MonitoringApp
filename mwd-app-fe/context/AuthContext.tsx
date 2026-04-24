@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { User } from '../types';
 import { mockUsers } from '../data/mock-data';
 
@@ -14,14 +14,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem('mwd_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window === 'undefined') {
+      return null;
     }
-  }, []);
+
+    const storedUser = window.localStorage.getItem('mwd_user');
+    const sessionUser = window.sessionStorage.getItem('mwd_user');
+    const persistedUser = storedUser ?? sessionUser;
+
+    return persistedUser ? JSON.parse(persistedUser) : null;
+  });
 
   const login = async (username: string, password: string, rememberMe = false): Promise<boolean> => {
     await new Promise(resolve => setTimeout(resolve, 500));

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -10,13 +10,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Event, EventSeverity, EventType } from '../types';
-import { 
-  AlertCircle, 
-  AlertTriangle, 
-  Info, 
-  Wifi, 
-  User, 
-  Settings
+import {
+  AlertCircle,
+  AlertTriangle,
+  Info,
+  Wifi,
+  User,
+  Settings,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -24,11 +24,15 @@ import { cn } from '@/lib/utils';
 interface EventStreamProps {
   events: Event[];
   maxHeight?: number;
+  title?: string;
+  emptyMessage?: string;
 }
 
-export const EventStream: React.FC<EventStreamProps> = ({ 
-  events, 
-  maxHeight = 400 
+export const EventStream: React.FC<EventStreamProps> = ({
+  events,
+  maxHeight = 400,
+  title = 'Event Stream',
+  emptyMessage = 'No matching events in this stream.',
 }) => {
   const [severityFilter, setSeverityFilter] = useState<EventSeverity | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<EventType | 'all'>('all');
@@ -36,9 +40,11 @@ export const EventStream: React.FC<EventStreamProps> = ({
   const getEventIcon = (event: Event) => {
     switch (event.type) {
       case 'alarm':
-        return event.severity === 'critical' 
-          ? <AlertCircle className="size-4" />
-          : <AlertTriangle className="size-4" />;
+        return event.severity === 'critical' ? (
+          <AlertCircle className="size-4" />
+        ) : (
+          <AlertTriangle className="size-4" />
+        );
       case 'connection':
       case 'failover':
         return <Wifi className="size-4" />;
@@ -73,7 +79,7 @@ export const EventStream: React.FC<EventStreamProps> = ({
     }
   };
 
-  const filteredEvents = events.filter(event => {
+  const filteredEvents = events.filter((event) => {
     if (severityFilter !== 'all' && event.severity !== severityFilter) return false;
     if (typeFilter !== 'all' && event.type !== typeFilter) return false;
     return true;
@@ -81,10 +87,10 @@ export const EventStream: React.FC<EventStreamProps> = ({
 
   return (
     <Card className="p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Event Stream</h3>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-semibold">{title}</h3>
         <div className="flex items-center gap-2">
-          <Select value={severityFilter} onValueChange={(v) => setSeverityFilter(v as any)}>
+          <Select value={severityFilter} onValueChange={(value) => setSeverityFilter(value as EventSeverity | 'all')}>
             <SelectTrigger className="w-32">
               <SelectValue placeholder="Severity" />
             </SelectTrigger>
@@ -95,7 +101,7 @@ export const EventStream: React.FC<EventStreamProps> = ({
               <SelectItem value="info">Info</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
+          <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as EventType | 'all')}>
             <SelectTrigger className="w-32">
               <SelectValue placeholder="Type" />
             </SelectTrigger>
@@ -111,50 +117,59 @@ export const EventStream: React.FC<EventStreamProps> = ({
       </div>
 
       <ScrollArea className="pr-4" style={{ height: maxHeight }}>
-        <div className="space-y-2">
-          {filteredEvents.map(event => (
-            <div
-              key={event.id}
-              className={cn(
-                "p-3 rounded-lg border-l-4",
-                getSeverityColor(event.severity)
-              )}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-2">
-                  <span className={cn(
-                    event.severity === 'critical' && 'text-red-500',
-                    event.severity === 'warning' && 'text-yellow-500',
-                    event.severity === 'info' && 'text-blue-500'
-                  )}>
-                    {getEventIcon(event)}
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium">{event.message}</p>
-                    {event.parameter && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {event.parameter}: {event.value} {event.threshold && `(threshold: ${event.threshold})`}
-                      </p>
-                    )}
-                    {event.acknowledgedBy && (
-                      <p className="text-xs text-green-500 mt-1">
-                        ✓ Acknowledged by {event.acknowledgedBy}
-                      </p>
-                    )}
+        {filteredEvents.length ? (
+          <div className="space-y-2">
+            {filteredEvents.map((event) => (
+              <div
+                key={event.id}
+                className={cn('rounded-lg border-l-4 p-3', getSeverityColor(event.severity))}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={cn(
+                        event.severity === 'critical' && 'text-red-500',
+                        event.severity === 'warning' && 'text-yellow-500',
+                        event.severity === 'info' && 'text-blue-500'
+                      )}
+                    >
+                      {getEventIcon(event)}
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium">{event.message}</p>
+                      {event.parameter && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {event.parameter}: {event.value}{' '}
+                          {event.threshold && `(threshold: ${event.threshold})`}
+                        </p>
+                      )}
+                      {event.acknowledgedBy && (
+                        <p className="mt-1 text-xs text-green-500">
+                          ✓ Acknowledged by {event.acknowledgedBy}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <Badge
+                      variant="outline"
+                      className={cn('text-xs', getSeverityBadgeColor(event.severity))}
+                    >
+                      {event.severity}
+                    </Badge>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {format(event.timestamp, 'HH:mm:ss')}
+                    </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <Badge variant="outline" className={cn("text-xs", getSeverityBadgeColor(event.severity))}>
-                    {event.severity}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {format(event.timestamp, 'HH:mm:ss')}
-                  </p>
-                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 text-center text-sm text-muted-foreground">
+            {emptyMessage}
+          </div>
+        )}
       </ScrollArea>
     </Card>
   );

@@ -1,37 +1,51 @@
-import React, { useState } from 'react';
-import { useApp } from '@/context/AppContext';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
-import { Settings, Bell, Eye, Gauge } from 'lucide-react';
-import { toast } from 'sonner';
-import { mockKPIData } from '@/data/mock-data';
+"use client";
 
-export const SettingsPage: React.FC = () => {
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useApp } from "@/context/AppContext";
+import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { Bell, Eye, Gauge } from "lucide-react";
+import { toast } from "sonner";
+import { mockKPIData } from "@/data/mock-data";
+
+export const SettingsPage: React.FC<{
+  onNavigate?: (page: AppPage) => void;
+}> = ({ onNavigate }) => {
+  const router = useRouter();
   const { settings, updateSettings } = useApp();
-  const [thresholds, setThresholds] = useState<any>({
+  const [thresholds] = useState({
     rop: { warning: 10, critical: 5 },
     wob: { warning: 25, critical: 30 },
-    flowrate: { warning: 850, critical: 800 }
+    flowrate: { warning: 850, critical: 800 },
   });
 
   const handleSaveThresholds = () => {
-    toast.success('Thresholds updated successfully');
+    void thresholds;
+    toast.success("Thresholds updated successfully");
   };
 
   const handleSaveDisplay = () => {
-    toast.success('Display settings updated');
+    toast.success("Display settings updated");
   };
 
-  return (
-    <div className="space-y-6 max-w-4xl">
+  const content = (
+    <div className="max-w-4xl space-y-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Settings</h1>
+        <h1 className="mb-2 text-3xl font-bold">Settings</h1>
         <p className="text-muted-foreground">
           Configure thresholds, display preferences, and system behavior
         </p>
@@ -40,23 +54,23 @@ export const SettingsPage: React.FC = () => {
       <Tabs defaultValue="thresholds">
         <TabsList>
           <TabsTrigger value="thresholds">
-            <Gauge className="size-4 mr-2" />
+            <Gauge className="mr-2 size-4" />
             Thresholds
           </TabsTrigger>
           <TabsTrigger value="display">
-            <Eye className="size-4 mr-2" />
+            <Eye className="mr-2 size-4" />
             Display
           </TabsTrigger>
           <TabsTrigger value="notifications">
-            <Bell className="size-4 mr-2" />
+            <Bell className="mr-2 size-4" />
             Notifications
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="thresholds" className="mt-6 space-y-6">
           <Card className="p-6">
-            <h3 className="font-semibold mb-4">Parameter Thresholds</h3>
-            <p className="text-sm text-muted-foreground mb-6">
+            <h3 className="mb-4 font-semibold">Parameter Thresholds</h3>
+            <p className="mb-6 text-sm text-muted-foreground">
               Set warning and critical thresholds for alarm generation
             </p>
 
@@ -64,7 +78,7 @@ export const SettingsPage: React.FC = () => {
               {Object.entries(mockKPIData).map(([key, param]) => (
                 <div key={key}>
                   <Label className="text-base">{param.name}</Label>
-                  <div className="grid md:grid-cols-2 gap-4 mt-2">
+                  <div className="mt-2 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor={`${key}-warning`} className="text-sm text-muted-foreground">
                         Warning Threshold ({param.unit})
@@ -72,7 +86,7 @@ export const SettingsPage: React.FC = () => {
                       <Input
                         id={`${key}-warning`}
                         type="number"
-                        defaultValue={param.warningThreshold || ''}
+                        defaultValue={param.warningThreshold || ""}
                         placeholder="Enter warning value"
                       />
                     </div>
@@ -83,12 +97,12 @@ export const SettingsPage: React.FC = () => {
                       <Input
                         id={`${key}-critical`}
                         type="number"
-                        defaultValue={param.criticalThreshold || ''}
+                        defaultValue={param.criticalThreshold || ""}
                         placeholder="Enter critical value"
                       />
                     </div>
                   </div>
-                  {key !== 'temperature' && <Separator className="mt-6" />}
+                  {key !== "temperature" && <Separator className="mt-6" />}
                 </div>
               ))}
             </div>
@@ -99,18 +113,18 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           <Card className="p-6">
-            <h3 className="font-semibold mb-4">Units</h3>
+            <h3 className="mb-4 font-semibold">Units</h3>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Unit System</Label>
                   <p className="text-sm text-muted-foreground">
                     Choose between metric and imperial units
                   </p>
                 </div>
-                <Select 
-                  value={settings.units} 
-                  onValueChange={(value) => updateSettings({ units: value as any })}
+                <Select
+                  value={settings.units}
+                  onValueChange={(value) => updateSettings({ units: value as "metric" | "imperial" })}
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue />
@@ -127,21 +141,23 @@ export const SettingsPage: React.FC = () => {
 
         <TabsContent value="display" className="mt-6 space-y-6">
           <Card className="p-6">
-            <h3 className="font-semibold mb-4">Display Preferences</h3>
-            
+            <h3 className="mb-4 font-semibold">Display Preferences</h3>
+
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Density</Label>
                   <p className="text-sm text-muted-foreground">
                     Control spacing and information density
                   </p>
                 </div>
-                <Select 
-                  value={settings.display.density} 
-                  onValueChange={(value) => updateSettings({ 
-                    display: { ...settings.display, density: value as any }
-                  })}
+                <Select
+                  value={settings.display.density}
+                  onValueChange={(value) =>
+                    updateSettings({
+                      display: { ...settings.display, density: value as "compact" | "comfortable" },
+                    })
+                  }
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue />
@@ -155,36 +171,40 @@ export const SettingsPage: React.FC = () => {
 
               <Separator />
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Auto-refresh</Label>
                   <p className="text-sm text-muted-foreground">
                     Automatically update data at intervals
                   </p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.display.autoRefresh}
-                  onCheckedChange={(checked) => updateSettings({ 
-                    display: { ...settings.display, autoRefresh: checked }
-                  })}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      display: { ...settings.display, autoRefresh: checked },
+                    })
+                  }
                 />
               </div>
 
               {settings.display.autoRefresh && (
                 <>
                   <Separator />
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <div>
                       <Label>Refresh Interval</Label>
                       <p className="text-sm text-muted-foreground">
                         How often to update the data (seconds)
                       </p>
                     </div>
-                    <Select 
-                      value={settings.display.refreshInterval.toString()} 
-                      onValueChange={(value) => updateSettings({ 
-                        display: { ...settings.display, refreshInterval: parseInt(value) }
-                      })}
+                    <Select
+                      value={settings.display.refreshInterval.toString()}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          display: { ...settings.display, refreshInterval: parseInt(value, 10) },
+                        })
+                      }
                     >
                       <SelectTrigger className="w-32">
                         <SelectValue />
@@ -209,10 +229,10 @@ export const SettingsPage: React.FC = () => {
 
         <TabsContent value="notifications" className="mt-6">
           <Card className="p-6">
-            <h3 className="font-semibold mb-4">Notification Settings</h3>
-            
+            <h3 className="mb-4 font-semibold">Notification Settings</h3>
+
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Enable Notifications</Label>
                   <p className="text-sm text-muted-foreground">
@@ -224,7 +244,7 @@ export const SettingsPage: React.FC = () => {
 
               <Separator />
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Sound Alerts</Label>
                   <p className="text-sm text-muted-foreground">
@@ -236,7 +256,7 @@ export const SettingsPage: React.FC = () => {
 
               <Separator />
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <Label>Email Alerts</Label>
                   <p className="text-sm text-muted-foreground">
@@ -250,6 +270,23 @@ export const SettingsPage: React.FC = () => {
         </TabsContent>
       </Tabs>
     </div>
+  );
+
+  if (onNavigate) {
+    return content;
+  }
+
+  const handleRouteNavigate = (page: AppPage) => {
+    router.push(getAppPagePath(page));
+  };
+
+  return (
+    <AppLayout
+      currentPage="settings"
+      onNavigate={handleRouteNavigate}
+    >
+      {content}
+    </AppLayout>
   );
 };
 
