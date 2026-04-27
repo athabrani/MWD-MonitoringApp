@@ -212,7 +212,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         config.shellPadding
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-sky-50/80 px-2.5 py-1 text-[11px] font-medium tracking-wide text-sky-900">
             <span className="size-2 rounded-full bg-sky-500" />
@@ -231,7 +231,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         <Badge
           variant="outline"
           className={cn(
-            "shrink-0 rounded-full border-slate-300 bg-white/90 px-3 py-1 font-mono shadow-sm",
+            "w-fit shrink-0 rounded-full border-slate-300 bg-white/90 px-3 py-1 font-mono shadow-sm",
             config.timerSize
           )}
         >
@@ -331,7 +331,12 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         </svg>
       </div>
 
-      <div className={cn("mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-2", size === "sm" && "mt-2")}>
+      <div
+        className={cn(
+          "mt-3 grid items-stretch gap-2",
+          size === "sm" ? "mt-2 grid-cols-1 min-[380px]:grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto]"
+        )}
+      >
         <div className={cn("rounded-xl border border-slate-300/80 bg-white/95 shadow-sm", size === "sm" ? "px-3 py-2.5" : "px-4 py-3")}>
           <div className={cn("uppercase tracking-[0.18em] text-muted-foreground", size === "sm" ? "text-[9px]" : "text-[10px]")}>
             Current Angle
@@ -344,11 +349,18 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         {typeof data.targetAngle === "number" && (
           <div
             className={cn(
-              "flex items-center rounded-xl border border-emerald-200/80 bg-emerald-50 font-semibold text-emerald-900 shadow-sm",
+              "min-w-0 rounded-xl border border-emerald-200/80 bg-emerald-50 font-semibold text-emerald-900 shadow-sm",
               size === "sm" ? "px-3 py-2.5 text-xs" : "px-4 py-3 text-sm"
             )}
           >
-            Target: {Math.round(data.targetAngle)}°
+            <div className={cn("uppercase tracking-[0.18em] text-emerald-700/80",
+                size === "sm" ? "text-[9px]" : "text-[10px]"
+              )}>
+              Target:
+            </div> 
+            <div className={cn("mt-1 font-bold leading-none", config.valueSize)}>
+            {Math.round(data.targetAngle)}°
+            </div>
           </div>
         )}
       </div>

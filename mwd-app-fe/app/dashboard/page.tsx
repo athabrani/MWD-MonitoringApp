@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
@@ -32,6 +33,34 @@ export const DashboardPage: React.FC = () => {
   const isDark = settings.display.theme === 'dark';
   const [timeWindow, setTimeWindow] = useState<'5min' | '15min' | '1hr'>('15min');
   const [keyParameterPage, setKeyParameterPage] = useState(0);
+  const [dashboardViewport, setDashboardViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+  const [viewportWidth, setViewportWidth] = useState(0);
+
+  useEffect(() => {
+    const applyViewport = () => {
+      const width = window.innerWidth;
+      setViewportWidth(width);
+
+      if (width < 768) {
+        setDashboardViewport('mobile');
+        return;
+      }
+
+      if (width < 1280) {
+        setDashboardViewport('tablet');
+        return;
+      }
+
+      setDashboardViewport('desktop');
+    };
+
+    applyViewport();
+    window.addEventListener('resize', applyViewport);
+
+    return () => {
+      window.removeEventListener('resize', applyViewport);
+    };
+  }, []);
 
   const activeAlarms = events.filter(
     (event) => event.type === 'alarm' && !event.acknowledgedBy && !event.resolved
@@ -93,60 +122,148 @@ export const DashboardPage: React.FC = () => {
     const temperature = kpiData.temperature.value;
     const rpm = kpiData.rpm.value;
     const gravity = toolfaceData.angle;
+    const getStatusForLabel = (label: string) => {
+      switch (label) {
+        case 'Inclination':
+          return kpiData.inclination.status;
+        case 'Azimuth':
+          return kpiData.azimuth.status;
+        case 'Gamma':
+          return kpiData.gamma.status;
+        case 'WOB':
+          return kpiData.wob.status;
+        case 'Pump Pressure':
+        case 'Decoder Pressure':
+        case 'Diff Pressure':
+          return kpiData.standpipePressure.status;
+        case 'Mud Weight':
+        case 'ECD TVD Survey Base':
+          return kpiData.mudWeight.status;
+        case 'Temp':
+          return kpiData.temperature.status;
+        case 'RPM':
+        case 'RPM Downhole':
+          return kpiData.rpm.status;
+        case 'ROP':
+          return kpiData.rop.status;
+        default:
+          return 'normal' as const;
+      }
+    };
 
     return [
-      { label: 'Inclination', value: inclination.toFixed(2), unit: 'deg' },
-      { label: 'Azimuth', value: azimuth.toFixed(2), unit: 'deg' },
+      { label: 'Inclination', value: inclination.toFixed(2), unit: 'deg', status: getStatusForLabel('Inclination') },
+      { label: 'Azimuth', value: azimuth.toFixed(2), unit: 'deg', status: getStatusForLabel('Azimuth') },
       { label: 'Dip Angle', value: (inclination * 1.78).toFixed(1), unit: 'deg', placeholder: true },
       { label: 'G Total', value: (1 + Math.abs(gravity - (toolfaceData.targetAngle ?? 180)) / 1000).toFixed(4), unit: 'g', placeholder: true },
       { label: 'Magnetic Field', value: (58 + azimuth / 1000).toFixed(4), unit: 'uT', placeholder: true },
       { label: 'Gas Avg', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
-      { label: 'Gamma', value: gamma.toFixed(0), unit: 'API' },
+      { label: 'Gamma', value: gamma.toFixed(0), unit: 'API', status: getStatusForLabel('Gamma') },
       { label: 'Confidence', value: `${Math.max(82, 98 - activeAlarms.length * 4).toFixed(0)}%`, unit: '', placeholder: true },
-      { label: 'WOB', value: wob.toFixed(1), unit: kpiData.wob.unit },
+      { label: 'WOB', value: wob.toFixed(1), unit: kpiData.wob.unit, status: getStatusForLabel('WOB') },
       { label: 'Gamma Depth', value: (currentDepth + 300.98).toFixed(2), unit: 'm', placeholder: true },
       { label: 'Pulse Amp', value: (flowRate / 190).toFixed(2), unit: 'amp', placeholder: true },
       { label: 'Gas', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
       { label: 'Bit Depth', value: (currentDepth - 7.02).toFixed(2), unit: 'm', placeholder: true },
-      { label: 'Decoder Pressure', value: (standpipePressure * 0.92).toFixed(1), unit: 'psi', placeholder: true },
+      { label: 'Decoder Pressure', value: (standpipePressure * 0.92).toFixed(1), unit: 'psi', status: getStatusForLabel('Decoder Pressure'), placeholder: true },
       { label: 'Pumps Up', value: flowRate > 0 ? 'Yes' : 'No', unit: '', placeholder: true },
       { label: 'Hole Depth', value: currentDepth.toFixed(2), unit: 'm' },
-      { label: 'Pump Pressure', value: standpipePressure.toFixed(1), unit: 'psi' },
+      { label: 'Pump Pressure', value: standpipePressure.toFixed(1), unit: 'psi', status: getStatusForLabel('Pump Pressure') },
       { label: 'Pumps Down', value: flowRate < 50 ? 'Yes' : 'No', unit: '', placeholder: true },
-      { label: 'ROP', value: rop.toFixed(2), unit: kpiData.rop.unit },
+      { label: 'ROP', value: rop.toFixed(2), unit: kpiData.rop.unit, status: getStatusForLabel('ROP') },
       { label: 'Gravity', value: gravity.toFixed(1), unit: 'deg' },
-      { label: 'Mud Weight', value: mudWeight.toFixed(2), unit: kpiData.mudWeight.unit },
-      { label: 'Temp', value: temperature.toFixed(1), unit: kpiData.temperature.unit },
-      { label: 'RPM', value: rpm.toFixed(0), unit: kpiData.rpm.unit },
+      { label: 'Mud Weight', value: mudWeight.toFixed(2), unit: kpiData.mudWeight.unit, status: getStatusForLabel('Mud Weight') },
+      { label: 'Temp', value: temperature.toFixed(1), unit: kpiData.temperature.unit, status: getStatusForLabel('Temp') },
+      { label: 'RPM', value: rpm.toFixed(0), unit: kpiData.rpm.unit, status: getStatusForLabel('RPM') },
+      { label: 'Decoder Pressure', value: (standpipePressure * 0.92).toFixed(1), unit: 'psi', status: getStatusForLabel('Decoder Pressure'), placeholder: true },
+      { label: 'Vib (ax.lat)', value: (2.4 + rpm / 85).toFixed(2), unit: 'g', placeholder: true },
+      { label: 'RPM Downhole', value: (rpm - 6.5).toFixed(1), unit: 'rpm', status: getStatusForLabel('RPM Downhole'), placeholder: true },
+      { label: 'SSI', value: (0.82 + gamma / 260).toFixed(2), unit: '', placeholder: true },
+      { label: 'Diff Pressure', value: (standpipePressure * 0.18).toFixed(1), unit: 'psi', status: getStatusForLabel('Diff Pressure'), placeholder: true },
+      { label: 'ECD TVD Survey Base', value: (mudWeight + 0.34).toFixed(2), unit: 'ppg', status: getStatusForLabel('ECD TVD Survey Base'), placeholder: true },
+      { label: 'TVD', value: (currentDepth * 0.956).toFixed(2), unit: 'm', placeholder: true },
     ];
   }, [activeAlarms.length, activeWell?.activeJob?.currentDepth, kpiData, toolfaceData.angle, toolfaceData.targetAngle]);
 
+  const getKeyParameterTone = (status?: 'normal' | 'warning' | 'critical') => {
+    switch (status) {
+      case 'warning':
+        return {
+          card: 'border-yellow-500/40 bg-yellow-50/70 dark:border-yellow-500/35 dark:bg-yellow-500/10',
+          value: 'text-yellow-800 dark:text-yellow-300',
+          accent: 'bg-yellow-500',
+        };
+      case 'critical':
+        return {
+          card: 'border-red-500/40 bg-red-50/70 dark:border-red-500/35 dark:bg-red-500/10',
+          value: 'text-red-800 dark:text-red-300',
+          accent: 'bg-red-500',
+        };
+      default:
+        return {
+          card: 'border-border/80 bg-background/90',
+          value: 'text-foreground',
+          accent: 'bg-emerald-500',
+        };
+    }
+  };
+
   const keyParameterPages = useMemo(() => {
     const pages: typeof keyParameters[] = [];
-    const firstPageSize = 12;
+    const firstPageSize =
+      dashboardViewport === 'mobile' ? 8 : dashboardViewport === 'tablet' ? 12 : 22;
+    const nextPageSize =
+      dashboardViewport === 'mobile' ? 8 : dashboardViewport === 'tablet' ? 12 : 22;
 
     pages.push(keyParameters.slice(0, firstPageSize));
 
-    if (keyParameters.length > firstPageSize) {
-      pages.push(keyParameters.slice(firstPageSize));
+    for (let start = firstPageSize; start < keyParameters.length; start += nextPageSize) {
+      pages.push(keyParameters.slice(start, start + nextPageSize));
     }
 
     return pages;
-  }, [keyParameters]);
+  }, [dashboardViewport, keyParameters]);
 
-  const visibleKeyParameters = keyParameterPages[keyParameterPage] ?? keyParameterPages[0] ?? [];
+  const activeKeyParameterPage = Math.min(
+    keyParameterPage,
+    Math.max(keyParameterPages.length - 1, 0)
+  );
+  const visibleKeyParameters =
+    keyParameterPages[activeKeyParameterPage] ?? keyParameterPages[0] ?? [];
+  const denseTabletDesktopLayout = viewportWidth >= 1280 && viewportWidth < 1440;
+
+  const compactDashboardPlotHeight = useMemo(() => {
+    if (viewportWidth >= 1280 && viewportWidth < 1440) {
+      return {
+        px: 1040,
+        css: 'clamp(760px, 82vh, 1120px)',
+      };
+    }
+
+    if (dashboardViewport === 'tablet') {
+      return {
+        px: 1180,
+        css: 'clamp(860px, 86vh, 1240px)',
+      };
+    }
+
+    return {
+      px: 760,
+      css: 'clamp(520px, 72vh, 820px)',
+    };
+  }, [dashboardViewport, viewportWidth]);
 
   return (
     <div className="space-y-4">
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Real-time Dashboard</h1>
+        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold sm:text-3xl">Real-time Dashboard</h1>
             <p className="text-muted-foreground">
               {activeWell?.name} - {activeWell?.activeJob?.name}
             </p>
           </div>
-          <Badge variant="secondary" className="text-sm">
+          <Badge variant="secondary" className="w-fit max-w-full text-xs sm:text-sm">
             <TrendingUp className="mr-1 size-4" />
             Depth: {activeWell?.activeJob?.currentDepth.toFixed(1)} / {activeWell?.activeJob?.targetDepth} m
           </Badge>
@@ -230,25 +347,32 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
-      <div className="grid gap-3 xl:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)]">
+      <div
+        className={cn(
+          'grid gap-3',
+          denseTabletDesktopLayout
+            ? 'grid-cols-[208px_minmax(0,1fr)]'
+            : 'min-[1440px]:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)]'
+        )}
+      >
         <div className="space-y-3">
           <div className="space-y-3">
             <ToolfaceIndicator data={toolfaceData} size="sm" />
 
             <Card className="p-3">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">Key Parameters</h3>
                 <Badge variant="outline" className="text-[10px]">
                   Polaris-style
                 </Badge>
               </div>
-              <div className="mb-2 flex items-center gap-1.5">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 {keyParameterPages.map((_, index) => (
                   <Button
                     key={`key-parameter-page-${index}`}
                     type="button"
                     size="sm"
-                    variant={keyParameterPage === index ? 'default' : 'outline'}
+                    variant={activeKeyParameterPage === index ? 'default' : 'outline'}
                     className="h-7 min-w-8 rounded-md px-2 text-xs"
                     onClick={() => setKeyParameterPage(index)}
                   >
@@ -256,28 +380,37 @@ export const DashboardPage: React.FC = () => {
                   </Button>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {visibleKeyParameters.map((parameter) => (
+              <div className="grid grid-cols-1 gap-1.5 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-2 sm:gap-2">
+                {visibleKeyParameters.map((parameter, index) => (
                   <div
-                    key={parameter.label}
-                    className="rounded-xl border border-border/80 bg-background/90 px-2.5 py-2 shadow-sm"
+                    key={`${parameter.label}-${index}`}
+                    className={cn(
+                      'min-w-0 rounded-xl border px-2 py-1.5 shadow-sm sm:px-2.5 sm:py-2',
+                      getKeyParameterTone(parameter.status).card
+                    )}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      <span className="min-w-0 break-words text-[9px] font-medium uppercase leading-tight tracking-[0.06em] text-muted-foreground sm:text-[10px]">
                         {parameter.label}
                       </span>
-                      {/* {parameter.placeholder ? (
-                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                          mock
-                        </span>
-                      ) : null} */}
+                      <span
+                        className={cn(
+                          'mt-0.5 h-2 w-2 shrink-0 rounded-full',
+                          getKeyParameterTone(parameter.status).accent
+                        )}
+                      />
                     </div>
-                    <div className="mt-1 flex items-baseline gap-1">
-                      <span className="font-mono text-lg font-semibold leading-none text-foreground">
+                    <div className="mt-1 flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                      <span
+                        className={cn(
+                          'font-mono text-sm font-semibold leading-none min-[380px]:text-base sm:text-lg',
+                          getKeyParameterTone(parameter.status).value
+                        )}
+                      >
                         {parameter.value}
                       </span>
                       {parameter.unit ? (
-                        <span className="text-[10px] text-muted-foreground">{parameter.unit}</span>
+                        <span className="text-[9px] text-muted-foreground sm:text-[10px]">{parameter.unit}</span>
                       ) : null}
                     </div>
                   </div>
@@ -292,15 +425,28 @@ export const DashboardPage: React.FC = () => {
           <Card className="p-3 sm:p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-xl font-semibold">Well Plot Overview</h2>
+                <h2 className="text-lg font-semibold sm:text-xl">Well Plot Overview</h2>
                 <p className="text-sm text-muted-foreground">
                   All priority well plot tracks stay visible on the main dashboard without being compressed.
                 </p>
               </div>
-              <Badge variant="outline">4 tracks visible</Badge>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">4 tracks visible</Badge>
             </div>
-            <div className="overflow-x-auto">
-              <WellPlotPanel showHeader={false} showAllTracks dashboardStretch />
+            <div className="hidden min-[1280px]:block">
+              <WellPlotPanel
+                showHeader={false}
+                showAllTracks
+                dashboardStretch
+                allTracksMinWidth={denseTabletDesktopLayout ? 680 : 860}
+              />
+            </div>
+            <div className="min-[1280px]:hidden">
+              <WellPlotPanel
+                compact
+                showHeader={false}
+                compactDashboardHeightPx={compactDashboardPlotHeight.px}
+                compactDashboardHeightCss={compactDashboardPlotHeight.css}
+              />
             </div>
           </Card>
         </div>

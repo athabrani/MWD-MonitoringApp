@@ -614,7 +614,7 @@ function IconRail({
   return (
     <aside
       className={cn(
-        "sticky top-20 hidden h-[calc(100vh-5rem)] w-[72px] shrink-0 border-r p-3 backdrop-blur lg:flex lg:flex-col",
+        "sticky top-20 hidden h-[calc(100vh-5rem)] w-[56px] shrink-0 border-r px-1.5 py-3 backdrop-blur lg:flex lg:flex-col xl:w-[60px] xl:px-2",
         isDark
           ? "border-white/10 bg-[#0f1b2d]"
           : "border-border/70 bg-card/90"
@@ -745,7 +745,9 @@ function DesktopDetailSidebar({
       className={cn(
         "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0  lg:flex lg:flex-col",
         isDark ? "border-white/10 bg-[#0f1b2d]" : "border-border/70 bg-card",
-        collapsed ? "w-[88px] px-3 py-4" : "w-[300px] px-4 py-4"
+        collapsed
+          ? "w-[64px] px-1.5 py-4 xl:w-[76px] xl:px-2"
+          : "w-[208px] px-2 py-4 xl:w-[228px] xl:px-2.5 2xl:w-[260px]"
       )}
       style={{
         transition: `width 500ms ${softEasing}, padding 500ms ${softEasing}`,
@@ -1140,10 +1142,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             isDark={isDark}
           />
 
-         <main className="min-w-0 flex-1 p-2 md:p-4">
+         <main className="min-w-0 flex-1 p-1.5 md:p-3 xl:p-3">
           <div
             className={cn(
-              "min-h-[calc(100vh-5rem)] min-w-0 overflow-hidden rounded-r-3xl border border-l-0 bg-card p-2 shadow-sm transition-colors duration-300 md:p-4",
+              "min-h-[calc(100vh-5rem)] min-w-0 overflow-hidden rounded-r-3xl border border-l-0 bg-card p-2 shadow-sm transition-colors duration-300 md:p-3 xl:p-3",
               pageThemeClasses[currentPage]
             )}
           >

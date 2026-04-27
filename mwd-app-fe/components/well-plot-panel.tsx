@@ -157,7 +157,7 @@ function MetricHeader({
         compact
           ? "grid grid-cols-[22px_1fr_32px] items-center gap-1 text-[8px] leading-none"
           : dense
-            ? "grid grid-cols-[22px_1fr_34px] items-center gap-1 text-[8px] leading-none sm:grid-cols-[24px_1fr_38px] sm:text-[9px]"
+            ? "grid grid-cols-[18px_1fr_28px] items-center gap-1 text-[7px] leading-none sm:grid-cols-[20px_1fr_32px] sm:text-[8px] lg:grid-cols-[22px_1fr_34px]"
           : "grid grid-cols-[28px_1fr_40px] items-center gap-1 text-[9px] leading-none sm:grid-cols-[32px_1fr_48px] sm:text-[10px] lg:grid-cols-[36px_1fr_54px] lg:text-[11px]"
       }
     >
@@ -190,7 +190,7 @@ function DepthScale({
   const widthClass = compact
     ? "w-[52px]"
     : dense
-      ? "w-[54px] sm:w-[58px] lg:w-[64px]"
+      ? "w-[46px] sm:w-[48px] lg:w-[52px]"
       : "w-[64px] sm:w-[72px] lg:w-[84px]";
 
   return (
@@ -205,7 +205,7 @@ function DepthScale({
                 compact
                   ? "text-[8px] font-semibold tabular-nums text-slate-700 dark:text-slate-200"
                   : dense
-                    ? "text-[8px] font-semibold tabular-nums text-slate-700 sm:text-[9px] dark:text-slate-200"
+                    ? "text-[7px] font-semibold tabular-nums text-slate-700 sm:text-[8px] dark:text-slate-200"
                   : "text-[9px] font-semibold tabular-nums text-slate-700 sm:text-[10px] lg:text-[11px] dark:text-slate-200"
               }
             >
@@ -216,7 +216,7 @@ function DepthScale({
                 compact
                   ? "text-[7px] tabular-nums text-slate-500 dark:text-slate-400"
                   : dense
-                    ? "text-[7px] tabular-nums text-slate-500 sm:text-[8px] dark:text-slate-400"
+                    ? "text-[6px] tabular-nums text-slate-500 sm:text-[7px] dark:text-slate-400"
                   : "text-[8px] tabular-nums text-slate-500 sm:text-[9px] lg:text-[10px] dark:text-slate-400"
               }
             >
@@ -285,13 +285,13 @@ function WellPlotTrack({
   const headerHeightClass = compact
     ? "h-[56px]"
     : dense
-      ? "h-[72px] sm:h-[76px] lg:h-[82px]"
+      ? "h-[64px] sm:h-[68px] lg:h-[72px]"
       : "h-[80px] sm:h-[70px] lg:h-[90px]";
-  const footerHeightClass = compact ? "min-h-[34px]" : dense ? "min-h-[56px]" : "min-h-[64px]";
+  const footerHeightClass = compact ? "min-h-[34px]" : dense ? "min-h-[48px]" : "min-h-[64px]";
   const depthOffsetClass = compact
     ? "left-[52px]"
     : dense
-      ? "left-[54px] sm:left-[58px] lg:left-[64px]"
+      ? "left-[46px] sm:left-[48px] lg:left-[52px]"
       : "left-[64px] sm:left-[72px] lg:left-[84px]";
 
   return (
@@ -303,7 +303,7 @@ function WellPlotTrack({
       }
     >
       <div
-        className={`border-b border-slate-300 bg-slate-100 ${dense ? "px-1.5 py-1.5" : "px-2 py-2"} dark:border-slate-700 dark:bg-slate-900 ${headerHeightClass}`}
+        className={`border-b border-slate-300 bg-slate-100 ${dense ? "px-1 py-1" : "px-2 py-2"} dark:border-slate-700 dark:bg-slate-900 ${headerHeightClass}`}
       >
         <div className="flex h-full flex-col justify-start space-y-1">
           {track.metrics.map((metric) => (
@@ -338,7 +338,7 @@ function WellPlotTrack({
       </div>
 
       <div
-        className={`border-t border-slate-300 ${dense ? "px-1.5 py-1.5" : "px-2 py-2"} dark:border-slate-700 ${footerHeightClass}`}
+        className={`border-t border-slate-300 ${dense ? "px-1 py-1" : "px-2 py-2"} dark:border-slate-700 ${footerHeightClass}`}
       >
         <div
           className={cn(
@@ -346,7 +346,7 @@ function WellPlotTrack({
             compact
               ? "gap-y-1 text-[8px]"
               : dense
-                ? "gap-y-1 text-[8px] sm:text-[9px]"
+                ? "gap-y-1 text-[7px] sm:text-[8px]"
                 : "gap-y-1.5 text-[9px] sm:text-[10px] lg:text-[11px]",
             "text-slate-500 dark:text-slate-400"
           )}
@@ -413,19 +413,34 @@ export function WellPlotPanel({
   showHeader = true,
   showAllTracks = false,
   dashboardStretch = false,
+  compactDashboardHeightPx,
+  compactDashboardHeightCss,
+  allTracksMinWidth,
 }: {
   compact?: boolean;
   showHeader?: boolean;
   showAllTracks?: boolean;
   dashboardStretch?: boolean;
+  compactDashboardHeightPx?: number;
+  compactDashboardHeightCss?: string;
+  allTracksMinWidth?: number;
 }) {
   const [activePlotId, setActivePlotId] = useState<string>(wellPlotTracks[0].id);
 
-  const plotHeightPx = compact ? 520 : dashboardStretch ? 1320 : 1120;
-  const plotHeightCss = compact
-    ? "clamp(360px, 52vh, 520px)"
+  const compactDashboardMode = compact && !showHeader;
+  const plotHeightPx = compact
+    ? compactDashboardMode
+      ? (compactDashboardHeightPx ?? 760)
+      : 640
     : dashboardStretch
-      ? "clamp(860px, calc(100vh - 140px), 1480px)"
+      ? 1500
+      : 1320;
+  const plotHeightCss = compact
+    ? compactDashboardMode
+      ? (compactDashboardHeightCss ?? "clamp(520px, 72vh, 820px)")
+      : "clamp(420px, 60vh, 640px)"
+    : dashboardStretch
+      ? "clamp(980px, calc(100vh - 120px), 1480px)"
       : "clamp(720px, calc(100vh - 180px), 1280px)";
 
   const activeTrack = useMemo(
@@ -491,7 +506,10 @@ export function WellPlotPanel({
         </Card>
       ) : showAllTracks ? (
         <Card className="overflow-hidden p-0">
-          <div className="grid min-w-[860px] grid-cols-4 divide-x divide-slate-300 dark:divide-slate-700">
+          <div
+            className="grid grid-cols-4 divide-x divide-slate-300 dark:divide-slate-700"
+            style={{ minWidth: allTracksMinWidth ? `${allTracksMinWidth}px` : undefined }}
+          >
             {wellPlotTracks.map((track) => (
               <WellPlotTrack
                 key={track.id}
