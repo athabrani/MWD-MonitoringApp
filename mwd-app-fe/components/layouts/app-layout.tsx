@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   LayoutDashboard,
   LineChart,
+  Activity,
   Bell,
   History,
   Download,
@@ -48,6 +49,12 @@ export type AppPage =
   | "dashboard"
   | "configuration"
   | "configuration-wellplan-surveys"
+  | "monitoring"
+  | "monitoring-rig-wits"
+  | "monitoring-aux-port"
+  | "data-management"
+  | "data-management-survey-data"
+  | "data-management-log-data"
   | "trajectory"
   | "trajectory-well-plot"
   | "trajectory-analysis"
@@ -79,7 +86,18 @@ const navigationItems: NavigationItem[] = [
     icon: LayoutDashboard,
     roles: ["operator", "engineer", "admin"],
   },
- 
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    icon: Activity,
+    roles: ["operator", "engineer", "admin"],
+  },
+  {
+    id: "data-management",
+    label: "Data Management",
+    icon: Download,
+    roles: ["operator", "engineer", "admin"],
+  },
   {
     id: "trajectory-analysis",
     label: "Trajectory Analysis",
@@ -146,6 +164,12 @@ const pageThemeClasses: Record<AppPage, string> = {
   dashboard: "page-surface page-dashboard",
   configuration: "page-surface page-settings",
   "configuration-wellplan-surveys": "page-surface page-settings",
+  monitoring: "page-surface page-dashboard",
+  "monitoring-rig-wits": "page-surface page-dashboard",
+  "monitoring-aux-port": "page-surface page-dashboard",
+  "data-management": "page-surface page-history",
+  "data-management-survey-data": "page-surface page-history",
+  "data-management-log-data": "page-surface page-history",
   trajectory: "page-surface page-trajectory",
   "trajectory-well-plot": "page-surface page-trajectory",
   "trajectory-analysis": "page-surface page-trajectory",
@@ -168,6 +192,18 @@ export function getAppPagePath(page: AppPage): string {
       return "/configuration";
     case "configuration-wellplan-surveys":
       return "/configuration/wellplan-surveys";
+    case "monitoring":
+      return "/monitoring/rig-wits";
+    case "monitoring-rig-wits":
+      return "/monitoring/rig-wits";
+    case "monitoring-aux-port":
+      return "/monitoring/aux-port";
+    case "data-management":
+      return "/data-management/survey-data";
+    case "data-management-survey-data":
+      return "/data-management/survey-data";
+    case "data-management-log-data":
+      return "/data-management/log-data";
     case "trajectory":
     case "trajectory-analysis":
       return "/trajectory";
@@ -192,9 +228,29 @@ export function getAppPagePath(page: AppPage): string {
   }
 }
 
+function getDefaultPage(page: AppPage): AppPage {
+  switch (page) {
+    case "monitoring":
+      return "monitoring-rig-wits";
+    case "data-management":
+      return "data-management-survey-data";
+    default:
+      return page;
+  }
+}
+
 function getParentSection(page: AppPage): AppPage {
   if (page === "configuration-wellplan-surveys") {
     return "configuration";
+  }
+  if (page === "monitoring-rig-wits" || page === "monitoring-aux-port") {
+    return "monitoring";
+  }
+  if (
+    page === "data-management-survey-data" ||
+    page === "data-management-log-data"
+  ) {
+    return "data-management";
   }
   if (
     page === "trajectory" ||
@@ -274,6 +330,56 @@ function getSectionMeta(activeSection: AppPage) {
                 id: "export" as AppPage,
                 label: "Export Center",
                 description: "Output staging for reports and future LAS workflows",
+                icon: Download,
+              },
+            ],
+          },
+        ],
+      };
+
+    case "monitoring":
+      return {
+        title: "Monitoring",
+        subtitle: "Rig WITS and AUX runtime traffic diagnostics",
+        sections: [
+          {
+            title: "Monitoring Views",
+            items: [
+              {
+                id: "monitoring-rig-wits" as AppPage,
+                label: "Rig WITS",
+                description: "Incoming and outgoing rig packet traffic",
+                icon: Activity,
+              },
+              {
+                id: "monitoring-aux-port" as AppPage,
+                label: "Aux Port",
+                description: "Decoded AUX packet monitoring",
+                icon: Activity,
+              },
+            ],
+          },
+        ],
+      };
+
+    case "data-management":
+      return {
+        title: "Data Management",
+        subtitle: "Survey workflow and stored WITS data editing",
+        sections: [
+          {
+            title: "Data Workflows",
+            items: [
+              {
+                id: "data-management-survey-data" as AppPage,
+                label: "Survey Data",
+                description: "Survey input, projection, plotting, and storage config",
+                icon: Download,
+              },
+              {
+                id: "data-management-log-data" as AppPage,
+                label: "Log Data",
+                description: "Stored WITS data editor and batch tools",
                 icon: Download,
               },
             ],
@@ -970,8 +1076,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   const handleNavigate = (page: AppPage) => {
-    setActiveSection(getParentSection(page));
-    onNavigate(page);
+    const targetPage = getDefaultPage(page);
+    setActiveSection(getParentSection(targetPage));
+    onNavigate(targetPage);
     setMobileMenuOpen(false);
   };
 

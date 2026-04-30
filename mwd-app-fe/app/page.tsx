@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button";
 
 import { X, Download, RefreshCw } from "lucide-react";
 
-import { AppLayout } from "@/components/layouts/app-layout";
+import { AppLayout, AppPage } from "@/components/layouts/app-layout";
+import RigWitsPage from "./monitoring/rig-wits/page";
+import AuxPortPage from "./monitoring/aux-port/page";
+import SurveyDataPage from "./data-management/survey-data/page";
+import LogDataPage from "./data-management/log-data/page";
 
 import LoginPage from "./login/page";
 import DashboardPage from "./dashboard/page";
@@ -34,21 +38,7 @@ const AppContent: React.FC = () => {
     settings,
   } = useApp();
 
-  const [currentPage, setCurrentPage] = useState<
-    | "dashboard"
-    | "configuration"
-    | "configuration-wellplan-surveys"
-    | "trajectory"
-    | "trajectory-analysis"
-    | "trajectory-well-plot"
-    | "charts"
-    | "alerts"
-    | "history"
-    | "export"
-    | "settings"
-    | "admin"
-    | "help"
-  >("dashboard");
+  const [currentPage, setCurrentPage] = useState<AppPage>("dashboard");
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -80,6 +70,18 @@ const AppContent: React.FC = () => {
         return <ConfigurationPage onNavigate={setCurrentPage} />;
       case "configuration-wellplan-surveys":
         return <WellplanSurveysPage onNavigate={setCurrentPage} />;
+      case "monitoring":
+        return <RigWitsPage onNavigate={setCurrentPage} />;
+      case "monitoring-rig-wits":
+        return <RigWitsPage onNavigate={setCurrentPage} />;
+      case "monitoring-aux-port":
+        return <AuxPortPage onNavigate={setCurrentPage} />;
+      case "data-management":
+        return <SurveyDataPage onNavigate={setCurrentPage} />;
+      case "data-management-survey-data":
+        return <SurveyDataPage onNavigate={setCurrentPage} />;
+      case "data-management-log-data":
+        return <LogDataPage onNavigate={setCurrentPage} />;
       case "trajectory":
       case "trajectory-well-plot":
         return <WellPlotPage/>;

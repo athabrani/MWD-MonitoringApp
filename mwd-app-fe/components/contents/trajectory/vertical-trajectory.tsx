@@ -1,7 +1,9 @@
+'use client';
+
 import React, { useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { TrajectoryData, TrajectoryPoint } from '../types';
+import { TrajectoryData, TrajectoryPoint } from '@/types';
 import { cn } from '@/lib/utils';
 
 interface VerticalTrajectoryProps {

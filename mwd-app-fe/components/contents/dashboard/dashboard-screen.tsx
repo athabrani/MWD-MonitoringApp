@@ -1,9 +1,11 @@
+'use client';
+
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { KPICard } from '@/components/kpi-card';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
-import { EventStream } from '@/components/section/dashboard/event-stream';
+import { EventStream } from '@/components/event-stream';
 import { ConnectionStatus } from '@/components/connection-status';
 import { ToolfaceIndicator } from '@/components/toolface-indicator';
 import { Button } from '@/components/ui/button';

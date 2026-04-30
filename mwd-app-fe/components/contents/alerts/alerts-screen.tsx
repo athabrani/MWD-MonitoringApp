@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { Card } from '@/components/ui/card';
@@ -8,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Event } from '@/lib/types';
+import { Event } from '@/types';
 import { AlertCircle, AlertTriangle, Check, Search, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
