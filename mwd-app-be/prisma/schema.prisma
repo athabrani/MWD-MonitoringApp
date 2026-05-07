@@ -121,19 +121,45 @@ model ExportRecord {
 }
 
 model MWDData {
-  id            BigInt    @id @default(autoincrement())
-  sessionId     Int
-  measuredAt    DateTime
-  depthMd       Decimal?  @db.Decimal(12, 4)
-  inclination   Decimal?  @db.Decimal(8, 4)
-  azimuth       Decimal?  @db.Decimal(8, 4)
-  gammaRay      Decimal?  @db.Decimal(10, 4)
-  rop           Decimal?  @db.Decimal(10, 4)
-  hookLoad      Decimal?  @db.Decimal(10, 4)
-  standpipePressure Decimal? @db.Decimal(10, 4)
-  createdAt     DateTime  @default(now())
+  id                    BigInt    @id @default(autoincrement())
+  sessionId             Int
+  measuredAt            DateTime
+  depthMd               Decimal?  @db.Decimal(12, 4)
+  inclination           Decimal?  @db.Decimal(8, 4)
+  continuousInclination Decimal?  @db.Decimal(8, 4)
+  azimuth               Decimal?  @db.Decimal(8, 4)
+  continuousAzimuth     Decimal?  @db.Decimal(8, 4)
+  rawSensorAx           Decimal?  @db.Decimal(12, 4)
+  rawSensorAy           Decimal?  @db.Decimal(12, 4)
+  rawSensorAz           Decimal?  @db.Decimal(12, 4)
+  rawSensorMx           Decimal?  @db.Decimal(12, 4)
+  rawSensorMy           Decimal?  @db.Decimal(12, 4)
+  rawSensorMz           Decimal?  @db.Decimal(12, 4)
+  magneticToolface      Decimal?  @db.Decimal(8, 4)
+  gravityToolface       Decimal?  @db.Decimal(8, 4)
+  totalGravity          Decimal?  @db.Decimal(12, 4)
+  dipAngle              Decimal?  @db.Decimal(8, 4)
+  magneticField         Decimal?  @db.Decimal(12, 4)
+  gammaRay              Decimal?  @db.Decimal(10, 4)
+  batteryVoltage        Decimal?  @db.Decimal(10, 4)
+  battery2OnOff         Decimal?  @db.Decimal(10, 4)
+  rotationSpeed         Decimal?  @db.Decimal(10, 4)
+  shock                 Decimal?  @db.Decimal(10, 4)
+  vibration             Decimal?  @db.Decimal(10, 4)
+  genericVariable0      Decimal?  @db.Decimal(12, 4)
+  genericVariable1      Decimal?  @db.Decimal(12, 4)
+  genericVariable2      Decimal?  @db.Decimal(12, 4)
+  genericVariable3      Decimal?  @db.Decimal(12, 4)
+  genericVariable4      Decimal?  @db.Decimal(12, 4)
+  genericVariable5      Decimal?  @db.Decimal(12, 4)
+  genericVariable6      Decimal?  @db.Decimal(12, 4)
+  genericVariable7      Decimal?  @db.Decimal(12, 4)
+  rop                   Decimal?  @db.Decimal(10, 4)
+  hookLoad              Decimal?  @db.Decimal(10, 4)
+  standpipePressure     Decimal?  @db.Decimal(10, 4)
+  createdAt             DateTime  @default(now())
 
-  session       MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([sessionId])
   @@index([measuredAt])
@@ -158,4 +184,3 @@ model Websocket {
   @@index([clientId])
   @@map("Websocket")
 }
-

@@ -12,10 +12,10 @@ const router = Router();
 
 router.use(authenticate);
 
-router.post("/", authorize("Engineer"), createConnectionStatus);
+router.post("/", authorize("admin", "engineer"), createConnectionStatus);
 router.get("/", getAllConnectionStatuses);
 router.get("/:id", getConnectionStatusById);
-router.put("/:id", authorize("Engineer"), updateConnectionStatus);
-router.delete("/:id", authorize("Engineer"), deleteConnectionStatus);
+router.put("/:id", authorize("admin", "engineer"), updateConnectionStatus);
+router.delete("/:id", authorize("admin", "engineer"), deleteConnectionStatus);
 
 export default router;

@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
+import { normalizeRoleName } from "../utils/roles.js";
 
 type JwtPayload = {
   userId: number;
@@ -55,7 +56,7 @@ export const login = async (identifier: string, password: string) => {
     roleId: user.roleId,
     username: user.username,
     email: user.email,
-    roleName: user.role.name,
+    roleName: normalizeRoleName(user.role.name),
   };
 
   const token = jwt.sign(payload, getJwtSecret(), { expiresIn: "1d" });

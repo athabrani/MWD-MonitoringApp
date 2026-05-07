@@ -1,6 +1,11 @@
 import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import * as roleService from "../services/role.service.js";
+import {
+  ALL_SYSTEM_ROLE_NAMES,
+  isSystemRoleName,
+  normalizeRoleName,
+} from "../utils/roles.js";
 
 const parseRoleId = (idParam: string) => {
   const id = Number(idParam);
@@ -15,7 +20,15 @@ export const createRole = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Name is required" });
     }
 
-    const role = await roleService.createRole(name.trim());
+    const normalizedName = normalizeRoleName(name);
+
+    if (!isSystemRoleName(normalizedName)) {
+      return res.status(400).json({
+        message: `Role must be one of: ${ALL_SYSTEM_ROLE_NAMES.join(", ")}`,
+      });
+    }
+
+    const role = await roleService.createRole(normalizedName);
     res.status(201).json(role);
   } catch (error: unknown) {
     if (
@@ -33,7 +46,9 @@ export const createRole = async (req: Request, res: Response) => {
 
 export const getAllRoles = async (_req: Request, res: Response) => {
   try {
-    const roles = await roleService.getAllRoles();
+    const roles = (await roleService.getAllRoles()).filter((role) =>
+      isSystemRoleName(role.name),
+    );
     res.json(roles);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -77,7 +92,15 @@ export const updateRole = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Name is required" });
     }
 
-    const role = await roleService.updateRole(id, name.trim());
+    const normalizedName = normalizeRoleName(name);
+
+    if (!isSystemRoleName(normalizedName)) {
+      return res.status(400).json({
+        message: `Role must be one of: ${ALL_SYSTEM_ROLE_NAMES.join(", ")}`,
+      });
+    }
+
+    const role = await roleService.updateRole(id, normalizedName);
     res.json(role);
   } catch (error: unknown) {
     if (
@@ -107,6 +130,18 @@ export const deleteRole = async (req: Request, res: Response) => {
 
     if (id === null) {
       return res.status(400).json({ message: "Invalid role id" });
+    }
+
+    const role = await roleService.getRoleById(id);
+
+    if (!role) {
+      return res.status(404).json({ message: "Role not found" });
+    }
+
+    if (isSystemRoleName(role.name)) {
+      return res.status(400).json({
+        message: "System roles cannot be deleted",
+      });
     }
 
     await roleService.deleteRole(id);

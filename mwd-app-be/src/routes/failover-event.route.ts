@@ -12,10 +12,10 @@ const router = Router();
 
 router.use(authenticate);
 
-router.post("/", authorize("Engineer"), createFailoverEvent);
+router.post("/", authorize("admin", "engineer"), createFailoverEvent);
 router.get("/", getAllFailoverEvents);
 router.get("/:id", getFailoverEventById);
-router.put("/:id", authorize("Engineer"), updateFailoverEvent);
-router.delete("/:id", authorize("Engineer"), deleteFailoverEvent);
+router.put("/:id", authorize("admin", "engineer"), updateFailoverEvent);
+router.delete("/:id", authorize("admin", "engineer"), deleteFailoverEvent);
 
 export default router;

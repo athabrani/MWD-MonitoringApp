@@ -1,19 +1,23 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import {
+  MWD_MEASUREMENT_FIELDS,
+  type MWDMeasurementInput,
+} from "../utils/mwd-measurements.js";
 
 type PrismaDbClient = PrismaClient | Prisma.TransactionClient;
+
+const mwdMeasurementSelect = Object.fromEntries(
+  MWD_MEASUREMENT_FIELDS.map((fieldName) => [fieldName, true]),
+) as {
+  [Field in (typeof MWD_MEASUREMENT_FIELDS)[number]]: true;
+};
 
 const mwdDataSelect = {
   id: true,
   sessionId: true,
   measuredAt: true,
-  depthMd: true,
-  inclination: true,
-  azimuth: true,
-  gammaRay: true,
-  rop: true,
-  hookLoad: true,
-  standpipePressure: true,
+  ...mwdMeasurementSelect,
   createdAt: true,
   session: {
     select: {
@@ -42,26 +46,12 @@ const mwdDataSelect = {
 type MWDDataInput = {
   sessionId: number;
   measuredAt: Date;
-  depthMd?: number | string | null;
-  inclination?: number | string | null;
-  azimuth?: number | string | null;
-  gammaRay?: number | string | null;
-  rop?: number | string | null;
-  hookLoad?: number | string | null;
-  standpipePressure?: number | string | null;
-};
+} & MWDMeasurementInput;
 
 type MWDDataUpdateInput = {
   sessionId?: number;
   measuredAt?: Date;
-  depthMd?: number | string | null;
-  inclination?: number | string | null;
-  azimuth?: number | string | null;
-  gammaRay?: number | string | null;
-  rop?: number | string | null;
-  hookLoad?: number | string | null;
-  standpipePressure?: number | string | null;
-};
+} & MWDMeasurementInput;
 
 export const createMWDData = async (
   input: MWDDataInput,

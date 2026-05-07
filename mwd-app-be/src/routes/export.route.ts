@@ -7,7 +7,7 @@ import { authenticate, authorize } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.use(authenticate, authorize("Engineer"));
+router.use(authenticate, authorize("admin", "engineer"));
 
 router.post("/historical", exportHistoricalData);
 router.get("/records", getExportRecords);
