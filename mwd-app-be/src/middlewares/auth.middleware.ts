@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import * as authService from "../services/auth.service.js";
+import { hasRole } from "../utils/roles.js";
 
 export type AuthenticatedUser = {
   userId: number;
@@ -43,7 +44,7 @@ export const authorize = (...allowedRoles: string[]) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    if (!allowedRoles.includes(user.roleName)) {
+    if (!hasRole(user.roleName, allowedRoles)) {
       return res.status(403).json({ message: "Forbidden" });
     }
 

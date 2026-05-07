@@ -11,6 +11,7 @@ import mwdDataRoutes from "./routes/mwd-data.route.js";
 import mwdSessionRoutes from "./routes/mwd-session.route.js";
 import roleRoutes from "./routes/role.route.js";
 import userRoutes from "./routes/user.route.js";
+import { syncSystemRoles } from "./services/role.service.js";
 
 const app = express();
 const PORT = 5001;
@@ -38,6 +39,17 @@ app.use("/api/mwd-sessions", mwdSessionRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/users", userRoutes);
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const startServer = async () => {
+  await syncSystemRoles();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+};
+
+startServer().catch((error: unknown) => {
+  const message =
+    error instanceof Error ? error.message : "Unknown server startup error";
+  console.error(`Failed to start server: ${message}`);
+  process.exit(1);
 });

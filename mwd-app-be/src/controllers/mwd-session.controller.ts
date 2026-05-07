@@ -2,6 +2,11 @@ import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as sessionService from "../services/mwd-session.service.js";
+import {
+  canAccessSessionOwner,
+  canModifyMonitoringData,
+  canViewAllSessions,
+} from "../utils/roles.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -44,7 +49,7 @@ const canAccessSession = (
   sessionUserId: number,
 ) => {
   const user = (req as AuthenticatedRequest).user;
-  return !!user && (user.roleName === "Engineer" || user.userId === sessionUserId);
+  return !!user && canAccessSessionOwner(user.roleName, user.userId, sessionUserId);
 };
 
 const handleSessionWriteError = (error: unknown, res: Response) => {
@@ -84,6 +89,10 @@ export const createSession = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    if (!canModifyMonitoringData(authUser.roleName)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     const sessionCode = normalizeString(req.body?.sessionCode);
     const wellName = normalizeString(req.body?.wellName);
     const rigName = normalizeString(req.body?.rigName);
@@ -116,7 +125,7 @@ export const createSession = async (req: Request, res: Response) => {
     }
 
     const userId =
-      authUser.roleName === "Engineer" && requestedUserId !== null
+      canViewAllSessions(authUser.roleName) && requestedUserId !== null
         ? requestedUserId
         : authUser.userId;
 
@@ -167,7 +176,7 @@ export const getAllSessions = async (req: Request, res: Response) => {
     }
 
     const sessions = await sessionService.getAllSessions(
-      authUser.roleName === "Engineer" ? undefined : authUser.userId,
+      canViewAllSessions(authUser.roleName) ? undefined : authUser.userId,
     );
 
     res.json(sessions);
@@ -215,6 +224,10 @@ export const updateSession = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    if (!canModifyMonitoringData(authUser.roleName)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     if (id === null) {
       return res.status(400).json({ message: "Invalid session id" });
     }
@@ -240,7 +253,7 @@ export const updateSession = async (req: Request, res: Response) => {
     } = {};
 
     if (req.body?.userId !== undefined) {
-      if (authUser.roleName !== "Engineer") {
+      if (!canViewAllSessions(authUser.roleName)) {
         return res.status(403).json({ message: "Forbidden" });
       }
 

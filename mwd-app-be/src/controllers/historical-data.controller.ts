@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as historicalDataService from "../services/historical-data.service.js";
 import * as sessionService from "../services/mwd-session.service.js";
+import { canAccessSessionOwner, canViewAllSessions } from "../utils/roles.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -98,13 +99,15 @@ export const getHistoricalData = async (req: Request, res: Response) => {
         return res.status(404).json({ message: "Session not found" });
       }
 
-      if (authUser.roleName !== "Engineer" && session.userId !== authUser.userId) {
+      if (
+        !canAccessSessionOwner(authUser.roleName, authUser.userId, session.userId)
+      ) {
         return res.status(403).json({ message: "Forbidden" });
       }
     }
 
     const sessionIds =
-      authUser.roleName === "Engineer"
+      canViewAllSessions(authUser.roleName)
         ? undefined
         : (await sessionService.getAllSessions(authUser.userId)).map((session) => session.id);
 

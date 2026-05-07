@@ -3,82 +3,124 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const systemRoles = ["admin", "engineer", "operator"];
+
+const normalizeRoleName = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "user") {
+    return "operator";
+  }
+
+  return normalized;
+};
+
+const syncSystemRoles = async () => {
+  const existingRoles = await prisma.role.findMany({
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  const groupedRoles = new Map();
+
+  for (const role of existingRoles) {
+    const canonicalRoleName = normalizeRoleName(role.name);
+
+    if (!systemRoles.includes(canonicalRoleName)) {
+      continue;
+    }
+
+    const existingGroup = groupedRoles.get(canonicalRoleName) ?? [];
+    existingGroup.push(role);
+    groupedRoles.set(canonicalRoleName, existingGroup);
+  }
+
+  for (const roleName of systemRoles) {
+    const matchingRoles = groupedRoles.get(roleName) ?? [];
+
+    if (matchingRoles.length === 0) {
+      await prisma.role.create({
+        data: { name: roleName },
+      });
+      continue;
+    }
+
+    let canonicalRole =
+      matchingRoles.find((role) => role.name === roleName) ?? matchingRoles[0];
+
+    if (canonicalRole.name !== roleName) {
+      canonicalRole = await prisma.role.update({
+        where: { id: canonicalRole.id },
+        data: { name: roleName },
+        select: {
+          id: true,
+          name: true,
+        },
+      });
+    }
+
+    for (const duplicateRole of matchingRoles) {
+      if (duplicateRole.id === canonicalRole.id) {
+        continue;
+      }
+
+      await prisma.user.updateMany({
+        where: { roleId: duplicateRole.id },
+        data: { roleId: canonicalRole.id },
+      });
+
+      await prisma.role.delete({
+        where: { id: duplicateRole.id },
+      });
+    }
+  }
+};
+
 async function main() {
-  const defaultRoles = ["Engineer", "Operator"];
+  await syncSystemRoles();
 
-  for (const name of defaultRoles) {
-    await prisma.role.upsert({
-      where: { name },
-      update: {},
-      create: { name },
-    });
-  }
-
+  const adminRole = await prisma.role.findUnique({
+    where: { name: "admin" },
+  });
   const engineerRole = await prisma.role.findUnique({
-    where: { name: "Engineer" },
+    where: { name: "engineer" },
   });
 
-  if (!engineerRole) {
-    throw new Error("Engineer role not found after seeding roles");
+  if (!adminRole || !engineerRole) {
+    throw new Error("System roles were not created successfully");
   }
 
-  const operatorRole = await prisma.role.findUnique({
-    where: { name: "Operator" },
+  const adminUsername = process.env.ADMIN_USERNAME ?? "admin";
+  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@example.com";
+  const adminPassword = process.env.ADMIN_PASSWORD ?? "admin12345";
+  const engineerUsername = process.env.ENGINEER_USERNAME ?? "engineer";
+  const engineerEmail = process.env.ENGINEER_EMAIL ?? "engineer@example.com";
+  const engineerPassword = process.env.ENGINEER_PASSWORD ?? "engineer12345";
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
+  const engineerPasswordHash = await bcrypt.hash(engineerPassword, 10);
+
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      username: adminUsername,
+      roleId: adminRole.id,
+      isActive: true,
+    },
+    create: {
+      roleId: adminRole.id,
+      username: adminUsername,
+      email: adminEmail,
+      passwordHash: adminPasswordHash,
+      isActive: true,
+    },
   });
-
-  if (!operatorRole) {
-    throw new Error("Operator role not found after seeding roles");
-  }
-
-  const legacyAdminRole = await prisma.role.findUnique({
-    where: { name: "Admin" },
-  });
-
-  if (legacyAdminRole) {
-    await prisma.user.updateMany({
-      where: { roleId: legacyAdminRole.id },
-      data: { roleId: engineerRole.id },
-    });
-
-    const remainingAdminUsers = await prisma.user.count({
-      where: { roleId: legacyAdminRole.id },
-    });
-
-    if (remainingAdminUsers === 0) {
-      await prisma.role.delete({
-        where: { id: legacyAdminRole.id },
-      });
-    }
-  }
-
-  const legacyUserRole = await prisma.role.findUnique({
-    where: { name: "User" },
-  });
-
-  if (legacyUserRole) {
-    await prisma.user.updateMany({
-      where: { roleId: legacyUserRole.id },
-      data: { roleId: operatorRole.id },
-    });
-
-    const remainingStandardUsers = await prisma.user.count({
-      where: { roleId: legacyUserRole.id },
-    });
-
-    if (remainingStandardUsers === 0) {
-      await prisma.role.delete({
-        where: { id: legacyUserRole.id },
-      });
-    }
-  }
-
-  const engineerUsername =
-    process.env.ENGINEER_USERNAME ?? process.env.ADMIN_USERNAME ?? "engineer";
-  const engineerEmail =
-    process.env.ENGINEER_EMAIL ?? process.env.ADMIN_EMAIL ?? "engineer@example.com";
-  const engineerPassword =
-    process.env.ENGINEER_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "engineer12345";
-  const passwordHash = await bcrypt.hash(engineerPassword, 10);
 
   await prisma.user.upsert({
     where: { email: engineerEmail },
@@ -91,7 +133,7 @@ async function main() {
       roleId: engineerRole.id,
       username: engineerUsername,
       email: engineerEmail,
-      passwordHash,
+      passwordHash: engineerPasswordHash,
       isActive: true,
     },
   });

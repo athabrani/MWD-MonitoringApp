@@ -1,16 +1,17 @@
 import { prisma } from "../lib/prisma.js";
+import { MWD_MEASUREMENT_FIELDS } from "../utils/mwd-measurements.js";
+
+const historicalMeasurementSelect = Object.fromEntries(
+  MWD_MEASUREMENT_FIELDS.map((fieldName) => [fieldName, true]),
+) as {
+  [Field in (typeof MWD_MEASUREMENT_FIELDS)[number]]: true;
+};
 
 const historicalDataSelect = {
   id: true,
   sessionId: true,
   measuredAt: true,
-  depthMd: true,
-  inclination: true,
-  azimuth: true,
-  gammaRay: true,
-  rop: true,
-  hookLoad: true,
-  standpipePressure: true,
+  ...historicalMeasurementSelect,
   createdAt: true,
   session: {
     select: {

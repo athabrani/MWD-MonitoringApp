@@ -10,10 +10,10 @@ import { authenticate, authorize } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.post("/", authenticate, authorize("Engineer"), createUser);
-router.get("/", authenticate, authorize("Engineer"), getAllUsers);
-router.get("/:id", authenticate, authorize("Engineer"), getUserById);
-router.put("/:id", authenticate, authorize("Engineer"), updateUser);
-router.delete("/:id", authenticate, authorize("Engineer"), deleteUser);
+router.post("/", authenticate, authorize("admin", "engineer"), createUser);
+router.get("/", authenticate, authorize("admin", "engineer"), getAllUsers);
+router.get("/:id", authenticate, authorize("admin", "engineer"), getUserById);
+router.put("/:id", authenticate, authorize("admin", "engineer"), updateUser);
+router.delete("/:id", authenticate, authorize("admin", "engineer"), deleteUser);
 
 export default router;

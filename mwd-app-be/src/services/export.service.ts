@@ -1,15 +1,15 @@
+import {
+  MWD_MEASUREMENT_FIELDS,
+  type MWDMeasurementInput,
+} from "../utils/mwd-measurements.js";
+
 type ExportRow = {
   id: bigint;
   sessionId: number;
   measuredAt: Date;
-  depthMd: unknown;
-  inclination: unknown;
-  azimuth: unknown;
-  gammaRay: unknown;
-  rop: unknown;
-  hookLoad: unknown;
-  standpipePressure: unknown;
   createdAt: Date;
+} & {
+  [Field in keyof MWDMeasurementInput]: unknown;
 };
 
 const toPlainValue = (value: unknown) => {
@@ -54,51 +54,35 @@ export const buildExportFileName = (
 
 export const serializeHistoricalDataAsJson = (rows: ExportRow[]) => {
   return JSON.stringify(
-    rows.map((row) => ({
-      id: toPlainValue(row.id),
-      sessionId: row.sessionId,
-      measuredAt: toPlainValue(row.measuredAt),
-      depthMd: toPlainValue(row.depthMd),
-      inclination: toPlainValue(row.inclination),
-      azimuth: toPlainValue(row.azimuth),
-      gammaRay: toPlainValue(row.gammaRay),
-      rop: toPlainValue(row.rop),
-      hookLoad: toPlainValue(row.hookLoad),
-      standpipePressure: toPlainValue(row.standpipePressure),
-      createdAt: toPlainValue(row.createdAt),
-    })),
+    rows.map((row) => {
+      const serializedRow: Record<string, unknown> = {
+        id: toPlainValue(row.id),
+        sessionId: row.sessionId,
+        measuredAt: toPlainValue(row.measuredAt),
+      };
+
+      for (const fieldName of MWD_MEASUREMENT_FIELDS) {
+        serializedRow[fieldName] = toPlainValue(row[fieldName]);
+      }
+
+      serializedRow.createdAt = toPlainValue(row.createdAt);
+
+      return serializedRow;
+    }),
     null,
     2,
   );
 };
 
 export const serializeHistoricalDataAsCsv = (rows: ExportRow[]) => {
-  const header = [
-    "id",
-    "sessionId",
-    "measuredAt",
-    "depthMd",
-    "inclination",
-    "azimuth",
-    "gammaRay",
-    "rop",
-    "hookLoad",
-    "standpipePressure",
-    "createdAt",
-  ];
+  const header = ["id", "sessionId", "measuredAt", ...MWD_MEASUREMENT_FIELDS, "createdAt"];
 
   const lines = rows.map((row) =>
     [
       row.id,
       row.sessionId,
       row.measuredAt,
-      row.depthMd,
-      row.inclination,
-      row.azimuth,
-      row.gammaRay,
-      row.rop,
-      row.hookLoad,
-      row.standpipePressure,
+      ...MWD_MEASUREMENT_FIELDS.map((fieldName) => row[fieldName]),
       row.createdAt,
     ]
       .map(escapeCsv)
