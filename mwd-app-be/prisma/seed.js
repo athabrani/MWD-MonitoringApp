@@ -111,6 +111,7 @@ async function main() {
     update: {
       username: adminUsername,
       roleId: adminRole.id,
+      passwordHash: adminPasswordHash,
       isActive: true,
     },
     create: {
@@ -127,6 +128,7 @@ async function main() {
     update: {
       username: engineerUsername,
       roleId: engineerRole.id,
+      passwordHash: engineerPasswordHash,
       isActive: true,
     },
     create: {
