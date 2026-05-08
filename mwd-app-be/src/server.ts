@@ -11,6 +11,7 @@ import mwdDataRoutes from "./routes/mwd-data.route.js";
 import mwdSessionRoutes from "./routes/mwd-session.route.js";
 import roleRoutes from "./routes/role.route.js";
 import userRoutes from "./routes/user.route.js";
+import { startEspWebSocketGateway } from "./services/esp-websocket.service.js";
 import { syncSystemRoles } from "./services/role.service.js";
 
 const app = express();
@@ -44,6 +45,7 @@ const startServer = async () => {
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    startEspWebSocketGateway();
   });
 };
 
