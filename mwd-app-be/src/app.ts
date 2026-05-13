@@ -14,6 +14,28 @@ import userRoutes from "./routes/user.route.js";
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 
+const normalizeJsonValue = (value: unknown): unknown => {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizeJsonValue);
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeJsonValue(item)]),
+    );
+  }
+
+  return value;
+};
+
 app.set("json replacer", (_key: string, value: unknown) =>
   typeof value === "bigint" ? value.toString() : value,
 );
@@ -25,6 +47,15 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use((_req, res, next) => {
+  const json = res.json.bind(res);
+
+  res.json = (body?: unknown) => {
+    return json(normalizeJsonValue(body));
+  };
+
+  next();
+});
 
 app.get("/", (_req, res) => {
   res.json({
