@@ -3,10 +3,26 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { EyeOff, FileUp, Filter, MoveHorizontal, Plus, Scale, Search, Trash2 } from "lucide-react";
+import { EyeOff, FileUp, Filter, MoveHorizontal, Plus, Scale, Search } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
+import {
+  LogDataChannelSummary,
+  LogDataMemoryImportPanel,
+} from "@/components/contents/data-management/log-data-memory-import-panel";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { PlaceholderNote, WorkspaceSection } from "@/components/layouts/workspace-section";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,12 +32,19 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { mockLogDataRecords } from "@/data/monitoring-data";
+import { mockPolarisWitsIds } from "@/data/polaris-config";
+import { formatConfiguredWitsId, loadStoredWitsIds } from "@/lib/wits-config-store";
 import { getWitsDescription } from "@/lib/wits-map";
-import { DepthRange, LogDataRecord } from "@/types/monitoring";
+import { DepthRange, LogDataRecord, RescaleMode, RescalePreview, RescaleRequest, RescaleResultSummary } from "@/types/monitoring";
+import { PolarisWitsId } from "@/types/polaris";
 import { cn } from "@/lib/utils";
 
 function withinRange(depth: number, range: DepthRange) {
   return depth >= range.startDepth && depth <= range.endDepth;
+}
+
+function formatRescaleMode(mode: RescaleMode) {
+  return mode === "example-value" ? "Example value" : "Percentage";
 }
 
 export default function LogDataPage({
@@ -31,49 +54,71 @@ export default function LogDataPage({
 }) {
   const router = useRouter();
   const [records, setRecords] = useState<LogDataRecord[]>(mockLogDataRecords);
+  const [configuredWitsIds] = useState<PolarisWitsId[]>(() =>
+    loadStoredWitsIds(mockPolarisWitsIds)
+  );
   const [search, setSearch] = useState("");
   const [selectedWitsId, setSelectedWitsId] = useState<string>(mockLogDataRecords[0]?.witsId ?? "");
+  const [activeLogTab, setActiveLogTab] = useState("edit");
   const [selectedRange, setSelectedRange] = useState<DepthRange>({ startDepth: 3810, endDepth: 3840 });
   const [valueFilter, setValueFilter] = useState({ min: 0, max: 9999 });
   const [moveOffset, setMoveOffset] = useState(5);
   const [copyOffset, setCopyOffset] = useState(10);
-  const [scaleMultiplier, setScaleMultiplier] = useState(1.05);
-  const [scaleBias, setScaleBias] = useState(0);
+  const [rescaleMode, setRescaleMode] = useState<RescaleMode>("example-value");
+  const [originalExampleValue, setOriginalExampleValue] = useState(80);
+  const [desiredExampleValue, setDesiredExampleValue] = useState(95);
+  const [rescalePercentage, setRescalePercentage] = useState(10);
   const [newDepth, setNewDepth] = useState(3855);
   const [newValue, setNewValue] = useState(27.1);
   const [newNotes, setNewNotes] = useState("Manual QA insertion");
 
   const channels = useMemo(() => {
-    const grouped = records.reduce<Record<string, { witsId: string; label: string; count: number; hiddenCount: number }>>(
+    const recordCounts = records.reduce<Record<string, { count: number; hiddenCount: number }>>(
       (accumulator, record) => {
         if (!accumulator[record.witsId]) {
-          accumulator[record.witsId] = {
-            witsId: record.witsId,
-            label: record.label,
-            count: 0,
-            hiddenCount: 0,
-          };
+          accumulator[record.witsId] = { count: 0, hiddenCount: 0 };
         }
-
         accumulator[record.witsId].count += 1;
         if (record.hidden) {
           accumulator[record.witsId].hiddenCount += 1;
         }
-
         return accumulator;
       },
       {}
     );
 
-    return Object.values(grouped).filter((channel) => {
+    return configuredWitsIds.map<LogDataChannelSummary>((config) => {
+      const witsId = formatConfiguredWitsId(config.numericId);
+      const counts = recordCounts[witsId];
+      return {
+        witsId,
+        label: config.name || `WITS ${witsId}`,
+        units: config.units,
+        enabled: config.enabled,
+        count: counts?.count ?? 0,
+        hiddenCount: counts?.hiddenCount ?? 0,
+        decimalPlaces: config.decimalPlaces,
+        scaleFactor: config.scaleFactor,
+        sensorSpacing: config.sensorToBitSpacing,
+        lasMnemonic: config.lasMnemonic,
+        alarmEnabled: config.alarmEnabled,
+        alarmLow: config.alarmLow,
+        alarmHigh: config.alarmHigh,
+        plotName: config.realTimePlot,
+        isMemoryStorage: config.useForMemoryImportStorage,
+        hasRecords: Boolean(counts?.count),
+      };
+    }).filter((channel) => {
       const query = search.trim().toLowerCase();
       if (!query) return true;
       return (
         channel.witsId.toLowerCase().includes(query) ||
-        channel.label.toLowerCase().includes(query)
+        channel.label.toLowerCase().includes(query) ||
+        channel.units.toLowerCase().includes(query) ||
+        channel.lasMnemonic.toLowerCase().includes(query)
       );
     });
-  }, [records, search]);
+  }, [configuredWitsIds, records, search]);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.witsId === selectedWitsId) ?? channels[0] ?? null,
@@ -90,6 +135,69 @@ export default function LogDataPage({
       .filter((record) => record.value >= valueFilter.min && record.value <= valueFilter.max)
       .sort((left, right) => left.depth - right.depth);
   }, [records, selectedChannel, valueFilter.max, valueFilter.min]);
+
+  const rescaleScaleFactor = useMemo(() => {
+    if (rescaleMode === "example-value") {
+      if (originalExampleValue === 0) {
+        return 0;
+      }
+
+      return desiredExampleValue / originalExampleValue;
+    }
+
+    return 1 + rescalePercentage / 100;
+  }, [desiredExampleValue, originalExampleValue, rescaleMode, rescalePercentage]);
+
+  const rescaleAffectedRecords = useMemo(() => {
+    if (!selectedChannel) {
+      return [];
+    }
+
+    return records
+      .filter((record) => record.witsId === selectedChannel.witsId && withinRange(record.depth, selectedRange))
+      .sort((left, right) => left.depth - right.depth);
+  }, [records, selectedChannel, selectedRange]);
+
+  const rescalePreview: RescalePreview[] = useMemo(
+    () =>
+      rescaleAffectedRecords.slice(0, 8).map((record) => ({
+        recordId: record.id,
+        depth: record.depth,
+        beforeValue: record.value,
+        afterValue: Number((record.value * rescaleScaleFactor).toFixed(3)),
+      })),
+    [rescaleAffectedRecords, rescaleScaleFactor]
+  );
+
+  const rescaleRequest: RescaleRequest | null = selectedChannel
+    ? {
+        channelWitsId: selectedChannel.witsId,
+        mode: rescaleMode,
+        startDepth: selectedRange.startDepth,
+        endDepth: selectedRange.endDepth,
+        scaleFactor: rescaleScaleFactor,
+        originalExampleValue: rescaleMode === "example-value" ? originalExampleValue : undefined,
+        desiredExampleValue: rescaleMode === "example-value" ? desiredExampleValue : undefined,
+        percentage: rescaleMode === "percentage" ? rescalePercentage : undefined,
+      }
+    : null;
+
+  const rescaleSummary: RescaleResultSummary | null = rescaleRequest
+    ? {
+        channelWitsId: rescaleRequest.channelWitsId,
+        mode: rescaleRequest.mode,
+        scaleFactor: rescaleRequest.scaleFactor,
+        startDepth: rescaleRequest.startDepth,
+        endDepth: rescaleRequest.endDepth,
+        affectedRows: rescaleAffectedRecords.length,
+      }
+    : null;
+
+  const canApplyRescale =
+    Boolean(selectedChannel) &&
+    rescaleAffectedRecords.length > 0 &&
+    Number.isFinite(rescaleScaleFactor) &&
+    rescaleScaleFactor > 0;
 
   const updateSelectedRange = (key: keyof DepthRange, value: number) => {
     setSelectedRange((current) => ({
@@ -163,15 +271,24 @@ export default function LogDataPage({
   };
 
   const handleRescale = () => {
-    runForSelectedChannel((record) =>
-      withinRange(record.depth, selectedRange)
-        ? {
-            ...record,
-            value: Number((record.value * scaleMultiplier + scaleBias).toFixed(3)),
-          }
-        : record
+    if (!selectedChannel || !rescaleSummary || !canApplyRescale) {
+      toast.error("Review rescale settings before applying");
+      return;
+    }
+
+    setRecords((current) =>
+      current.map((record) =>
+        record.witsId === selectedChannel.witsId && withinRange(record.depth, selectedRange)
+          ? {
+              ...record,
+              value: Number((record.value * rescaleScaleFactor).toFixed(3)),
+              notes: `${record.notes ?? ""} Rescaled ${rescaleScaleFactor.toFixed(4)}x`.trim(),
+            }
+          : record
+      )
     );
-    toast.success("Selected values rescaled locally");
+
+    toast.success(`${rescaleSummary.affectedRows} ${selectedChannel.label} rows rescaled locally`);
   };
 
   const handleAddData = () => {
@@ -247,7 +364,14 @@ export default function LogDataPage({
                     </div>
                     <div className="mt-1 text-sm font-medium">{channel.label}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {channel.hiddenCount} hidden rows
+                      {channel.units || "No units"} | {channel.lasMnemonic || "No LAS tag"}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                      <span>{channel.hiddenCount} hidden</span>
+                      <Badge variant={channel.enabled ? "secondary" : "outline"}>
+                        {channel.enabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                      {channel.isMemoryStorage ? <Badge variant="secondary">Memory</Badge> : null}
                     </div>
                   </button>
                 ))}
@@ -262,21 +386,44 @@ export default function LogDataPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary">{selectedChannel?.witsId ?? "No channel"}</Badge>
                     <Badge variant="outline">{selectedChannel?.label ?? "Select a channel"}</Badge>
+                    {selectedChannel?.units ? <Badge variant="outline">{selectedChannel.units}</Badge> : null}
+                    {selectedChannel?.isMemoryStorage ? <Badge variant="secondary">Memory Storage</Badge> : null}
                   </div>
                   <h2 className="mt-3 text-lg font-semibold">{selectedChannel?.label ?? "No channel selected"}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {selectedChannel ? getWitsDescription(selectedChannel.witsId) : "Choose a channel from the left list."}
                   </p>
+                  {selectedChannel ? (
+                    <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                        Decimals: <span className="font-medium text-foreground">{selectedChannel.decimalPlaces}</span>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                        Scale: <span className="font-medium text-foreground">{selectedChannel.scaleFactor}</span>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                        Plot: <span className="font-medium text-foreground">{selectedChannel.plotName}</span>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                        Alarm:{" "}
+                        <span className="font-medium text-foreground">
+                          {selectedChannel.alarmEnabled
+                            ? `${selectedChannel.alarmLow} - ${selectedChannel.alarmHigh}`
+                            : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => toast.message("CSV/LAS import workflow is still scaffolded")}>
+                  <Button variant="outline" onClick={() => setActiveLogTab("memory")}>
                     <FileUp className="mr-2 size-4" />
                     Import Data
                   </Button>
                   <Button variant="outline" onClick={() => toast.message("Export UI ready; backend export not wired")}>
                     Export Data
                   </Button>
-                  <Button variant="outline" onClick={() => toast.message("Memory Correlation Editor is a placeholder action")}>
+                  <Button variant="outline" onClick={() => setActiveLogTab("memory")}>
                     Memory Correlation Editor
                   </Button>
                   <Button variant="outline" onClick={() => toast.message("Batch Settings Editor is a placeholder action")}>
@@ -286,9 +433,10 @@ export default function LogDataPage({
               </div>
             </Card>
 
-            <Tabs defaultValue="edit" className="space-y-4">
+            <Tabs value={activeLogTab} onValueChange={setActiveLogTab} className="space-y-4">
               <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
                 <TabsTrigger value="edit">Edit Data</TabsTrigger>
+                <TabsTrigger value="memory">Import / Correlate</TabsTrigger>
                 <TabsTrigger value="ranges">Hide / Delete / Filter</TabsTrigger>
                 <TabsTrigger value="transform">Move / Copy / Rescale</TabsTrigger>
                 <TabsTrigger value="batch">Batch Operations</TabsTrigger>
@@ -369,16 +517,14 @@ export default function LogDataPage({
                                 >
                                   <EyeOff className="size-4" />
                                 </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    setRecords((current) => current.filter((item) => item.id !== record.id))
-                                  }
-                                >
-                                  <Trash2 className="size-4" />
-                                </Button>
+                                <ConfirmDeleteButton
+                                  title="Delete log data row?"
+                                  description={`Depth ${record.depth.toFixed(2)} for ${record.witsId} will be removed from local log data.`}
+                                  onConfirm={() => {
+                                    setRecords((current) => current.filter((item) => item.id !== record.id));
+                                    toast.success("Log data row deleted locally");
+                                  }}
+                                />
                               </div>
                             </TableCell>
                           </TableRow>
@@ -411,6 +557,16 @@ export default function LogDataPage({
                 </Card>
               </TabsContent>
 
+              <TabsContent value="memory" className="space-y-4">
+                <LogDataMemoryImportPanel
+                  selectedChannel={selectedChannel}
+                  channels={channels}
+                  records={records}
+                  setRecords={setRecords}
+                  onNavigate={onNavigate}
+                />
+              </TabsContent>
+
               <TabsContent value="ranges" className="space-y-4">
                 <Card className="rounded-2xl border-dashed p-4">
                   <h2 className="text-lg font-semibold">Range tools</h2>
@@ -437,10 +593,14 @@ export default function LogDataPage({
                       <EyeOff className="mr-2 size-4" />
                       Hide Depth Range
                     </Button>
-                    <Button variant="outline" onClick={handleDeleteDepths}>
-                      <Trash2 className="mr-2 size-4" />
-                      Delete Depths
-                    </Button>
+                    <ConfirmDeleteButton
+                      title="Delete selected depth range?"
+                      description={`Rows from ${selectedRange.startDepth} to ${selectedRange.endDepth} for the selected WITS ID will be removed locally.`}
+                      triggerLabel="Delete Depths"
+                      size="sm"
+                      variant="outline"
+                      onConfirm={handleDeleteDepths}
+                    />
                     <Button variant="outline" onClick={() => toast.success("Value filter applied to table view")}>
                       <Filter className="mr-2 size-4" />
                       Filter Value Range
@@ -452,7 +612,7 @@ export default function LogDataPage({
               <TabsContent value="transform" className="space-y-4">
                 <Card className="rounded-2xl border-dashed p-4">
                   <h2 className="text-lg font-semibold">Depth and value transforms</h2>
-                  <div className="mt-4 grid gap-4 md:grid-cols-4">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Move offset</Label>
                       <Input type="number" value={moveOffset} onChange={(event) => setMoveOffset(Number(event.target.value))} />
@@ -460,14 +620,6 @@ export default function LogDataPage({
                     <div className="space-y-2">
                       <Label>Copy offset</Label>
                       <Input type="number" value={copyOffset} onChange={(event) => setCopyOffset(Number(event.target.value))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Scale multiplier</Label>
-                      <Input type="number" value={scaleMultiplier} onChange={(event) => setScaleMultiplier(Number(event.target.value))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Scale bias</Label>
-                      <Input type="number" value={scaleBias} onChange={(event) => setScaleBias(Number(event.target.value))} />
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -478,10 +630,174 @@ export default function LogDataPage({
                     <Button variant="outline" onClick={handleCopyDepths}>
                       Copy Depths
                     </Button>
-                    <Button variant="outline" onClick={handleRescale}>
-                      <Scale className="mr-2 size-4" />
-                      Rescale Data
-                    </Button>
+                  </div>
+                </Card>
+
+                <Card className="rounded-2xl p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold">Rescaling Logged Data</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Rescale the selected WITS channel inside the active depth range only.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">{selectedChannel?.witsId ?? "No channel"}</Badge>
+                      <Badge variant="outline">{rescaleAffectedRecords.length} affected rows</Badge>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label>Channel</Label>
+                          <select
+                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                            value={selectedWitsId}
+                            onChange={(event) => setSelectedWitsId(event.target.value)}
+                          >
+                            {channels.map((channel) => (
+                              <option key={channel.witsId} value={channel.witsId}>
+                                {channel.witsId} - {channel.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Start depth</Label>
+                          <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>End depth</Label>
+                          <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
+                        </div>
+                      </div>
+
+                      <Tabs value={rescaleMode} onValueChange={(value) => setRescaleMode(value as RescaleMode)} className="space-y-4">
+                        <TabsList className="h-auto flex-wrap justify-start">
+                          <TabsTrigger value="example-value">Example Value</TabsTrigger>
+                          <TabsTrigger value="percentage">Percentage</TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="example-value" className="space-y-4">
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Original / example value</Label>
+                              <Input type="number" value={originalExampleValue} onChange={(event) => setOriginalExampleValue(Number(event.target.value))} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Desired / new value</Label>
+                              <Input type="number" value={desiredExampleValue} onChange={(event) => setDesiredExampleValue(Number(event.target.value))} />
+                            </div>
+                          </div>
+                          <div className="rounded-xl border bg-muted/30 px-4 py-3 text-sm">
+                            New scale factor = desired value / original value ={" "}
+                            <span className="font-semibold">{rescaleScaleFactor.toFixed(6)}</span>
+                          </div>
+                        </TabsContent>
+
+                        <TabsContent value="percentage" className="space-y-4">
+                          <div className="max-w-sm space-y-2">
+                            <Label>Percentage adjustment</Label>
+                            <Input type="number" value={rescalePercentage} onChange={(event) => setRescalePercentage(Number(event.target.value))} />
+                          </div>
+                          <div className="rounded-xl border bg-muted/30 px-4 py-3 text-sm">
+                            New scale factor = 1 + percentage / 100 ={" "}
+                            <span className="font-semibold">{rescaleScaleFactor.toFixed(6)}</span>
+                          </div>
+                        </TabsContent>
+                      </Tabs>
+
+                      <Card className="rounded-xl p-0">
+                        <div className="border-b px-4 py-3">
+                          <h3 className="font-semibold">Before / after preview</h3>
+                          <p className="text-sm text-muted-foreground">Preview shows up to 8 records from the affected depth range.</p>
+                        </div>
+                        <ScrollArea className="h-[220px]">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Depth</TableHead>
+                                <TableHead>Before</TableHead>
+                                <TableHead>After</TableHead>
+                                <TableHead>Delta</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {rescalePreview.map((preview) => (
+                                <TableRow key={preview.recordId}>
+                                  <TableCell>{preview.depth.toFixed(2)}</TableCell>
+                                  <TableCell>{preview.beforeValue.toFixed(3)}</TableCell>
+                                  <TableCell>{preview.afterValue.toFixed(3)}</TableCell>
+                                  <TableCell>{(preview.afterValue - preview.beforeValue).toFixed(3)}</TableCell>
+                                </TableRow>
+                              ))}
+                              {rescalePreview.length === 0 ? (
+                                <TableRow>
+                                  <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                                    No records match this channel and depth range.
+                                  </TableCell>
+                                </TableRow>
+                              ) : null}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      </Card>
+                    </div>
+
+                    <Card className="rounded-xl border-dashed p-4">
+                      <h3 className="font-semibold">Rescale summary</h3>
+                      <div className="mt-4 space-y-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Channel</span>
+                          <span className="text-right font-medium">{selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "None"}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Mode</span>
+                          <span className="font-medium">{formatRescaleMode(rescaleMode)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Scale factor</span>
+                          <span className="font-mono font-medium">{rescaleScaleFactor.toFixed(6)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Depth range</span>
+                          <span className="font-medium">{selectedRange.startDepth} - {selectedRange.endDepth}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Affected rows</span>
+                          <span className="font-medium">{rescaleAffectedRecords.length}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        This applies to local state only and updates values inside the selected channel and depth range.
+                      </div>
+
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button className="mt-4 w-full" disabled={!canApplyRescale}>
+                            <Scale className="mr-2 size-4" />
+                            Apply Rescale
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Apply rescale to logged data?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {rescaleSummary
+                                ? `${rescaleSummary.affectedRows} rows in ${rescaleSummary.channelWitsId} from ${rescaleSummary.startDepth} to ${rescaleSummary.endDepth} will be multiplied by ${rescaleSummary.scaleFactor.toFixed(6)}.`
+                                : "Review the rescale settings before applying."}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleRescale}>Apply Rescale</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </Card>
                   </div>
                 </Card>
               </TabsContent>

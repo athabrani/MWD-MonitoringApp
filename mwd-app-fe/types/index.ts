@@ -8,6 +8,8 @@ export interface User {
   role: UserRole;
   fullName: string;
   avatar?: string;
+  isActive?: boolean;
+  lastLoginAt?: string;
 }
 
 // Connection Status Types

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,7 @@ import {
   PolarisToolType,
   PolarisWellInformation,
   PolarisWitsId,
+  WitsIdDataSourceType,
 } from "@/types/polaris";
 import {
   AppLayout,
@@ -63,6 +64,8 @@ import {
   getAppPagePath,
 } from "@/components/layouts/app-layout";
 import { PlaceholderNote, WorkspaceSection } from "@/components/layouts/workspace-section";
+import { WitsMemoryImportPanel } from "@/components/contents/configuration/wits-memory-import-panel";
+import { loadStoredWitsIds, saveStoredWitsIds } from "@/lib/wits-config-store";
 
 const accessLevels: PolarisAccessLevel[] = ["MWD", "Guest", "None"];
 const toolTypes: PolarisToolType[] = ["Mud Pulse", "EM", "Simulator", "Memory"];
@@ -72,6 +75,7 @@ const dataSourceModes: PolarisDataSourceMode[] = [
   "simulated",
   "derived",
 ];
+type WitsViewMode = "list" | "detail";
 
 const emptyContact: PolarisContact = {
   id: "",
@@ -178,10 +182,13 @@ export default function ConfigurationPage({
   const [surveyConfig, setSurveyConfig] = useState<PolarisSurveyConfiguration>(() =>
     normalizeSurveyConfig(mockPolarisSurveyConfiguration)
   );
-  const [witsIds, setWitsIds] = useState<PolarisWitsId[]>(mockPolarisWitsIds);
-  const [selectedWitsId, setSelectedWitsId] = useState<string>(
-    mockPolarisWitsIds[0]?.id ?? ""
+  const [witsIds, setWitsIds] = useState<PolarisWitsId[]>(() =>
+    loadStoredWitsIds(mockPolarisWitsIds)
   );
+  const [selectedWitsId, setSelectedWitsId] = useState<string>("");
+  const [witsViewMode, setWitsViewMode] = useState<WitsViewMode>("list");
+  const [newWitsIdInput, setNewWitsIdInput] = useState("");
+  const [newWitsIdError, setNewWitsIdError] = useState("");
   const [decoderConfig, setDecoderConfig] = useState<PolarisDecoderConfiguration>(() =>
     normalizeDecoderConfig(mockPolarisDecoderConfiguration)
   );
@@ -190,7 +197,10 @@ export default function ConfigurationPage({
   );
 
   const activeWitsRecord = useMemo(
-    () => normalizeWitsRecord(witsIds.find((item) => item.id === selectedWitsId) ?? witsIds[0]),
+    () => {
+      const selectedRecord = witsIds.find((item) => item.id === selectedWitsId);
+      return selectedRecord ? normalizeWitsRecord(selectedRecord) : null;
+    },
     [selectedWitsId, witsIds]
   );
 
@@ -199,6 +209,10 @@ export default function ConfigurationPage({
   const safeSurveyConfig = normalizeSurveyConfig(surveyConfig);
   const safeDecoderConfig = normalizeDecoderConfig(decoderConfig);
   const safeSystemInfo = normalizeSystemInfo(systemInfo);
+
+  useEffect(() => {
+    saveStoredWitsIds(witsIds);
+  }, [witsIds]);
 
   const saveContactDraft = () => {
     if (!draftContact.name || !draftContact.email) {
@@ -238,6 +252,126 @@ export default function ConfigurationPage({
         item.id === activeWitsRecord.id ? normalizeWitsRecord({ ...item, ...patch }) : item
       )
     );
+  };
+
+  const validateNewWitsId = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "Enter a WITS ID before adding.";
+    if (!/^\d+$/.test(trimmed)) return "WITS ID must contain numbers only.";
+    if (trimmed.length > 4) return "WITS ID should be 1 to 4 digits.";
+
+    const numericId = Number(trimmed);
+    if (!Number.isInteger(numericId) || numericId < 0) {
+      return "WITS ID must be a valid positive number.";
+    }
+
+    if (witsIds.some((item) => item.numericId === numericId)) {
+      return `WITS ID ${trimmed} already exists.`;
+    }
+
+    return "";
+  };
+
+  const buildDefaultWitsRecord = (numericId: number): PolarisWitsId =>
+    normalizeWitsRecord({
+      id: `wits-${Date.now()}`,
+      numericId,
+      enabled: true,
+      name: "",
+      units: "",
+      decimalPlaces: 2,
+      scaleFactor: 1,
+      biasOffset: 0,
+      sensorToBitSpacing: 0,
+      plotScaleInfo: "0-100 neutral scale",
+      leftScale: 0,
+      rightScale: 100,
+      lineColor: "#2563eb",
+      wrapColor: "#ef4444",
+      useForMemoryImportStorage: false,
+      sendToAux: false,
+      sendToRigWits: false,
+      doNotRepeat: false,
+      realTimePlot: "Unassigned",
+      depthTracking: "Tracks Bit Depth (default)",
+      lasMnemonic: `W${String(numericId).padStart(4, "0")}`,
+      lasDescription: "",
+      lasFilter: 0,
+      alarmEnabled: false,
+      alarmLow: 0,
+      alarmHigh: 0,
+      dataSourceType: "serial",
+      dataSourceValue: 0,
+      dataSourceMode: "manual",
+      scriptNotes: "Configure source, plotting, LAS, and alarms before field use.",
+    });
+
+  const addWitsIdFromInput = () => {
+    const validation = validateNewWitsId(newWitsIdInput);
+    if (validation) {
+      setNewWitsIdError(validation);
+      toast.error(validation);
+      return;
+    }
+
+    const nextRecord = buildDefaultWitsRecord(Number(newWitsIdInput.trim()));
+    setWitsIds((prev) => [nextRecord, ...prev]);
+    setSelectedWitsId(nextRecord.id);
+    setWitsViewMode("detail");
+    setNewWitsIdInput("");
+    setNewWitsIdError("");
+    toast.success(`WITS ID ${nextRecord.numericId} added. Editor opened.`);
+  };
+
+  const saveActiveWits = () => {
+    if (!activeWitsRecord) return;
+    toast.success(`WITS ID ${activeWitsRecord.numericId} changes saved locally`);
+  };
+
+  const addMemoryStorageWitsId = () => {
+    const preferredIds = [7001, 2055, 8023];
+    const nextNumericId =
+      preferredIds.find((id) => !witsIds.some((item) => item.numericId === id)) ??
+      Math.max(...witsIds.map((item) => item.numericId), 7000) + 1;
+
+    const nextRecord: PolarisWitsId = normalizeWitsRecord({
+      id: `wits-memory-${Date.now()}`,
+      numericId: nextNumericId,
+      enabled: true,
+      name: "Memory Import Storage",
+      units: "memory",
+      decimalPlaces: 2,
+      scaleFactor: 1,
+      biasOffset: 0,
+      sensorToBitSpacing: 0,
+      plotScaleInfo: "Set plot scale after memory import scan",
+      leftScale: 0,
+      rightScale: 100,
+      lineColor: "#2563eb",
+      wrapColor: "#ef4444",
+      useForMemoryImportStorage: true,
+      sendToAux: false,
+      sendToRigWits: false,
+      doNotRepeat: true,
+      realTimePlot: "Memory Import",
+      depthTracking: "Hole depth correlation",
+      lasMnemonic: `MEM${String(nextNumericId).slice(-2)}`,
+      lasDescription: "Memory import storage",
+      lasFilter: 0,
+      alarmEnabled: false,
+      alarmLow: 0,
+      alarmHigh: 0,
+      dataSourceType: "serial",
+      dataSourceValue: 0,
+      dataSourceMode: "manual",
+      scriptNotes:
+        "Local memory import storage target. Import CSV, scan segment, correlate to hole depth, then stage gap fill if needed.",
+    });
+
+    setWitsIds((prev) => [nextRecord, ...prev]);
+    setSelectedWitsId(nextRecord.id);
+    setWitsViewMode("detail");
+    toast.success(`Memory storage WITS ID ${nextRecord.numericId} created locally`);
   };
 
   const content = (
@@ -1168,11 +1302,55 @@ export default function ConfigurationPage({
         <TabsContent value="wits" className="space-y-4">
           <WorkspaceSection
             title="WITS ID Configuration"
-            description="Manage logging, scaling, alarms, LAS mapping, and plot configuration per WITS record."
-            badge="Editor panel with placeholder scripting"
+            description="Manage logging, scaling, alarms, LAS mapping, plot configuration, and memory import storage per WITS record."
+            badge="Editor panel with local memory import"
           >
-            <div className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
-              <Card className="border-dashed p-0">
+            {witsViewMode === "list" ? (
+              <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Memory module import follows the Polaris flow: create a unique storage WITS ID, mark it for memory import storage, open that WITS ID editor, scan CSV segments, import the selected field, then correlate to hole depth. Good examples: 7001, 2055, 8023. Bad examples: 0126, 0166, 0855.
+                </div>
+                <Button variant="outline" onClick={addMemoryStorageWitsId}>
+                  <Plus className="mr-2 size-4" />
+                  Add Memory Storage WITS ID
+                </Button>
+              </div>
+            ) : null}
+
+            <div className="grid gap-4">
+              {witsViewMode === "list" ? (
+                <Card className="border-dashed p-4">
+                <div className="mb-4 rounded-lg border bg-card p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <FormField label="Add WITS ID">
+                      <Input
+                        inputMode="numeric"
+                        placeholder="e.g. 1234"
+                        value={newWitsIdInput}
+                        onChange={(e) => {
+                          setNewWitsIdInput(e.target.value);
+                          setNewWitsIdError("");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            addWitsIdFromInput();
+                          }
+                        }}
+                      />
+                    </FormField>
+                    <Button onClick={addWitsIdFromInput}>
+                      <Plus className="mr-2 size-4" />
+                      Add
+                    </Button>
+                  </div>
+                  {newWitsIdError ? (
+                    <p className="mt-2 text-xs text-destructive">{newWitsIdError}</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Numbers only, 1-4 digits, and must not duplicate an existing WITS ID.
+                    </p>
+                  )}
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1187,7 +1365,10 @@ export default function ConfigurationPage({
                       <TableRow
                         key={item.id}
                         className={selectedWitsId === item.id ? "bg-muted/60" : ""}
-                        onClick={() => setSelectedWitsId(item.id)}
+                        onClick={() => {
+                          setSelectedWitsId(item.id);
+                          setWitsViewMode("detail");
+                        }}
                       >
                         <TableCell>
                           <div className="font-medium">{item.numericId}</div>
@@ -1197,7 +1378,12 @@ export default function ConfigurationPage({
                         </TableCell>
                         <TableCell>{item.name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{item.dataSourceMode}</Badge>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="outline">{item.dataSourceMode}</Badge>
+                            {item.useForMemoryImportStorage ? (
+                              <Badge variant="secondary">Memory</Badge>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell>{item.realTimePlot}</TableCell>
                       </TableRow>
@@ -1205,8 +1391,9 @@ export default function ConfigurationPage({
                   </TableBody>
                 </Table>
               </Card>
+              ) : null}
 
-              {activeWitsRecord ? (
+              {witsViewMode === "detail" && activeWitsRecord ? (
                 <Card className="border-dashed p-4">
                   <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
@@ -1215,143 +1402,318 @@ export default function ConfigurationPage({
                         WITS ID {activeWitsRecord.numericId} configuration editor
                       </p>
                     </div>
-                    <Switch
-                      checked={activeWitsRecord.enabled}
-                      onCheckedChange={(value) => updateActiveWits({ enabled: value })}
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="outline" onClick={() => setWitsViewMode("list")}>
+                        Back to WITS ID list
+                      </Button>
+                      <Switch
+                        checked={activeWitsRecord.enabled}
+                        onCheckedChange={(value) => updateActiveWits({ enabled: value })}
+                      />
+                    </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField label="Name">
-                      <Input
-                        value={activeWitsRecord.name}
-                        onChange={(e) => updateActiveWits({ name: e.target.value })}
-                      />
-                    </FormField>
-                    <FormField label="Units">
-                      <Input
-                        value={activeWitsRecord.units}
-                        onChange={(e) => updateActiveWits({ units: e.target.value })}
-                      />
-                    </FormField>
-                    <FormField label="Decimal Places">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.decimalPlaces}
-                        onChange={(e) =>
-                          updateActiveWits({ decimalPlaces: Number(e.target.value) })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Scale Factor">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.scaleFactor}
-                        onChange={(e) =>
-                          updateActiveWits({ scaleFactor: Number(e.target.value) })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Bias Offset">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.biasOffset}
-                        onChange={(e) =>
-                          updateActiveWits({ biasOffset: Number(e.target.value) })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Sensor To Bit Spacing">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.sensorToBitSpacing}
-                        onChange={(e) =>
-                          updateActiveWits({ sensorToBitSpacing: Number(e.target.value) })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Real-Time Plot">
-                      <Input
-                        value={activeWitsRecord.realTimePlot}
-                        onChange={(e) => updateActiveWits({ realTimePlot: e.target.value })}
-                      />
-                    </FormField>
-                    <FormField label="Depth Tracking">
-                      <Input
-                        value={activeWitsRecord.depthTracking}
-                        onChange={(e) => updateActiveWits({ depthTracking: e.target.value })}
-                      />
-                    </FormField>
-                    <FormField label="LAS Mnemonic">
-                      <Input
-                        value={activeWitsRecord.lasMnemonic}
-                        onChange={(e) => updateActiveWits({ lasMnemonic: e.target.value })}
-                      />
-                    </FormField>
-                    <FormField label="Data Source Mode">
-                      <Select
-                        value={activeWitsRecord.dataSourceMode}
-                        onValueChange={(value) =>
-                          updateActiveWits({
-                            dataSourceMode: value as PolarisDataSourceMode,
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {dataSourceModes.map((mode) => (
-                            <SelectItem key={mode} value={mode}>
-                              {mode}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormField>
-                    <FormField label="Alarm Low">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.alarmLow}
-                        onChange={(e) => updateActiveWits({ alarmLow: Number(e.target.value) })}
-                      />
-                    </FormField>
-                    <FormField label="Alarm High">
-                      <Input
-                        type="number"
-                        value={activeWitsRecord.alarmHigh}
-                        onChange={(e) => updateActiveWits({ alarmHigh: Number(e.target.value) })}
-                      />
-                    </FormField>
-                  </div>
+                  <Tabs defaultValue="general" className="space-y-4">
+                    <TabsList className="h-auto flex-wrap justify-start">
+                      <TabsTrigger value="general">General</TabsTrigger>
+                      <TabsTrigger value="memory">Memory Import</TabsTrigger>
+                    </TabsList>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {([
-                      ["Send to AUX", activeWitsRecord.sendToAux, "sendToAux"],
-                      ["Send to Rig WITS", activeWitsRecord.sendToRigWits, "sendToRigWits"],
-                      ["Do Not Repeat", activeWitsRecord.doNotRepeat, "doNotRepeat"],
-                    ] as const).map(([label, checked, key]) => (
-                      <div key={label} className="flex items-center justify-between rounded-lg border p-3">
-                        <div className="font-medium">{label}</div>
-                        <Switch
-                          checked={Boolean(checked)}
-                          onCheckedChange={(value) =>
-                            updateActiveWits({ [key]: value } as Partial<PolarisWitsId>)
-                          }
-                        />
+                    <TabsContent value="general" className="space-y-4">
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <Card className="p-4">
+                          <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <h5 className="font-semibold">General Information</h5>
+                              <p className="text-xs text-muted-foreground">
+                                Local WITS ID identity, scaling, and bit spacing.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                              <Label className="text-xs">Enable Logging</Label>
+                              <Switch
+                                checked={activeWitsRecord.enabled}
+                                onCheckedChange={(value) => updateActiveWits({ enabled: value })}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <FormField label="WITS ID">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.numericId}
+                                onChange={(e) =>
+                                  updateActiveWits({ numericId: Number(e.target.value) })
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Name">
+                              <Input
+                                value={activeWitsRecord.name}
+                                onChange={(e) => updateActiveWits({ name: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="Units">
+                              <Input
+                                value={activeWitsRecord.units}
+                                onChange={(e) => updateActiveWits({ units: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="Decimal Places">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.decimalPlaces}
+                                onChange={(e) =>
+                                  updateActiveWits({ decimalPlaces: Number(e.target.value) })
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Scale Factor">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.scaleFactor}
+                                onChange={(e) =>
+                                  updateActiveWits({ scaleFactor: Number(e.target.value) })
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Bias Offset">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.biasOffset}
+                                onChange={(e) =>
+                                  updateActiveWits({ biasOffset: Number(e.target.value) })
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Sensor To Bit Spacing">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.sensorToBitSpacing}
+                                onChange={(e) =>
+                                  updateActiveWits({ sensorToBitSpacing: Number(e.target.value) })
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Depth Tracking">
+                              <Input
+                                value={activeWitsRecord.depthTracking}
+                                onChange={(e) => updateActiveWits({ depthTracking: e.target.value })}
+                              />
+                            </FormField>
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          <h5 className="font-semibold">Real-Time Plot</h5>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <FormField label="Real-Time Plot">
+                              <Input
+                                value={activeWitsRecord.realTimePlot}
+                                onChange={(e) => updateActiveWits({ realTimePlot: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="Plot Scale Info">
+                              <Input
+                                value={activeWitsRecord.plotScaleInfo}
+                                onChange={(e) => updateActiveWits({ plotScaleInfo: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="Left Scale">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.leftScale}
+                                onChange={(e) => updateActiveWits({ leftScale: Number(e.target.value) })}
+                              />
+                            </FormField>
+                            <FormField label="Right Scale">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.rightScale}
+                                onChange={(e) => updateActiveWits({ rightScale: Number(e.target.value) })}
+                              />
+                            </FormField>
+                            <FormField label="Line Color">
+                              <Input
+                                type="color"
+                                value={activeWitsRecord.lineColor}
+                                onChange={(e) => updateActiveWits({ lineColor: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="Wrap Color">
+                              <Input
+                                type="color"
+                                value={activeWitsRecord.wrapColor}
+                                onChange={(e) => updateActiveWits({ wrapColor: e.target.value })}
+                              />
+                            </FormField>
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          <h5 className="font-semibold">Output / Transmission</h5>
+                          <div className="mt-4 grid gap-3">
+                            {([
+                              ["Send to AUX port", activeWitsRecord.sendToAux, "sendToAux"],
+                              ["Send to Rig WITS port", activeWitsRecord.sendToRigWits, "sendToRigWits"],
+                              ["Do Not Repeat", activeWitsRecord.doNotRepeat, "doNotRepeat"],
+                              ["Use for Memory Import Storage", activeWitsRecord.useForMemoryImportStorage, "useForMemoryImportStorage"],
+                            ] as const).map(([label, checked, key]) => (
+                              <div key={label} className="flex items-center justify-between rounded-lg border p-3">
+                                <div className="font-medium">{label}</div>
+                                <Switch
+                                  checked={Boolean(checked)}
+                                  onCheckedChange={(value) =>
+                                    updateActiveWits({ [key]: value } as Partial<PolarisWitsId>)
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          <h5 className="font-semibold">LAS Settings</h5>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <FormField label="LAS Tag">
+                              <Input
+                                value={activeWitsRecord.lasMnemonic}
+                                onChange={(e) => updateActiveWits({ lasMnemonic: e.target.value })}
+                              />
+                            </FormField>
+                            <FormField label="LAS Filter">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.lasFilter}
+                                onChange={(e) => updateActiveWits({ lasFilter: Number(e.target.value) })}
+                              />
+                            </FormField>
+                            <div className="md:col-span-2">
+                              <FormField label="LAS Description">
+                                <Input
+                                  value={activeWitsRecord.lasDescription}
+                                  onChange={(e) => updateActiveWits({ lasDescription: e.target.value })}
+                                />
+                              </FormField>
+                            </div>
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <h5 className="font-semibold">Alarm Settings</h5>
+                              <p className="text-xs text-muted-foreground">
+                                Local warning thresholds for this WITS channel.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                              <Label className="text-xs">Enable Alarm</Label>
+                              <Switch
+                                checked={activeWitsRecord.alarmEnabled}
+                                onCheckedChange={(value) => updateActiveWits({ alarmEnabled: value })}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <FormField label="Alarm Low">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.alarmLow}
+                                onChange={(e) => updateActiveWits({ alarmLow: Number(e.target.value) })}
+                              />
+                            </FormField>
+                            <FormField label="Alarm High">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.alarmHigh}
+                                onChange={(e) => updateActiveWits({ alarmHigh: Number(e.target.value) })}
+                              />
+                            </FormField>
+                          </div>
+                        </Card>
+
+                        <Card className="p-4">
+                          <h5 className="font-semibold">Data Source</h5>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <FormField label="Data Source Type">
+                              <Select
+                                value={activeWitsRecord.dataSourceType}
+                                onValueChange={(value) =>
+                                  updateActiveWits({ dataSourceType: value as WitsIdDataSourceType })
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="serial">Serial Port WITS</SelectItem>
+                                  <SelectItem value="constant">Constant Value</SelectItem>
+                                  <SelectItem value="script">Script-based Source</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormField>
+                            <FormField label="Value">
+                              <Input
+                                type="number"
+                                value={activeWitsRecord.dataSourceValue}
+                                onChange={(e) => updateActiveWits({ dataSourceValue: Number(e.target.value) })}
+                                disabled={activeWitsRecord.dataSourceType !== "constant"}
+                              />
+                            </FormField>
+                            <FormField label="Data Source Mode">
+                              <Select
+                                value={activeWitsRecord.dataSourceMode}
+                                onValueChange={(value) =>
+                                  updateActiveWits({
+                                    dataSourceMode: value as PolarisDataSourceMode,
+                                  })
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {dataSourceModes.map((mode) => (
+                                    <SelectItem key={mode} value={mode}>
+                                      {mode}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormField>
+                            <div className="md:col-span-2">
+                              <FormField label="Scripting / Data Source UI Placeholder">
+                                <Textarea
+                                  rows={5}
+                                  value={activeWitsRecord.scriptNotes}
+                                  onChange={(e) => updateActiveWits({ scriptNotes: e.target.value })}
+                                />
+                              </FormField>
+                            </div>
+                          </div>
+                        </Card>
                       </div>
-                    ))}
-                  </div>
 
-                  <div className="mt-4">
-                    <FormField label="Scripting / Data Source UI Placeholder">
-                      <Textarea
-                        rows={5}
-                        value={activeWitsRecord.scriptNotes}
-                        onChange={(e) => updateActiveWits({ scriptNotes: e.target.value })}
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button variant="outline" onClick={() => toast.message("Current editor values are already held in local state.")}>
+                          Reset / Cancel
+                        </Button>
+                        <Button onClick={saveActiveWits}>
+                          <Save className="mr-2 size-4" />
+                          Save Changes
+                        </Button>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="memory" className="space-y-4">
+                      <WitsMemoryImportPanel
+                        activeWitsRecord={activeWitsRecord}
+                        allWitsIds={witsIds}
+                        onUpdateWits={updateActiveWits}
                       />
-                    </FormField>
-                  </div>
+                    </TabsContent>
+                  </Tabs>
                 </Card>
               ) : null}
             </div>
@@ -1575,7 +1937,7 @@ export default function ConfigurationPage({
             <div className="font-medium">Phase 1 scope marker</div>
             <p className="mt-1 text-sm text-muted-foreground">
               Configuration Workspace is fully scaffolded with local state and mock data. Monitoring,
-              Rig WITS runtime views, LAS, Memory Import, Re-Logging, and Troubleshooting remain for the next phases.
+              Rig WITS runtime views, LAS, Re-Logging, and Troubleshooting remain for the next phases. Memory Import is now available as a local WITS ID editor workflow.
             </p>
           </div>
         </div>

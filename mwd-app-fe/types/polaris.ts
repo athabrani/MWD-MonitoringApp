@@ -10,6 +10,7 @@ export type PolarisNorthReference = "true" | "magnetic" | "grid";
 export type PolarisDataSourceMode = "decoder" | "manual" | "simulated" | "derived";
 export type PolarisToolType = "Mud Pulse" | "EM" | "Simulator" | "Memory";
 export type PolarisSurveyRigSource = "database" | "realtime";
+export type WitsIdDataSourceType = "serial" | "constant" | "script";
 
 export interface PolarisWellInformation {
   companyName: string;
@@ -84,9 +85,7 @@ export interface PolarisSurveyConfiguration {
   importWellplanFile: string;
 }
 
-export interface PolarisWitsId {
-  id: string;
-  numericId: number;
+export interface WitsIdGeneralSettings {
   enabled: boolean;
   name: string;
   units: string;
@@ -94,17 +93,56 @@ export interface PolarisWitsId {
   scaleFactor: number;
   biasOffset: number;
   sensorToBitSpacing: number;
+}
+
+export interface WitsIdOutputSettings {
   sendToAux: boolean;
   sendToRigWits: boolean;
   doNotRepeat: boolean;
+}
+
+export interface WitsIdPlotSettings {
   realTimePlot: string;
   depthTracking: string;
+  plotScaleInfo: string;
+  leftScale: number;
+  rightScale: number;
+  lineColor: string;
+  wrapColor: string;
+}
+
+export interface WitsIdLasSettings {
   lasMnemonic: string;
+  lasDescription: string;
+  lasFilter: number;
+}
+
+export interface WitsIdAlarmSettings {
+  alarmEnabled: boolean;
   alarmLow: number;
   alarmHigh: number;
+}
+
+export interface WitsIdDataSourceSettings {
+  dataSourceType: WitsIdDataSourceType;
+  dataSourceValue: number;
+}
+
+export interface WitsIdConfig
+  extends WitsIdGeneralSettings,
+    WitsIdOutputSettings,
+    WitsIdPlotSettings,
+    WitsIdLasSettings,
+    WitsIdAlarmSettings,
+    WitsIdDataSourceSettings {
+  id: string;
+  numericId: number;
+  useForMemoryImportStorage: boolean;
   dataSourceMode: PolarisDataSourceMode;
   scriptNotes: string;
 }
+
+export type PolarisWitsId = WitsIdConfig;
 
 export interface PolarisDecoderConfiguration {
   toolType: PolarisToolType;

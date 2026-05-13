@@ -24,7 +24,12 @@ import {
   SlidersHorizontal,
   LayoutDashboard,
   LineChart,
-  Activity,
+  FileDigit,
+  SquareActivity,
+  FilePen,
+  NotebookText,
+  FileText,
+  Cable,
   Bell,
   History,
   Download,
@@ -55,6 +60,9 @@ export type AppPage =
   | "data-management"
   | "data-management-survey-data"
   | "data-management-log-data"
+  | "data-management-memory-import"
+  | "data-management-plotting"
+  | "data-management-generate-las"
   | "trajectory"
   | "trajectory-well-plot"
   | "trajectory-analysis"
@@ -89,13 +97,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: "monitoring",
     label: "Monitoring",
-    icon: Activity,
-    roles: ["operator", "engineer", "admin"],
+    icon: SquareActivity,
+     roles: ["operator", "engineer", "admin"],
   },
   {
     id: "data-management",
     label: "Data Management",
-    icon: Download,
+    icon: FileText,
     roles: ["operator", "engineer", "admin"],
   },
   {
@@ -170,6 +178,9 @@ const pageThemeClasses: Record<AppPage, string> = {
   "data-management": "page-surface page-history",
   "data-management-survey-data": "page-surface page-history",
   "data-management-log-data": "page-surface page-history",
+  "data-management-memory-import": "page-surface page-history",
+  "data-management-plotting": "page-surface page-history",
+  "data-management-generate-las": "page-surface page-history",
   trajectory: "page-surface page-trajectory",
   "trajectory-well-plot": "page-surface page-trajectory",
   "trajectory-analysis": "page-surface page-trajectory",
@@ -204,6 +215,12 @@ export function getAppPagePath(page: AppPage): string {
       return "/data-management/survey-data";
     case "data-management-log-data":
       return "/data-management/log-data";
+    case "data-management-memory-import":
+      return "/data-management/memory-import";
+    case "data-management-plotting":
+      return "/data-management/plotting";
+    case "data-management-generate-las":
+      return "/data-management/generate-las";
     case "trajectory":
     case "trajectory-analysis":
       return "/trajectory";
@@ -248,7 +265,10 @@ function getParentSection(page: AppPage): AppPage {
   }
   if (
     page === "data-management-survey-data" ||
-    page === "data-management-log-data"
+    page === "data-management-log-data" ||
+    page === "data-management-memory-import" ||
+    page === "data-management-plotting" ||
+    page === "data-management-generate-las"
   ) {
     return "data-management";
   }
@@ -349,13 +369,13 @@ function getSectionMeta(activeSection: AppPage) {
                 id: "monitoring-rig-wits" as AppPage,
                 label: "Rig WITS",
                 description: "Incoming and outgoing rig packet traffic",
-                icon: Activity,
+                icon: FileDigit,
               },
               {
                 id: "monitoring-aux-port" as AppPage,
                 label: "Aux Port",
                 description: "Decoded AUX packet monitoring",
-                icon: Activity,
+                icon: Cable,
               },
             ],
           },
@@ -374,12 +394,24 @@ function getSectionMeta(activeSection: AppPage) {
                 id: "data-management-survey-data" as AppPage,
                 label: "Survey Data",
                 description: "Survey input, projection, plotting, and storage config",
-                icon: Download,
+                icon: FilePen,
               },
               {
                 id: "data-management-log-data" as AppPage,
                 label: "Log Data",
                 description: "Stored WITS data editor and batch tools",
+                icon: NotebookText,
+              },
+              {
+                id: "data-management-plotting" as AppPage,
+                label: "Plotting",
+                description: "Header, track, PDF, label, and output plot configuration",
+                icon: LineChart,
+              },
+              {
+                id: "data-management-generate-las" as AppPage,
+                label: "Generate LAS",
+                description: "LAS presets, depth export rules, and WITS column selection",
                 icon: Download,
               },
             ],
@@ -413,17 +445,6 @@ function getSectionMeta(activeSection: AppPage) {
                 label: "Charts",
                 description: "Supporting sensor trends",
                 icon: LineChart,
-              },
-            ],
-          },
-          {
-            title: "Related",
-            items: [
-              {
-                id: "history" as AppPage,
-                label: "History",
-                description: "Past runs and playback context",
-                icon: History,
               },
             ],
           },

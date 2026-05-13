@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/table";
 import { SurveyRecord } from "@/types/monitoring";
 import { format } from "date-fns";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
 
 export function SurveyTable({
   records,
@@ -83,17 +84,11 @@ export function SurveyTable({
                   >
                     <Pencil className="size-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDelete(record);
-                    }}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  <ConfirmDeleteButton
+                    title="Delete survey row?"
+                    description={`Survey at MD ${record.md.toFixed(1)} will be removed from the local table.`}
+                    onConfirm={() => onDelete(record)}
+                  />
                 </div>
               </TableCell>
             </TableRow>

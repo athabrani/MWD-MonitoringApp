@@ -3,14 +3,13 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Download, FileUp, ListFilter, Plus, RefreshCcw, Settings2 } from "lucide-react";
+import { Download, FileUp, Plus, RefreshCcw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
-import { PlaceholderNote, WorkspaceSection } from "@/components/layouts/workspace-section";
 import { PlotConfigState, PlotSurveyMenu } from "@/components/contents/data-management/plot-survey-menu";
 import { ProjectionDialog } from "@/components/contents/data-management/projection-dialog";
 import { SurveyStorageConfigDialog } from "@/components/contents/data-management/survey-storage-config-dialog";
-import { SurveyTable } from "@/components/contents/data-management/survey-table";
+import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,7 +29,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   mockSurveyInputSummary,
   mockSurveyRecords,
@@ -42,6 +40,7 @@ import {
   SurveyRecord,
   SurveyStorageConfig,
 } from "@/types/monitoring";
+import { cn } from "@/lib/utils";
 
 function createProjectionRecord(
   measuredDepth: number,
@@ -69,6 +68,29 @@ function createProjectionRecord(
   };
 }
 
+const capturedSurveyFields = [
+  { key: "md", label: "Depth", step: "0.01" },
+  { key: "inc", label: "Inc", step: "0.01" },
+  { key: "azm", label: "Azm", step: "0.01" },
+  { key: "toolfaceMode", label: "Toolface" },
+  { key: "tvd", label: "TVD", step: "0.01" },
+  { key: "ns", label: "N/S", step: "0.01" },
+  { key: "ew", label: "E/W", step: "0.01" },
+  { key: "dls", label: "DLS", step: "0.01" },
+  { key: "vs", label: "VS", step: "0.01" },
+] as const;
+
+const surveyColumns = [
+  { key: "md", label: "Depth" },
+  { key: "inc", label: "Inc" },
+  { key: "azm", label: "Azm" },
+  { key: "tvd", label: "TVD" },
+  { key: "ns", label: "NS" },
+  { key: "ew", label: "EW" },
+  { key: "vs", label: "VS" },
+  { key: "dls", label: "DLS" },
+] as const;
+
 export default function SurveyDataPage({
   onNavigate,
 }: {
@@ -92,7 +114,7 @@ export default function SurveyDataPage({
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [storageConfig, setStorageConfig] = useState<SurveyStorageConfig>(mockSurveyStorageConfig);
   const [editRecord, setEditRecord] = useState<SurveyRecord | null>(null);
-  const [importNotes, setImportNotes] = useState("Awaiting CSV/LAS parser wiring");
+  const [rowsPerPage, setRowsPerPage] = useState(50);
 
   const sortedRecords = useMemo(() => {
     const copy = [...surveyRecords].sort(
@@ -104,6 +126,11 @@ export default function SurveyDataPage({
   const selectedSurvey = useMemo(
     () => sortedRecords.find((record) => record.id === selectedSurveyId) ?? sortedRecords[0] ?? null,
     [selectedSurveyId, sortedRecords]
+  );
+
+  const visibleRecords = useMemo(
+    () => sortedRecords.slice(0, rowsPerPage),
+    [rowsPerPage, sortedRecords]
   );
 
   const updateSurveyInput = (key: keyof SurveyInputSummary, value: number | string) => {
@@ -123,7 +150,7 @@ export default function SurveyDataPage({
 
     setSurveyRecords((current) => [nextRecord, ...current]);
     setSelectedSurveyId(nextRecord.id);
-    toast.success("Survey added to local table");
+    toast.success("Data berhasil ditambahkan");
   };
 
   const handleProjection = () => {
@@ -142,7 +169,17 @@ export default function SurveyDataPage({
 
   const handleDeleteSurvey = (record: SurveyRecord) => {
     setSurveyRecords((current) => current.filter((item) => item.id !== record.id));
-    toast.success("Survey removed from local table");
+    toast.success("Survey berhasil dihapus");
+  };
+
+  const handleResendLastSurvey = () => {
+    const latest = surveyRecords[0];
+    if (!latest) {
+      toast.error("No survey available to resend");
+      return;
+    }
+
+    toast.success(`Resend queued for MD ${latest.md.toFixed(2)} to all ports`);
   };
 
   const handleSaveEditedSurvey = () => {
@@ -158,108 +195,87 @@ export default function SurveyDataPage({
   };
 
   const content = (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">Data Management</Badge>
-            <Badge variant="outline">Survey Data</Badge>
-          </div>
-          <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Survey Data</h1>
-          <p className="text-sm text-muted-foreground sm:text-base">
-            Manage incoming survey input, projections, exports, and survey storage behavior in local state.
-          </p>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold sm:text-3xl">Survey Data</h1>
+          <Badge variant="secondary">Data Management</Badge>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setProjectionOpen(true)}>
-            <Plus className="mr-2 size-4" />
-            Add Projection
-          </Button>
-          <Button variant="outline" onClick={() => setStorageDialogOpen(true)}>
-            <Settings2 className="mr-2 size-4" />
-            Configure Survey Storage
-          </Button>
-        </div>
+        {selectedSurvey ? (
+          <Badge variant="outline">
+            Selected MD {selectedSurvey.md.toFixed(2)} at {format(new Date(selectedSurvey.timestamp), "HH:mm")}
+          </Badge>
+        ) : null}
       </div>
 
-      <WorkspaceSection
-        title="Survey Input Summary"
-        description="Editable snapshot of the current survey values arriving from the decoder workflow."
-        badge="Local decoder snapshot"
-      >
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {([
-              ["md", "Measured Depth"],
-              ["inc", "Inclination"],
-              ["azm", "Azimuth"],
-              ["tvd", "TVD"],
-              ["ns", "North/South"],
-              ["ew", "East/West"],
-              ["dls", "DLS"],
-              ["vs", "Vertical Section"],
-            ] as const).map(([key, label]) => (
-              <div key={key} className="space-y-2">
-                <Label>{label}</Label>
+      <Card className="rounded-2xl p-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold">Captured Survey Data</h2>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Latest decoder values ready for review and storage.
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => toast.message("Checked local decoder snapshot")}
+          >
+            Check for new data
+          </Button>
+        </div>
+        <div className="grid gap-4 p-5 xl:grid-cols-[1fr_auto]">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:grid-cols-9">
+            {capturedSurveyFields.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <Label className="text-xs font-semibold text-muted-foreground">{field.label}</Label>
                 <Input
-                  type="number"
-                  value={surveyInput[key]}
-                  onChange={(event) => updateSurveyInput(key, Number(event.target.value))}
+                  className="h-10 font-mono text-sm"
+                  type={field.key === "toolfaceMode" ? "text" : "number"}
+                  step={"step" in field ? field.step : undefined}
+                  value={surveyInput[field.key]}
+                  onChange={(event) =>
+                    updateSurveyInput(
+                      field.key,
+                      field.key === "toolfaceMode" ? event.target.value : Number(event.target.value)
+                    )
+                  }
                 />
               </div>
             ))}
-            <div className="space-y-2">
-              <Label>Toolface Mode</Label>
-              <Input
-                value={surveyInput.toolfaceMode}
-                onChange={(event) => updateSurveyInput("toolfaceMode", event.target.value)}
-              />
+          </div>
+          <div className="flex flex-wrap items-end gap-2 xl:w-64 xl:flex-col xl:items-stretch xl:justify-end">
+            <Button onClick={handleAddSurvey}>
+              Store Survey
+            </Button>
+            <Button variant="outline" onClick={handleResendLastSurvey}>
+              Resend Last Survey to All Ports
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="rounded-2xl p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold">Survey List</h2>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <Badge variant="outline">{surveyRecords.length} records</Badge>
+              <Badge variant="secondary">{reverseSort ? "Oldest first" : "Newest first"}</Badge>
             </div>
           </div>
-
-          <Card className="rounded-2xl border-dashed p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">Current survey review</h2>
-                <p className="text-sm text-muted-foreground">
-                  Use this panel to confirm values before adding them to the survey table.
-                </p>
-              </div>
-              <Badge variant="outline">{surveyInput.toolfaceMode}</Badge>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {Object.entries(surveyInput).map(([key, value]) => (
-                <div key={key} className="rounded-xl border px-3 py-2">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">{key}</div>
-                  <div className="mt-1 font-medium">{typeof value === "number" ? value.toFixed(2) : value}</div>
-                </div>
-              ))}
-            </div>
-            <Button className="mt-4 w-full" onClick={handleAddSurvey}>
-              Add Survey
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="outline" onClick={() => setProjectionOpen(true)}>
+              <Plus className="mr-2 size-4" />
+              Add Projection
             </Button>
-          </Card>
-        </div>
-      </WorkspaceSection>
-
-      <WorkspaceSection
-        title="Survey List"
-        description="Most recent surveys are shown first by default. Reverse sorting is available for QA review."
-        badge={`${surveyRecords.length} records`}
-      >
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setReverseSort((current) => !current)}>
-              <RefreshCcw className="mr-2 size-4" />
-              Reverse Sort
-            </Button>
-            <Button variant="outline" onClick={() => toast.message("CSV/LAS import scaffold only for now")}>
+            <Button size="sm" variant="outline" onClick={() => toast.message("CSV/LAS import scaffold only for now")}>
               <FileUp className="mr-2 size-4" />
               Import Surveys
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">
+                <Button size="sm" variant="outline">
                   <Download className="mr-2 size-4" />
                   Export Surveys
                 </Button>
@@ -285,60 +301,123 @@ export default function SurveyDataPage({
                 toast.success(`Plot request queued for ${plotConfig.plotType}`);
               }}
             />
+            <Button size="sm" variant="outline" onClick={() => setStorageDialogOpen(true)}>
+              <Settings2 className="mr-2 size-4" />
+              Configure
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setReverseSort((current) => !current)}>
+              <RefreshCcw className="mr-2 size-4" />
+              Reverse Sort
+            </Button>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
           {selectedSurvey ? (
-            <Badge variant="secondary">
-              Selected MD {selectedSurvey.md.toFixed(1)} at{" "}
-              {format(new Date(selectedSurvey.timestamp), "HH:mm")}
-            </Badge>
-          ) : null}
-        </div>
-
-        <SurveyTable
-          records={sortedRecords}
-          selectedId={selectedSurvey?.id}
-          onSelect={(record) => setSelectedSurveyId(record.id)}
-          onEdit={(record) => setEditRecord(record)}
-          onDelete={handleDeleteSurvey}
-        />
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-          <Card className="rounded-2xl border-dashed p-4">
-            <h2 className="text-lg font-semibold">Selected survey detail</h2>
-            {selectedSurvey ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {Object.entries(selectedSurvey).map(([key, value]) => (
-                  <div key={key} className="rounded-xl border px-3 py-2">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{key}</div>
-                    <div className="mt-1 text-sm font-medium">
-                      {typeof value === "number" ? value.toFixed(2) : String(value)}
-                    </div>
-                  </div>
-                ))}
+            <div className="grid gap-2 text-sm sm:grid-cols-4">
+              <div>
+                <div className="text-xs text-muted-foreground">MD</div>
+                <div className="font-mono font-medium">{selectedSurvey.md.toFixed(2)}</div>
               </div>
-            ) : (
-              <PlaceholderNote>Select a survey row to inspect it here.</PlaceholderNote>
-            )}
-          </Card>
-
-          <Card className="rounded-2xl border-dashed p-4">
-            <h2 className="text-lg font-semibold">Import notes</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              CSV and LAS upload flow is scaffolded only. Use this area to capture operator notes until parser wiring is ready.
-            </p>
-            <Textarea
-              className="mt-4"
-              rows={8}
-              value={importNotes}
-              onChange={(event) => setImportNotes(event.target.value)}
-            />
-            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <ListFilter className="size-4" />
-              Import parser, validation, and persistence are still placeholders.
+              <div>
+                <div className="text-xs text-muted-foreground">Inc / Azm</div>
+                <div className="font-mono font-medium">
+                  {selectedSurvey.inc.toFixed(2)} / {selectedSurvey.azm.toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Mode</div>
+                <div className="font-medium">{selectedSurvey.toolfaceMode}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Captured</div>
+                <div className="font-medium">{format(new Date(selectedSurvey.timestamp), "dd MMM HH:mm")}</div>
+              </div>
             </div>
-          </Card>
+          ) : (
+            <div className="text-sm text-muted-foreground">No survey selected.</div>
+          )}
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Rows</span>
+            <select
+              className="h-8 rounded-md border bg-background px-2 text-sm"
+              value={rowsPerPage}
+              onChange={(event) => setRowsPerPage(Number(event.target.value))}
+            >
+              {[25, 50, 100].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </WorkspaceSection>
+
+        <div className="overflow-x-auto border-t">
+          <table className="w-full min-w-[1160px] border-collapse text-sm">
+            <thead className="bg-muted/40 text-xs text-muted-foreground">
+              <tr className="border-b">
+                <th className="w-16 px-4 py-3 text-left font-semibold">Type</th>
+                <th className="w-12 px-2 py-3 text-left font-semibold">Del</th>
+                {surveyColumns.map((column) => (
+                  <th key={column.key} className="px-3 py-3 text-right font-semibold">
+                    {column.label}
+                  </th>
+                ))}
+                <th className="px-3 py-3 text-right font-semibold">CL</th>
+                <th className="px-3 py-3 text-right font-semibold">NRTG</th>
+                <th className="px-3 py-3 text-right font-semibold">ESTG</th>
+                <th className="px-3 py-3 text-right font-semibold">BUILD</th>
+                <th className="px-3 py-3 text-right font-semibold">TURN</th>
+                <th className="px-3 py-3 text-center font-semibold">RUN</th>
+                <th className="px-3 py-3 text-left font-semibold">Toolface</th>
+                <th className="px-3 py-3 text-right font-semibold">Status</th>
+                <th className="px-4 py-3 text-right font-semibold">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRecords.map((record, index) => (
+                <tr
+                  key={record.id}
+                  className={cn(
+                    "cursor-pointer border-b hover:bg-muted/40",
+                    selectedSurvey?.id === record.id && "bg-muted/60"
+                  )}
+                  onClick={() => setSelectedSurveyId(record.id)}
+                  onDoubleClick={() => setEditRecord(record)}
+                >
+                  <td className="px-4 py-3">
+                    <Badge variant={record.isProjection ? "secondary" : "outline"}>
+                      {record.isProjection ? "Proj" : index === 0 ? "Svy" : "Tiein"}
+                    </Badge>
+                  </td>
+                  <td className="px-2 py-3">
+                    <ConfirmDeleteButton
+                      title="Delete survey row?"
+                      description={`Survey at MD ${record.md.toFixed(2)} will be removed from the local table.`}
+                      className="h-6 w-6"
+                      onConfirm={() => handleDeleteSurvey(record)}
+                    />
+                  </td>
+                  {surveyColumns.map((column) => (
+                    <td key={column.key} className="px-3 py-3 text-right font-mono text-xs">
+                      {record[column.key].toFixed(2)}
+                    </td>
+                  ))}
+                  <td className="px-3 py-3 text-right font-mono text-xs">12.75</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">{record.ns.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">{record.ew.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">{record.isProjection ? record.dls.toFixed(2) : "0.00"}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">0.00</td>
+                  <td className="px-3 py-3 text-center font-mono text-xs">1</td>
+                  <td className="px-3 py-3">{record.toolfaceMode}</td>
+                  <td className="px-3 py-3 text-right text-xs">{record.isProjection ? "Projection" : "Standard"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{format(new Date(record.timestamp), "HH:mm:ss")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <ProjectionDialog
         open={projectionOpen}

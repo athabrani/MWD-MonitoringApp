@@ -36,8 +36,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       } else {
         setError("Invalid username or password.");
       }
-    } catch {
-      setError("Unable to sign in. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
     } finally {
       setLoading(false);
     }

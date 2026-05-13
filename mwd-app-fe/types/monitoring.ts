@@ -72,7 +72,38 @@ export interface LogDataRecord {
   notes?: string;
 }
 
+export type WitsIdLogRecord = LogDataRecord;
+
 export interface DepthRange {
   startDepth: number;
   endDepth: number;
+}
+
+export type RescaleMode = "example-value" | "percentage";
+
+export interface RescaleRequest {
+  channelWitsId: string;
+  mode: RescaleMode;
+  startDepth: number;
+  endDepth: number;
+  scaleFactor: number;
+  originalExampleValue?: number;
+  desiredExampleValue?: number;
+  percentage?: number;
+}
+
+export interface RescalePreview {
+  recordId: string;
+  depth: number;
+  beforeValue: number;
+  afterValue: number;
+}
+
+export interface RescaleResultSummary {
+  channelWitsId: string;
+  mode: RescaleMode;
+  scaleFactor: number;
+  startDepth: number;
+  endDepth: number;
+  affectedRows: number;
 }

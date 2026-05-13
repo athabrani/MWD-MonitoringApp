@@ -13,6 +13,9 @@ import RigWitsPage from "./monitoring/rig-wits/page";
 import AuxPortPage from "./monitoring/aux-port/page";
 import SurveyDataPage from "./data-management/survey-data/page";
 import LogDataPage from "./data-management/log-data/page";
+import MemoryImportPage from "./data-management/memory-import/page";
+import PlottingPage from "./data-management/plotting/page";
+import GenerateLasPage from "./data-management/generate-las/page";
 
 import LoginPage from "./login/page";
 import DashboardPage from "./dashboard/page";
@@ -29,7 +32,7 @@ import ConfigurationPage from "./configuration/page";
 import WellplanSurveysPage from "./configuration/wellplan-surveys/page";
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const {
     showInstallPrompt,
     dismissInstallPrompt,
@@ -58,6 +61,14 @@ const AppContent: React.FC = () => {
     return null;
   }
 
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Restoring session...
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={() => setCurrentPage("dashboard")} />;
   }
@@ -82,6 +93,12 @@ const AppContent: React.FC = () => {
         return <SurveyDataPage onNavigate={setCurrentPage} />;
       case "data-management-log-data":
         return <LogDataPage onNavigate={setCurrentPage} />;
+      case "data-management-memory-import":
+        return <MemoryImportPage onNavigate={setCurrentPage} />;
+      case "data-management-plotting":
+        return <PlottingPage onNavigate={setCurrentPage} />;
+      case "data-management-generate-las":
+        return <GenerateLasPage onNavigate={setCurrentPage} />;
       case "trajectory":
       case "trajectory-well-plot":
         return <WellPlotPage/>;

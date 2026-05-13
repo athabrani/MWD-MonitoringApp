@@ -12,7 +12,7 @@ export function MonitoringModeToggle({
   onChange: (mode: MonitoringMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-xl border bg-muted/30 p-1">
+    <div className="inline-flex rounded-xl border border-muted bg-muted/30 p-1">
       {(["raw", "details"] as const).map((item) => (
         <Button
           key={item}
