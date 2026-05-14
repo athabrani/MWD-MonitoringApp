@@ -18,6 +18,10 @@ const mwdDataSelect = {
   sessionId: true,
   measuredAt: true,
   ...mwdMeasurementSelect,
+  isHidden: true,
+  hiddenAt: true,
+  hiddenById: true,
+  editNote: true,
   createdAt: true,
   session: {
     select: {
@@ -65,19 +69,24 @@ export const createMWDData = async (
 
 export const getAllMWDData = async (
   sessionId?: number,
+  options: { includeHidden?: boolean } = {},
   db: PrismaDbClient = prisma,
 ) => {
   const args: {
-    where?: { sessionId: number };
+    where?: { sessionId?: number; isHidden?: boolean };
     orderBy: [{ measuredAt: "asc" }, { id: "asc" }];
     select: typeof mwdDataSelect;
   } = {
+    where: options.includeHidden ? {} : { isHidden: false },
     orderBy: [{ measuredAt: "asc" }, { id: "asc" }],
     select: mwdDataSelect,
   };
 
   if (sessionId !== undefined) {
-    args.where = { sessionId };
+    args.where = {
+      ...(args.where ?? {}),
+      sessionId,
+    };
   }
 
   return await db.mWDData.findMany(args);
@@ -98,7 +107,10 @@ export const getLatestMWDDataBySessionId = async (
   excludeId?: bigint,
   db: PrismaDbClient = prisma,
 ) => {
-  const where: { sessionId: number; id?: { not: bigint } } = { sessionId };
+  const where: { sessionId: number; isHidden: boolean; id?: { not: bigint } } = {
+    sessionId,
+    isHidden: false,
+  };
 
   if (excludeId !== undefined) {
     where.id = { not: excludeId };

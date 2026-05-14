@@ -7,6 +7,7 @@ import {
   type MWDMeasurementInput,
 } from "../utils/mwd-measurements.js";
 import { syncTimestampAndDepth } from "../utils/timestamp-depth-sync.js";
+import { recordConfiguredWitsValues } from "./wits-data.service.js";
 
 type GatewayPayload = Record<string, unknown>;
 
@@ -127,7 +128,25 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
       applyMeasurementFields(input, measurementResult.parsedFields);
 
       const createdItem = await mwdDataService.createMWDData(input, tx);
-      items.push({ ...createdItem, syncInfo });
+      const witsInfo = await recordConfiguredWitsValues(
+        {
+          sessionId,
+          measuredAt: syncedMeasuredAt,
+          depthMd: measurementResult.parsedFields.depthMd.value ?? null,
+          source: payload,
+        },
+        tx,
+      );
+      items.push({
+        ...createdItem,
+        syncInfo,
+        witsInfo: {
+          configuredCount: witsInfo.configuredCount,
+          loggedCount: witsInfo.loggedCount,
+          alarmCount: witsInfo.alarmCount,
+          skippedInvalid: witsInfo.skippedInvalid,
+        },
+      });
     }
 
     return items;

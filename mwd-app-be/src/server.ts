@@ -1,6 +1,7 @@
 import "dotenv/config";
 import app from "./app.js";
 import { startEspWebSocketGateway } from "./services/esp-websocket.service.js";
+import { startSerialGateway } from "./services/serial-gateway.service.js";
 import { syncSystemRoles } from "./services/role.service.js";
 
 const portFromEnv = Number(process.env.PORT);
@@ -12,6 +13,7 @@ const startServer = async () => {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startEspWebSocketGateway();
+    void startSerialGateway();
   });
 };
 

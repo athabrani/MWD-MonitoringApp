@@ -14,6 +14,11 @@ import {
   canViewAllSessions,
 } from "../utils/roles.js";
 import { syncTimestampAndDepth } from "../utils/timestamp-depth-sync.js";
+import { recordConfiguredWitsValues } from "../services/wits-data.service.js";
+import {
+  buildDepthTrackingInputFromMwdSource,
+  updateDepthTrackingState,
+} from "../services/depth-tracking.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -139,7 +144,33 @@ export const createMWDData = async (req: Request, res: Response) => {
     applyMeasurementFields(input, measurementResult.parsedFields);
 
     const data = await mwdDataService.createMWDData(input);
-    res.status(201).json({ ...data, syncInfo });
+    const witsInfo = await recordConfiguredWitsValues({
+      sessionId,
+      measuredAt: syncedMeasuredAt,
+      depthMd: measurementResult.parsedFields.depthMd.value ?? null,
+      source: req.body ?? {},
+    });
+    const depthTrackingInfo = await updateDepthTrackingState(
+      buildDepthTrackingInputFromMwdSource({
+        sessionId,
+        measuredAt: syncedMeasuredAt,
+        source: req.body ?? {},
+      }),
+    );
+
+    res.status(201).json({
+      ...data,
+      syncInfo,
+      depthTrackingInfo,
+      witsInfo: {
+        configuredCount: witsInfo.configuredCount,
+        loggedCount: witsInfo.loggedCount,
+        alarmCount: witsInfo.alarmCount,
+        skippedInvalid: witsInfo.skippedInvalid,
+        outputQueuedCount: witsInfo.outputQueuedCount,
+        outputSkippedCount: witsInfo.outputSkippedCount,
+      },
+    });
   } catch (error: unknown) {
     return handleMWDDataWriteError(error, res);
   }
@@ -150,6 +181,8 @@ export const getAllMWDData = async (req: Request, res: Response) => {
     const sessionIdParam = req.query.sessionId;
     const sessionId =
       typeof sessionIdParam === "string" ? parsePositiveInt(sessionIdParam) : null;
+    const includeHidden =
+      req.query.includeHidden === "true" || req.query.includeHidden === "1";
 
     if (sessionIdParam !== undefined && sessionId === null) {
       return res.status(400).json({ message: "sessionId must be a positive integer" });
@@ -168,7 +201,9 @@ export const getAllMWDData = async (req: Request, res: Response) => {
     }
 
     const authUser = (req as AuthenticatedRequest).user;
-    const allData = await mwdDataService.getAllMWDData(sessionId ?? undefined);
+    const allData = await mwdDataService.getAllMWDData(sessionId ?? undefined, {
+      includeHidden,
+    });
 
     const filteredData =
       authUser && canViewAllSessions(authUser.roleName)

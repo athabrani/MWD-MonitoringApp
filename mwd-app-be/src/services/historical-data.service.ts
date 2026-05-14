@@ -12,6 +12,10 @@ const historicalDataSelect = {
   sessionId: true,
   measuredAt: true,
   ...historicalMeasurementSelect,
+  isHidden: true,
+  hiddenAt: true,
+  hiddenById: true,
+  editNote: true,
   createdAt: true,
   session: {
     select: {
@@ -32,6 +36,7 @@ type HistoricalDataQuery = {
   depthMin?: number;
   depthMax?: number;
   limit?: number;
+  includeHidden?: boolean;
 };
 
 export const getHistoricalData = async (query: HistoricalDataQuery) => {
@@ -39,7 +44,12 @@ export const getHistoricalData = async (query: HistoricalDataQuery) => {
     sessionId?: number | { in: number[] };
     measuredAt?: { gte?: Date; lte?: Date };
     depthMd?: { gte?: number; lte?: number };
+    isHidden?: boolean;
   } = {};
+
+  if (query.includeHidden !== true) {
+    where.isHidden = false;
+  }
 
   if (query.sessionId !== undefined) {
     where.sessionId = query.sessionId;
