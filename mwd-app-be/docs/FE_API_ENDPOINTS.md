@@ -108,8 +108,21 @@ List sessions.
 ```json
 {
   "sessionCode": "MWD-TEST-001",
+  "company": "Company Name",
   "wellName": "Well Test",
+  "wellId": "WELL-001",
   "rigName": "Rig Test",
+  "field": "Field Name",
+  "jobNumber": "JOB-001",
+  "province": "Province",
+  "countyParish": "County/Parish",
+  "country": "Indonesia",
+  "location": "Pad A",
+  "latitude": -6.2,
+  "longitude": 106.8,
+  "notes": "job notes",
+  "startedAt": "2026-05-15T00:00:00.000Z",
+  "endedAt": null,
   "userId": 8
 }
 ```
@@ -117,6 +130,8 @@ List sessions.
 ### GET /api/mwd-sessions/:id
 ### PUT /api/mwd-sessions/:id
 ### DELETE /api/mwd-sessions/:id
+
+MWD session is the backend name for a field job. UI can label it as `Job`.
 
 ## MWD Data
 
@@ -166,6 +181,17 @@ Raw WITS example:
   "raw": "SEQ=12|TS=100|0715,242.55|RX_TS=200|RSSI=-58|SNR=12.0"
 }
 ```
+
+Serial WITS block example:
+
+```json
+{
+  "sessionId": 11,
+  "raw": "&&\n01089545.00\n0110945.00\n!!\n&&\n071700\n0824109516\n071612.0\n0836122.3\n!!"
+}
+```
+
+Input realtime uses plain Serial WITS raw text, not WITSML/XML/SOAP/ETP.
 
 Nested WITS example:
 
@@ -274,7 +300,6 @@ List all WITS IDs and config.
   "customDepthWitsId": null,
   "dataSource": "serial_port_wits",
   "dataInputValue": 70,
-  "sendToAuxPort": false,
   "sendToRigWitsPort": true,
   "doNotRepeat": false,
   "lasTag": "gamma",
@@ -323,6 +348,9 @@ Response shape:
       "sessionId": 11,
       "witsId": "0715",
       "rawValue": "242.55",
+      "rawText": "242.55",
+      "rawLine": "0715242.55",
+      "rawBlock": "&&\n0715242.55\n!!",
       "value": "242.55",
       "depthMd": "1000.5",
       "measuredAt": "2026-05-14T10:00:00.000Z"
@@ -804,7 +832,7 @@ limit=100
 
 ## WITS Output Queue
 
-This is backend queue only. Real physical AUX/Rig serial writing is hardware phase.
+This is backend queue only. Real physical Rig WITS serial writing is hardware phase.
 
 ### GET /api/wits-output/queue
 
@@ -841,6 +869,348 @@ Allowed status:
 
 ```txt
 queued, sent, failed, skipped
+```
+
+## Serial Port Manager
+
+Use this only when backend runs on the local rig/server PC that has the ESP/LoRa plugged in. This will not work on Vercel because Vercel cannot see local COM ports.
+
+### GET /api/serial/ports
+
+List available serial ports on the backend machine.
+
+Example response:
+
+```json
+{
+  "count": 1,
+  "data": [
+    {
+      "path": "COM9",
+      "manufacturer": "Silicon Labs",
+      "serialNumber": "...",
+      "vendorId": "10C4",
+      "productId": "EA60"
+    }
+  ]
+}
+```
+
+### POST /api/serial/connect
+
+Open selected serial port and start ingesting WITS/MWD lines.
+
+Supported realtime input format:
+
+```txt
+&&
+01089545.00
+0110945.00
+!!
+&&
+071700
+0824109516
+071612.0
+0836122.3
+!!
+```
+
+The parser reads chunked serial data, buffers partial chunks, detects `&&` to `!!` blocks, parses the first 4 digits as `witsId`, stores the rest as raw value, and stores raw line/block metadata for debugging.
+
+```json
+{
+  "path": "COM9",
+  "baudRate": 115200,
+  "sessionId": 11,
+  "source": "esp32-serial",
+  "transmitterId": "tx-1",
+  "reconnectMs": 5000,
+  "verbose": true
+}
+```
+
+Response:
+
+```json
+{
+  "message": "Serial gateway connect requested",
+  "status": {
+    "enabled": true,
+    "connected": false,
+    "reconnecting": false,
+    "path": "COM9",
+    "baudRate": 115200,
+    "sessionId": 11,
+    "source": "esp32-serial",
+    "transmitterId": "tx-1",
+    "lastLine": null,
+    "lastPayload": null,
+    "lastError": null,
+    "signal": {
+      "rssi": null,
+      "snr": null,
+      "sequence": null,
+      "quality": "unknown",
+      "lastUpdatedAt": null
+    },
+    "ingestedCount": 0,
+    "ignoredCount": 0
+  }
+}
+```
+
+`connected` may still be `false` immediately after connect because serial open happens asynchronously. Poll status after clicking connect.
+
+### GET /api/serial/status
+
+Get current serial gateway state.
+
+```json
+{
+  "enabled": true,
+  "connected": true,
+  "reconnecting": false,
+  "path": "COM9",
+  "baudRate": 115200,
+  "sessionId": 11,
+  "source": "esp32-serial",
+  "transmitterId": "tx-1",
+  "startedAt": "2026-05-14T12:00:00.000Z",
+  "connectedAt": "2026-05-14T12:00:01.000Z",
+  "lastReceivedAt": "2026-05-14T12:00:10.000Z",
+  "lastIngestedAt": "2026-05-14T12:00:10.000Z",
+  "lastLine": "SEQ=12|TS=100|0715,242.55|RX_TS=200|RSSI=-58|SNR=12.0",
+  "lastPayload": "0715,242.55",
+  "lastError": null,
+  "signal": {
+    "rssi": -58,
+    "snr": 12,
+    "sequence": "12",
+    "quality": "good",
+    "lastUpdatedAt": "2026-05-14T12:00:10.000Z"
+  },
+  "ingestedCount": 1,
+  "ignoredCount": 0
+}
+```
+
+### POST /api/serial/disconnect
+
+Close current serial port and stop automatic reconnect.
+
+## ESP WebSocket Monitor
+
+Use this when backend also connects to the ESP WebSocket gateway. This status is separate from serial status.
+
+### GET /api/esp-ws/status
+
+```json
+{
+  "enabled": true,
+  "connected": true,
+  "reconnecting": false,
+  "url": "ws://192.168.137.243:81",
+  "sessionId": 11,
+  "source": "esp32-websocket",
+  "transmitterId": "tx-1",
+  "startedAt": "2026-05-14T12:00:00.000Z",
+  "connectedAt": "2026-05-14T12:00:01.000Z",
+  "lastReceivedAt": "2026-05-14T12:00:10.000Z",
+  "lastIngestedAt": "2026-05-14T12:00:10.000Z",
+  "lastMessageType": "raw",
+  "lastRawMessage": "SEQ=12|0715,242.55|RSSI=-58|SNR=12.0",
+  "lastPayload": "0715,242.55",
+  "lastError": null,
+  "signal": {
+    "rssi": -58,
+    "snr": 12,
+    "sequence": "12",
+    "quality": "good",
+    "lastUpdatedAt": "2026-05-14T12:00:10.000Z"
+  },
+  "ingestedCount": 1,
+  "ignoredCount": 0
+}
+```
+
+Signal quality is calculated only for live monitoring:
+
+```txt
+good : RSSI above -80 and SNR >= 7
+fair : RSSI above -95 or SNR >= 3
+poor : RSSI <= -95 or SNR < 3
+```
+
+## System Utilities / Clear Data
+
+Admin only. This is the backend version of Polaris `System Utilities -> Clear Data`.
+
+### GET /api/system-utilities/clear-data/targets
+
+List clearable operational data targets.
+
+```json
+{
+  "data": [
+    "mwd_data",
+    "wits_values",
+    "wits_alarms",
+    "surveys",
+    "depth_tracking",
+    "wits_output",
+    "edit_history"
+  ]
+}
+```
+
+### POST /api/system-utilities/clear-data/preview
+
+Preview affected counts before deleting anything.
+
+```json
+{
+  "sessionId": 11,
+  "startDepth": 0,
+  "endDepth": 99999,
+  "targets": [
+    "mwd_data",
+    "wits_values",
+    "wits_alarms",
+    "surveys",
+    "depth_tracking",
+    "wits_output",
+    "edit_history"
+  ]
+}
+```
+
+Response includes `requiredConfirm`, for example:
+
+```json
+{
+  "message": "Clear data preview",
+  "requiredConfirm": "CLEAR_DATA_SESSION_11",
+  "counts": {
+    "mwd_data": 10,
+    "wits_values": 20
+  }
+}
+```
+
+### POST /api/system-utilities/backup-session
+
+Generate JSON backup before clearing data. FE can download/save the `backup` object as a `.json` file.
+
+```json
+{
+  "sessionId": 11,
+  "startDepth": 0,
+  "endDepth": 99999,
+  "targets": ["mwd_data", "wits_values", "surveys", "depth_tracking"]
+}
+```
+
+### POST /api/system-utilities/clear-data
+
+Deletes selected data for one session/job. This also returns a `backup` object in the response.
+
+```json
+{
+  "sessionId": 11,
+  "startDepth": 0,
+  "endDepth": 99999,
+  "targets": ["mwd_data", "wits_values", "surveys", "depth_tracking"],
+  "confirm": "CLEAR_DATA_SESSION_11"
+}
+```
+
+### POST /api/system-utilities/restore-session
+
+Restore from backup JSON generated by `backup-session` or `clear-data`.
+
+```json
+{
+  "sessionId": 11,
+  "replaceExisting": true,
+  "targets": ["mwd_data", "wits_values", "surveys", "depth_tracking"],
+  "backup": {
+    "version": 1,
+    "createdAt": "2026-05-15T00:00:00.000Z",
+    "sessionId": 11,
+    "depthRange": { "startDepth": 0, "endDepth": 99999 },
+    "targets": ["mwd_data"],
+    "data": {}
+  },
+  "confirm": "RESTORE_DATA_SESSION_11"
+}
+```
+
+Recommended flow:
+
+```txt
+1. Preview clear data
+2. Backup session and let user download JSON
+3. Clear data with confirmation
+4. Restore later from the saved backup JSON if needed
+```
+
+## System Utilities / Configuration Backup
+
+Admin only. This backs up and restores application configuration, not job/session data.
+
+### GET /api/system-utilities/config-backup/targets
+
+```json
+{
+  "data": ["wits_configs", "plot_templates"]
+}
+```
+
+### POST /api/system-utilities/config-backup
+
+Generate configuration backup JSON. FE can download/save the `backup` object.
+
+```json
+{
+  "targets": ["wits_configs", "plot_templates"]
+}
+```
+
+Response includes:
+
+```json
+{
+  "message": "Configuration backup generated",
+  "counts": {
+    "wits_configs": 80,
+    "plot_templates": 1
+  },
+  "backup": {
+    "version": 1,
+    "type": "configuration_backup",
+    "createdAt": "2026-05-15T00:00:00.000Z",
+    "targets": ["wits_configs", "plot_templates"],
+    "data": {}
+  }
+}
+```
+
+### POST /api/system-utilities/config-restore
+
+Restore WITS config and plot templates from backup JSON. Existing records are upserted by WITS ID or template name.
+
+```json
+{
+  "targets": ["wits_configs", "plot_templates"],
+  "backup": {
+    "version": 1,
+    "type": "configuration_backup",
+    "createdAt": "2026-05-15T00:00:00.000Z",
+    "targets": ["wits_configs", "plot_templates"],
+    "data": {}
+  },
+  "confirm": "RESTORE_CONFIGURATION"
+}
 ```
 
 ## Connection Status
@@ -932,6 +1302,8 @@ If disabled, these return `503`.
 7. Load plot template: `GET /api/plot-templates/default`
 8. Test exports: `POST /api/exports/las`, `POST /api/exports/pdf-plot`
 9. Test edit tools with preview GET first, then POST apply.
+10. Local hardware only: list serial ports, connect COM port, then poll serial status.
+11. WebSocket hardware only: poll `GET /api/esp-ws/status`.
 
 ## Notes for Frontend
 

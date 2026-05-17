@@ -114,7 +114,7 @@ export const getWitsOutputMessages = async (req: Request, res: Response) => {
     }
 
     if (targetPort === null || (targetPort !== undefined && !witsOutputService.isValidTargetPort(targetPort))) {
-      return res.status(400).json({ message: "targetPort must be aux or rig" });
+      return res.status(400).json({ message: "targetPort must be rig" });
     }
 
     if (status === null || (status !== undefined && !witsOutputService.isValidStatus(status))) {

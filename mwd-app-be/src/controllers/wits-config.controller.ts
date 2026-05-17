@@ -269,7 +269,6 @@ const buildWitsConfigInput = (
   const booleanFields = [
     { target: "enableLogging", aliases: ["enableLogging", "enableDataLogging"] },
     { target: "alarmEnabled", aliases: ["alarmEnabled", "enableAlarm"] },
-    { target: "sendToAuxPort", aliases: ["sendToAuxPort", "sendToAUXPort"] },
     { target: "sendToRigWitsPort", aliases: ["sendToRigWitsPort", "sendToRigWITSPort", "sendToRigPort"] },
     { target: "doNotRepeat", aliases: ["doNotRepeat"] },
   ] as const;

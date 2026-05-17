@@ -25,7 +25,6 @@ export type WitsConfigInput = {
   customDepthWitsId?: string | null;
   dataSource?: string;
   dataInputValue?: number | string | null;
-  sendToAuxPort?: boolean;
   sendToRigWitsPort?: boolean;
   doNotRepeat?: boolean;
   lasTag?: string | null;
@@ -60,7 +59,6 @@ export const witsConfigSelect = {
   customDepthWitsId: true,
   dataSource: true,
   dataInputValue: true,
-  sendToAuxPort: true,
   sendToRigWitsPort: true,
   doNotRepeat: true,
   lasTag: true,

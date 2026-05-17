@@ -3,6 +3,7 @@ import {
   GatewayIngestError,
   ingestGatewayPayloads,
 } from "./gateway-ingest.service.js";
+import { parseSerialWitsBlock } from "../utils/serial-wits-parser.js";
 
 type EspMessage = {
   type?: unknown;
@@ -14,6 +15,33 @@ type EspMessage = {
 type LoRaPacket = {
   payload: string;
   metadata: Record<string, string>;
+};
+
+export type EspWebSocketGatewayStatus = {
+  enabled: boolean;
+  connected: boolean;
+  reconnecting: boolean;
+  url: string | null;
+  sessionId: number | null;
+  source: string;
+  transmitterId: string | null;
+  startedAt: string | null;
+  connectedAt: string | null;
+  lastReceivedAt: string | null;
+  lastIngestedAt: string | null;
+  lastMessageType: string | null;
+  lastRawMessage: string | null;
+  lastPayload: string | null;
+  lastError: string | null;
+  signal: {
+    rssi: number | null;
+    snr: number | null;
+    sequence: string | null;
+    quality: "unknown" | "good" | "fair" | "poor";
+    lastUpdatedAt: string | null;
+  };
+  ingestedCount: number;
+  ignoredCount: number;
 };
 
 const DEFAULT_RECONNECT_MS = 5000;
@@ -42,6 +70,103 @@ const parsePositiveNumber = (value: unknown, fallback: number) => {
     ? parsed
     : fallback;
 };
+
+const parseSignalNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = value.match(/[-+]?\d+(?:\.\d+)?/);
+  const parsed = match?.[0] ? Number(match[0]) : NaN;
+
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getSignalQuality = (
+  rssi: number | null,
+  snr: number | null,
+): "unknown" | "good" | "fair" | "poor" => {
+  if (rssi === null && snr === null) {
+    return "unknown";
+  }
+
+  if ((rssi !== null && rssi <= -95) || (snr !== null && snr < 3)) {
+    return "poor";
+  }
+
+  if ((rssi !== null && rssi <= -80) || (snr !== null && snr < 7)) {
+    return "fair";
+  }
+
+  return "good";
+};
+
+const runtimeStatus: EspWebSocketGatewayStatus = {
+  enabled: false,
+  connected: false,
+  reconnecting: false,
+  url: null,
+  sessionId: null,
+  source: "esp32-websocket",
+  transmitterId: null,
+  startedAt: null,
+  connectedAt: null,
+  lastReceivedAt: null,
+  lastIngestedAt: null,
+  lastMessageType: null,
+  lastRawMessage: null,
+  lastPayload: null,
+  lastError: null,
+  signal: {
+    rssi: null,
+    snr: null,
+    sequence: null,
+    quality: "unknown",
+    lastUpdatedAt: null,
+  },
+  ingestedCount: 0,
+  ignoredCount: 0,
+};
+
+const updateSignalStatus = (
+  metadata: Record<string, string>,
+  message: EspMessage,
+  rawMessage: string,
+) => {
+  const rssi =
+    parseSignalNumber(message.rssi) ??
+    parseSignalNumber(metadata.RSSI) ??
+    parseSignalNumber(rawMessage.match(/RSSI\s*=\s*([-+]?\d+(?:\.\d+)?)/i)?.[1]);
+  const snr =
+    parseSignalNumber(message.snr) ??
+    parseSignalNumber(metadata.SNR) ??
+    parseSignalNumber(rawMessage.match(/SNR\s*=\s*([-+]?\d+(?:\.\d+)?)/i)?.[1]);
+  const sequence =
+    metadata.SEQ ??
+    rawMessage.match(/(?:^|[|\s,])SEQ\s*=\s*([A-Za-z0-9_.-]+)/i)?.[1] ??
+    null;
+
+  if (rssi === null && snr === null && sequence === null) {
+    return;
+  }
+
+  runtimeStatus.signal.rssi = rssi ?? runtimeStatus.signal.rssi;
+  runtimeStatus.signal.snr = snr ?? runtimeStatus.signal.snr;
+  runtimeStatus.signal.sequence = sequence ?? runtimeStatus.signal.sequence;
+  runtimeStatus.signal.quality = getSignalQuality(
+    runtimeStatus.signal.rssi,
+    runtimeStatus.signal.snr,
+  );
+  runtimeStatus.signal.lastUpdatedAt = new Date().toISOString();
+};
+
+export const getEspWebSocketGatewayStatus = () => ({
+  ...runtimeStatus,
+});
 
 const parseCsvSet = (value: unknown, fallback: string[]) => {
   if (typeof value !== "string" || !value.trim()) {
@@ -229,9 +354,27 @@ const toGatewayPayload = (
   }
 
   const parsedPayload = parseJsonObject(payload);
+  const parsedWitsBlock =
+    !parsedPayload && payload.includes("&&") && payload.includes("!!")
+      ? parseSerialWitsBlock(payload)
+      : null;
   const gatewayPayload: Record<string, unknown> = parsedPayload
     ? { ...parsedPayload }
-    : { wits: parseWitsPairs(payload) };
+    : parsedWitsBlock
+      ? {
+          wits: parsedWitsBlock.values,
+          rawWitsBlock: parsedWitsBlock.rawBlock,
+          raw: parsedWitsBlock.rawBlock,
+          serialWitsLines: parsedWitsBlock.lines.map((line) => ({
+            rawLine: line.rawLine,
+            witsId: line.witsId,
+            rawValue: line.rawValue,
+            numericValue: line.numericValue,
+            malformed: line.malformed,
+            reason: line.reason,
+          })),
+        }
+      : { wits: parseWitsPairs(payload) };
 
   if (
     !parsedPayload &&
@@ -268,6 +411,10 @@ export const startEspWebSocketGateway = () => {
   const url = process.env.ESP_WS_URL?.trim();
 
   if (!url) {
+    runtimeStatus.enabled = false;
+    runtimeStatus.connected = false;
+    runtimeStatus.reconnecting = false;
+    runtimeStatus.url = null;
     console.log("[ESP WS] Disabled. Set ESP_WS_URL to enable ESP ingestion.");
     return;
   }
@@ -289,6 +436,7 @@ export const startEspWebSocketGateway = () => {
     DEFAULT_INGEST_TYPES,
   );
   const source = process.env.ESP_GATEWAY_SOURCE?.trim() || "esp32-websocket";
+  const transmitterId = process.env.ESP_GATEWAY_TRANSMITTER_ID?.trim();
   let socket: WebSocket | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopped = false;
@@ -300,11 +448,38 @@ export const startEspWebSocketGateway = () => {
     );
   }
 
+  runtimeStatus.enabled = true;
+  runtimeStatus.connected = false;
+  runtimeStatus.reconnecting = false;
+  runtimeStatus.url = url;
+  runtimeStatus.sessionId = defaultSessionId;
+  runtimeStatus.source = source;
+  runtimeStatus.transmitterId = transmitterId || null;
+  runtimeStatus.startedAt = new Date().toISOString();
+  runtimeStatus.connectedAt = null;
+  runtimeStatus.lastReceivedAt = null;
+  runtimeStatus.lastIngestedAt = null;
+  runtimeStatus.lastMessageType = null;
+  runtimeStatus.lastRawMessage = null;
+  runtimeStatus.lastPayload = null;
+  runtimeStatus.lastError = null;
+  runtimeStatus.signal = {
+    rssi: null,
+    snr: null,
+    sequence: null,
+    quality: "unknown",
+    lastUpdatedAt: null,
+  };
+  runtimeStatus.ingestedCount = 0;
+  runtimeStatus.ignoredCount = 0;
+
   const scheduleReconnect = () => {
     if (stopped || reconnectTimer) {
       return;
     }
 
+    runtimeStatus.connected = false;
+    runtimeStatus.reconnecting = true;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect();
@@ -323,30 +498,53 @@ export const startEspWebSocketGateway = () => {
         ? message.type
         : "raw";
 
+    runtimeStatus.lastReceivedAt = new Date().toISOString();
+    runtimeStatus.lastMessageType = messageType;
+    runtimeStatus.lastRawMessage = rawMessage;
+
     if (!ingestTypes.has(messageType)) {
+      runtimeStatus.ignoredCount += 1;
       return;
     }
+
+    const packet =
+      typeof message.data === "string" ? unwrapLoRaPacket(message.data) : null;
+    updateSignalStatus(packet?.metadata ?? {}, message, rawMessage);
 
     const gatewayPayload = toGatewayPayload(message, defaultSessionId);
 
     if (!gatewayPayload) {
+      runtimeStatus.ignoredCount += 1;
       console.warn(`[ESP WS] Ignored ${messageType} message without MWD payload.`);
       return;
     }
 
+    runtimeStatus.lastPayload =
+      packet?.payload ??
+      (typeof message.data === "string" ? message.data : JSON.stringify(message.data));
+
+    if (transmitterId && gatewayPayload.gatewayTransmitter === undefined) {
+      gatewayPayload.gatewayTransmitter = transmitterId;
+    }
+
     try {
       const createdItems = await ingestGatewayPayloads(gatewayPayload);
+      runtimeStatus.ingestedCount += createdItems.length;
+      runtimeStatus.lastIngestedAt = new Date().toISOString();
+      runtimeStatus.lastError = null;
       console.log(
         `[ESP WS] Ingested ${createdItems.length} MWD row(s) from ${messageType}.`,
       );
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {
+        runtimeStatus.lastError = error.message;
         console.warn(`[ESP WS] Ingest rejected: ${error.message}`);
         return;
       }
 
       const messageText =
         error instanceof Error ? error.message : "Unknown ingest error";
+      runtimeStatus.lastError = messageText;
       console.error(`[ESP WS] Ingest failed: ${messageText}`);
     }
   };
@@ -364,6 +562,7 @@ export const startEspWebSocketGateway = () => {
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Unknown WebSocket error";
+      runtimeStatus.lastError = message;
       console.warn(`[ESP WS] Failed to create connection: ${message}`);
       void recordConnectionStatus(source, "offline", message);
       scheduleReconnect();
@@ -372,6 +571,10 @@ export const startEspWebSocketGateway = () => {
 
     socket.addEventListener("open", () => {
       const responseMs = Date.now() - connectStartedAt;
+      runtimeStatus.connected = true;
+      runtimeStatus.reconnecting = false;
+      runtimeStatus.connectedAt = new Date().toISOString();
+      runtimeStatus.lastError = null;
       console.log(`[ESP WS] Connected to ${url}`);
       void recordConnectionStatus(
         source,
@@ -386,6 +589,7 @@ export const startEspWebSocketGateway = () => {
     });
 
     socket.addEventListener("error", () => {
+      runtimeStatus.lastError = `WebSocket error from ${url}`;
       console.warn(`[ESP WS] Connection error from ${url}`);
       void recordConnectionStatus(
         source,
@@ -396,6 +600,8 @@ export const startEspWebSocketGateway = () => {
 
     socket.addEventListener("close", (event) => {
       const reason = event.reason ? `: ${event.reason}` : "";
+      runtimeStatus.connected = false;
+      runtimeStatus.lastError = `WebSocket closed (${event.code}${reason})`;
       console.warn(`[ESP WS] Closed (${event.code}${reason})`);
       void recordConnectionStatus(
         source,
@@ -411,6 +617,9 @@ export const startEspWebSocketGateway = () => {
 
   return () => {
     stopped = true;
+    runtimeStatus.enabled = false;
+    runtimeStatus.connected = false;
+    runtimeStatus.reconnecting = false;
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);

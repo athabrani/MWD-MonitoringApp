@@ -26,7 +26,6 @@ type WitsConfigRecord = {
   alarmMin: unknown;
   alarmMax: unknown;
   customDepthWitsId: string | null;
-  sendToAuxPort: boolean;
   sendToRigWitsPort: boolean;
   doNotRepeat: boolean;
 };
@@ -65,6 +64,9 @@ const witsDataValueSelect = {
   measuredAt: true,
   depthMd: true,
   rawValue: true,
+  rawText: true,
+  rawLine: true,
+  rawBlock: true,
   value: true,
   createdAt: true,
   witsConfig: {
@@ -158,6 +160,57 @@ const normalizeLimit = (limit?: number) => {
   return Math.max(1, Math.min(limit, 5000));
 };
 
+const getRawWitsMetadata = (
+  source: Record<string, unknown>,
+  witsId: string,
+  fallbackRawValue: unknown,
+) => {
+  const rawBlock =
+    typeof source.rawWitsBlock === "string"
+      ? source.rawWitsBlock
+      : typeof source.raw === "string" && source.raw.includes("&&")
+        ? source.raw
+        : null;
+  const serialWitsLines = Array.isArray(source.serialWitsLines)
+    ? source.serialWitsLines
+    : [];
+
+  for (const item of serialWitsLines) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      Array.isArray(item)
+    ) {
+      continue;
+    }
+
+    const line = item as Record<string, unknown>;
+    const normalizedWitsId = normalizeWitsId(line.witsId);
+
+    if (normalizedWitsId !== witsId) {
+      continue;
+    }
+
+    return {
+      rawText:
+        line.rawValue === undefined || line.rawValue === null
+          ? null
+          : String(line.rawValue),
+      rawLine: typeof line.rawLine === "string" ? line.rawLine : null,
+      rawBlock,
+    };
+  }
+
+  return {
+    rawText:
+      fallbackRawValue === undefined || fallbackRawValue === null
+        ? null
+        : String(fallbackRawValue),
+    rawLine: null,
+    rawBlock,
+  };
+};
+
 const getMeasuredAtWhere = (filters: Pick<WitsDataValueFilters, "measuredFrom" | "measuredTo">) => {
   const measuredAt: Record<string, Date> = {};
 
@@ -202,12 +255,13 @@ export const recordConfiguredWitsValues = async (
   const outputValues = [];
 
   for (const config of configs) {
-    const rawValue = toFiniteNumber(rawWitsValues.get(config.witsId));
-
-    if (rawValue === null) {
-      skippedInvalid.push(config.witsId);
-      continue;
-    }
+    const rawInputValue = rawWitsValues.get(config.witsId);
+    const rawValue = toFiniteNumber(rawInputValue);
+    const rawMetadata = getRawWitsMetadata(
+      input.source,
+      config.witsId,
+      rawInputValue,
+    );
 
     const scaleFactor = toFiniteNumber(config.scaleFactor) ?? 1;
     const biasOffset = toFiniteNumber(config.biasOffset) ?? 0;
@@ -219,7 +273,7 @@ export const recordConfiguredWitsValues = async (
         : null;
     const baseDepth = customDepth ?? toFiniteNumber(input.depthMd);
     const depthMd = baseDepth === null ? null : baseDepth - sensorToBitSpacing;
-    const value = (rawValue - biasOffset) * scaleFactor;
+    const value = rawValue === null ? null : (rawValue - biasOffset) * scaleFactor;
 
     const createdValue = await client(db).witsDataValue.create({
       data: {
@@ -229,15 +283,21 @@ export const recordConfiguredWitsValues = async (
         measuredAt: input.measuredAt,
         depthMd,
         rawValue,
+        rawText: rawMetadata.rawText,
+        rawLine: rawMetadata.rawLine,
+        rawBlock: rawMetadata.rawBlock,
         value,
       },
       select: witsDataValueSelect,
     });
     values.push(createdValue);
-    outputValues.push({
-      config,
-      value,
-    });
+
+    if (value === null) {
+      skippedInvalid.push(config.witsId);
+      continue;
+    }
+
+    outputValues.push({ config, value });
 
     if (!config.alarmEnabled) {
       continue;

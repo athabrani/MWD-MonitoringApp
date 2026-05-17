@@ -13,7 +13,6 @@ type WitsOutputConfig = {
   name: string;
   mappedField: string | null;
   decimalPlaces: number;
-  sendToAuxPort: boolean;
   sendToRigWitsPort: boolean;
   doNotRepeat: boolean;
 };
@@ -114,10 +113,6 @@ const normalizeTargetPort = (value: unknown) => {
 
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === "aux" || normalized === "aux_port") {
-    return "aux";
-  }
-
   if (
     normalized === "rig" ||
     normalized === "rig_port" ||
@@ -157,10 +152,6 @@ export const buildWitsOutputPayload = (
 
 const getTargetPorts = (config: WitsOutputConfig) => {
   const ports: string[] = [];
-
-  if (config.sendToAuxPort) {
-    ports.push("aux");
-  }
 
   if (config.sendToRigWitsPort) {
     ports.push("rig");
@@ -362,7 +353,7 @@ export const queueWitsOutputFromLatestMwdData = async (sessionId: number) => {
 
   const configs = await db().witsConfig.findMany({
     where: {
-      OR: [{ sendToAuxPort: true }, { sendToRigWitsPort: true }],
+      sendToRigWitsPort: true,
       mappedField: {
         not: null,
       },
@@ -373,7 +364,6 @@ export const queueWitsOutputFromLatestMwdData = async (sessionId: number) => {
       name: true,
       mappedField: true,
       decimalPlaces: true,
-      sendToAuxPort: true,
       sendToRigWitsPort: true,
       doNotRepeat: true,
     },
