@@ -7,6 +7,8 @@ import { Copy, Download, Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { availableLasColumns, mockLasPresets } from "@/data/las-data";
+import { downloadBlob, exportLas, LasExportColumnPayload, LasWellInfoItem } from "@/lib/exports-api";
 import { cn } from "@/lib/utils";
 import { LasExportColumn, LasPreviewResult, LasPreset } from "@/types/las";
 
@@ -92,16 +95,88 @@ function createPreview(preset: LasPreset): LasPreviewResult {
   };
 }
 
+function getLasField(column: LasExportColumn) {
+  const byWitsId: Record<string, string> = {
+    "0110": "depthMd",
+    "0713": "inclination",
+    "0714": "azimuth",
+    "0823": "gammaRay",
+    "0824": "gammaRay",
+  };
+  const byMnemonic: Record<string, string> = {
+    DEPT: "depthMd",
+    HDEPT: "hole_depth",
+    INCL: "inclination",
+    AZIM: "azimuth",
+    GR: "gammaRay",
+    GRCOR: "gammaRay",
+    GRRAW: "gammaRay",
+  };
+
+  return byWitsId[column.witsId] ?? byMnemonic[column.mnemonic] ?? column.mnemonic.toLowerCase();
+}
+
+function toLasColumns(columns: LasExportColumn[]): LasExportColumnPayload[] {
+  const sourceColumns = columns.length
+    ? columns
+    : [
+        { id: "default-depth", witsId: "0110", mnemonic: "DEPT", unit: "m", description: "Bit Depth" },
+        { id: "default-inc", witsId: "0713", mnemonic: "INCL", unit: "deg", description: "Inclination" },
+        { id: "default-azi", witsId: "0714", mnemonic: "AZIM", unit: "deg", description: "Azimuth" },
+        { id: "default-gr", witsId: "0824", mnemonic: "GR", unit: "API", description: "Gamma Ray" },
+      ];
+
+  return sourceColumns.map((column) => ({
+    field: getLasField(column),
+    mnemonic: column.mnemonic,
+    unit: column.unit,
+    description: column.description,
+  }));
+}
+
+function toWellInfo(session: ReturnType<typeof useApp>["activeMwdSession"]): LasWellInfoItem[] {
+  return [
+    {
+      name: "COMP",
+      unit: "",
+      data: session?.operator ?? "Company",
+      description: "Company",
+    },
+    {
+      name: "WELL",
+      unit: "",
+      data: session?.wellName ?? session?.name ?? "",
+      description: "Well Name",
+    },
+    {
+      name: "FLD",
+      unit: "",
+      data: typeof session?.raw.fieldName === "string" ? session.raw.fieldName : "",
+      description: "Field",
+    },
+    {
+      name: "RIG",
+      unit: "",
+      data: typeof session?.raw.rigId === "string" ? session.raw.rigId : "",
+      description: "Rig ID",
+    },
+  ];
+}
+
 export default function GenerateLasPage({
   onNavigate,
 }: {
   onNavigate?: (page: AppPage) => void;
 }) {
   const router = useRouter();
+  const { token, user } = useAuth();
+  const { activeMwdSessionId, activeMwdSession } = useApp();
   const [presets, setPresets] = useState<LasPreset[]>(mockLasPresets);
   const [activePresetId, setActivePresetId] = useState(mockLasPresets[0]?.id ?? "");
   const [draftPresetName, setDraftPresetName] = useState("New LAS Preset");
   const [preview, setPreview] = useState<LasPreviewResult | null>(null);
+  const [exportingLas, setExportingLas] = useState(false);
+  const canExport = user?.role === "admin" || user?.role === "engineer";
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === activePresetId) ?? presets[0],
@@ -177,11 +252,64 @@ export default function GenerateLasPage({
     updateActivePreset({ columns: nextColumns });
   };
 
-  const handleGenerateLas = () => {
+  const handleGeneratePreview = () => {
     if (!activePreset) return;
     const nextPreview = createPreview(activePreset);
     setPreview(nextPreview);
     toast.success("LAS preview generated locally");
+  };
+
+  const handleGenerateLas = async () => {
+    if (!token) {
+      toast.error("Please sign in before generating LAS");
+      return;
+    }
+
+    if (!canExport) {
+      toast.error("Your role does not have export access");
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before generating LAS");
+      return;
+    }
+
+    if (!activePreset) return;
+
+    setExportingLas(true);
+
+    try {
+      const blob = await exportLas(token, {
+        sessionId: activeMwdSessionId,
+        startDepth: activePreset.settings.minimumDepth,
+        endDepth: activePreset.settings.maximumDepth,
+        stepDepth: activePreset.settings.stepDepth,
+        depthPrecision: 4,
+        maxGap: activePreset.settings.maximumGap,
+        nullValue: Number(activePreset.settings.nullValue) || -9999,
+        includeWits: true,
+        includeSurvey: true,
+        includeProjectedSurvey: activePreset.options.includeProjectedSurvey,
+        includeSurveysInOtherSection: activePreset.options.includeSurveysInOtherSection,
+        stopAtLastSurveyDepth: false,
+        dateTimeInFirstColumn: activePreset.options.dateTimeInFirstColumn,
+        correctDepthColumnForTvd: activePreset.options.correctDepthColumnForTvd,
+        interpolateSurvey: activePreset.options.interpolateSurveyValues,
+        surveyStationType: "actual",
+        depthUnit: "m",
+        columns: toLasColumns(activePreset.columns),
+        wellInfo: toWellInfo(activeMwdSession),
+      });
+      downloadBlob(blob, "mwd-export.las");
+      toast.success("LAS export downloaded");
+    } catch (error) {
+      toast.error("LAS export failed", {
+        description: error instanceof Error ? error.message : "Unable to export LAS.",
+      });
+    } finally {
+      setExportingLas(false);
+    }
   };
 
   const content = (
@@ -197,9 +325,9 @@ export default function GenerateLasPage({
             Configure LAS presets, depth export rules, survey options, selected channels, and preview output.
           </p>
         </div>
-        <Button onClick={handleGenerateLas}>
+        <Button onClick={() => void handleGenerateLas()} disabled={exportingLas || !canExport}>
           <Download className="mr-2 size-4" />
-          Generate LAS
+          {exportingLas ? "Generating..." : "Generate LAS"}
         </Button>
       </div>
 
@@ -439,10 +567,10 @@ export default function GenerateLasPage({
                 <div>
                   <h2 className="text-lg font-semibold">LAS Preview Summary</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Mock preview only. Real LAS writing and file download will be handled by a backend/export service later.
+                    Preview is local. Generate LAS downloads the backend LAS export for the active session.
                   </p>
                 </div>
-                <Button onClick={handleGenerateLas}>
+                <Button onClick={handleGeneratePreview}>
                   <Download className="mr-2 size-4" />
                   Generate Preview
                 </Button>

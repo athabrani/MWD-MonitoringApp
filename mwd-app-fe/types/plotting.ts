@@ -1,10 +1,11 @@
 export type PlotFileFormat = "PDF" | "CGM" | "TIFF" | "JPG";
 export type DepthCorrectionMode = "MD" | "TVD" | "TVDss" | "VS";
+export type HeaderPreset = "None" | "Short" | "Standard" | "Alternate" | "Extended";
 export type PdfPlacement = "before" | "main" | "after";
 export type PlotTextAlign = "left" | "center" | "right";
 export type TemplateFileType = "Header" | "Track" | "LAS" | "Report";
 export type UploadedUserFileType = "PDF" | "Spreadsheet";
-export type TrackScaleType = "Linear" | "Logarithmic" | "Azimuthal";
+export type TrackScaleType = "Linear" | "Logarithmic" | "Azimuthal" | "Fill between curves";
 export type CurveLineStyle = "Solid" | "Dashed" | "Dotted";
 export type ImageContrastMode = "Static" | "Dynamic";
 
@@ -96,6 +97,7 @@ export interface DepthScalePosition {
 
 export interface PlotGeneralSettings {
   headerStyle: string;
+  headerPreset?: HeaderPreset;
   fileFormat: PlotFileFormat;
   multiPageOutput: boolean;
   measuredDepthStart: number;
@@ -110,6 +112,41 @@ export interface PlotGeneralSettings {
   surveysInTrack: boolean;
   surveyReportAtEnd: boolean;
   printLabels: boolean;
+  page?: {
+    multiPage: boolean;
+    widthIn: number;
+    heightIn: number;
+    noTopBottomMargins: boolean;
+    maxPageLengthFt: number;
+  };
+  depthRange?: {
+    start: number;
+    end: number;
+    useTvd: boolean;
+  };
+  grid?: {
+    depthScale: string;
+    majorTick: number;
+    minorTick: number;
+    firstDataSpacing: number;
+    topSpacing: number;
+    bottomSpacing: number;
+  };
+  azimuthal?: {
+    slideDetectionNoData: number;
+  };
+  surveys?: {
+    trackIndex: number;
+    includePtb: boolean;
+    printLabels: boolean;
+    transparentBackground: boolean;
+    reportAtEnd: boolean;
+  };
+  layout?: {
+    customHeaders: boolean;
+    previewStyle: "standard" | "compact" | "wide";
+    selectedTemplateId?: string;
+  };
 }
 
 export interface PdfPlotItem {
@@ -151,7 +188,12 @@ export interface AzimuthalPlotSettings {
 export interface PlotConfiguration {
   id: string;
   name: string;
+  sessionId?: string;
+  description?: string;
   isDefault: boolean;
+  header?: PlotHeaderInfo;
+  labels?: PlotLabel[];
+  logoDataUrl?: string;
   general: PlotGeneralSettings;
   pdfItems: PdfPlotItem[];
   tracks: TrackConfig[];

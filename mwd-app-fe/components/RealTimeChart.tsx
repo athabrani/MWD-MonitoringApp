@@ -31,6 +31,8 @@ interface RealTimeChartProps {
   defaultParameters?: string[];
   timeWindow?: '5min' | '15min' | '1hr';
   onTimeWindowChange?: (window: '5min' | '15min' | '1hr') => void;
+  disableTimeWindowFilter?: boolean;
+  emptyMessage?: string;
 }
 
 export const RealTimeChart: React.FC<RealTimeChartProps> = ({
@@ -39,7 +41,9 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
   availableParameters,
   defaultParameters = [],
   timeWindow = '15min',
-  onTimeWindowChange
+  onTimeWindowChange,
+  disableTimeWindowFilter = false,
+  emptyMessage = 'No chart data available.'
 }) => {
   const [selectedParams, setSelectedParams] = useState<string[]>(
     defaultParameters.length > 0 ? defaultParameters : [availableParameters[0]?.key]
@@ -55,6 +59,8 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
   };
 
   const getFilteredData = () => {
+    if (disableTimeWindowFilter) return data;
+
     const now = Date.now();
     const windowMs = timeWindow === '5min' ? 5 * 60000 : timeWindow === '15min' ? 15 * 60000 : 60 * 60000;
     return data.filter(d => now - d.timestamp.getTime() < windowMs);
@@ -158,6 +164,9 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
             ))}
         </LineChart>
       </ResponsiveContainer>
+      {filteredData.length === 0 ? (
+        <p className="mt-2 text-center text-sm text-muted-foreground">{emptyMessage}</p>
+      ) : null}
     </Card>
   );
 };

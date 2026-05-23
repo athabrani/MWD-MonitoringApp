@@ -46,6 +46,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/connection-status";
@@ -70,6 +71,7 @@ export type AppPage =
   | "alerts"
   | "history"
   | "export"
+  | "system-utilities"
   | "settings"
   | "admin"
   | "help";
@@ -118,6 +120,18 @@ const navigationItems: NavigationItem[] = [
     icon: Gauge,
     roles: ["engineer", "admin", "operator"],
   },
+     {
+    id: "configuration",
+    label: "Configuration",
+    icon: SlidersHorizontal,
+    roles: ["operator", "engineer", "admin"],
+  },
+    {
+    id: "system-utilities",
+    label: "System Utilities",
+    icon: Wrench,
+    roles: ["engineer", "admin"],
+  },
   {
     id: "charts",
     label: "Charts",
@@ -142,6 +156,7 @@ const navigationItems: NavigationItem[] = [
     icon: Download,
     roles: ["engineer", "admin"],
   },
+
   {
     id: "settings",
     label: "Settings",
@@ -153,12 +168,6 @@ const navigationItems: NavigationItem[] = [
     label: "Admin",
     icon: Shield,
     roles: ["admin"],
-  },
-   {
-    id: "configuration",
-    label: "Configuration",
-    icon: SlidersHorizontal,
-    roles: ["operator", "engineer", "admin"],
   },
   {
     id: "help",
@@ -188,6 +197,7 @@ const pageThemeClasses: Record<AppPage, string> = {
   alerts: "page-surface page-alerts",
   history: "page-surface page-history",
   export: "page-surface page-export",
+  "system-utilities": "page-surface page-settings",
   settings: "page-surface page-settings",
   admin: "page-surface page-admin",
   help: "page-surface page-help",
@@ -234,6 +244,8 @@ export function getAppPagePath(page: AppPage): string {
       return "/history";
     case "export":
       return "/export";
+    case "system-utilities":
+      return "/system-utilities";
     case "settings":
       return "/settings";
     case "admin":
@@ -545,6 +557,31 @@ function getSectionMeta(activeSection: AppPage) {
                 label: "Source History",
                 description: "Select historical dataset source",
                 icon: History,
+              },
+            ],
+          },
+        ],
+      };
+
+    case "system-utilities":
+      return {
+        title: "System Utilities",
+        subtitle: "Database backup, diagnostics, and clear-data tools",
+        sections: [
+          {
+            title: "Utilities",
+            items: [
+              {
+                id: "system-utilities" as AppPage,
+                label: "System Utilities",
+                description: "Database, system info, and clear-data workflows",
+                icon: Wrench,
+              },
+              {
+                id: "settings" as AppPage,
+                label: "Application Settings",
+                description: "Theme, display, and operator preferences",
+                icon: Settings,
               },
             ],
           },
@@ -873,8 +910,8 @@ function DesktopDetailSidebar({
         "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0  lg:flex lg:flex-col",
         isDark ? "border-white/10 bg-[#0f1b2d]" : "border-border/70 bg-card",
         collapsed
-          ? "w-[64px] px-1.5 py-4 xl:w-[76px] xl:px-2"
-          : "w-[208px] px-2 py-4 xl:w-[228px] xl:px-2.5 2xl:w-[260px]"
+          ? "w-[60px] px-1.5 py-4 xl:w-[60px] xl:px-2"
+          : "w-[208px] px-2 py-4 xl:w-[218px] xl:px-2.5 2xl:w-[230px]"
       )}
       style={{
         transition: `width 500ms ${softEasing}, padding 500ms ${softEasing}`,

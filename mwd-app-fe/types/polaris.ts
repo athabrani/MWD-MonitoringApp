@@ -10,7 +10,21 @@ export type PolarisNorthReference = "true" | "magnetic" | "grid";
 export type PolarisDataSourceMode = "decoder" | "manual" | "simulated" | "derived";
 export type PolarisToolType = "Mud Pulse" | "EM" | "Simulator" | "Memory";
 export type PolarisSurveyRigSource = "database" | "realtime";
-export type WitsIdDataSourceType = "serial" | "constant" | "script";
+export type WitsIdDataSourceType =
+  | "serial"
+  | "constant"
+  | "script"
+  | "1DivX.sh"
+  | "1kDivDenom.sh"
+  | "add.sh"
+  | "azinc.sh"
+  | "degC2degF.sh"
+  | "degF2degC.sh"
+  | "divide.sh"
+  | "duplicate.sh"
+  | "ecd.sh"
+  | "ftPerHour2minPerFt.sh"
+  | "subtract.sh";
 
 export interface PolarisWellInformation {
   companyName: string;
@@ -137,9 +151,15 @@ export interface WitsIdConfig
     WitsIdDataSourceSettings {
   id: string;
   numericId: number;
+  mappedField?: string;
+  depthTrackingMode?: string;
+  depthTrackingField?: string;
+  customDepthWitsId?: string | null;
   useForMemoryImportStorage: boolean;
   dataSourceMode: PolarisDataSourceMode;
   scriptNotes: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type PolarisWitsId = WitsIdConfig;

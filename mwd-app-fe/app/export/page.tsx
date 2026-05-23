@@ -4,32 +4,64 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Calendar as CalendarIcon, FileText, FileSpreadsheet, FileJson } from 'lucide-react';
+import { Download, Calendar as CalendarIcon, FileSpreadsheet, FileJson } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { useApp } from '@/context/AppContext';
+import {
+  downloadBlob,
+  exportHistorical,
+  ExportFormat,
+} from '@/lib/exports-api';
 
 export const ExportPage: React.FC = () => {
+  const { token, user } = useAuth();
+  const { activeMwdSessionId, activeMwdSession } = useApp();
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(new Date());
-  const [exportFormat, setExportFormat] = useState('csv');
-  const [includeCharts, setIncludeCharts] = useState(true);
-  const [includeAlarms, setIncludeAlarms] = useState(true);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
+  const [exporting, setExporting] = useState(false);
+  const canExport = user?.role === 'admin' || user?.role === 'engineer';
 
-  const handleExport = () => {
-    if (!startDate || !endDate) {
-      toast.error('Please select start and end dates');
+  const handleExport = async () => {
+    if (!token) {
+      toast.error('Please sign in before exporting data');
       return;
     }
-    toast.success(`Exporting data as ${exportFormat.toUpperCase()}...`);
-    
-    setTimeout(() => {
-      toast.success('Export completed successfully');
-    }, 2000);
+
+    if (!canExport) {
+      toast.error('Your role does not have export access');
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error('Select an active MWD session before exporting');
+      return;
+    }
+
+    setExporting(true);
+
+    try {
+      const blob = await exportHistorical(token, {
+        sessionId: activeMwdSessionId,
+        format: exportFormat,
+      });
+      downloadBlob(blob, `historical-data.${exportFormat}`);
+
+      toast.success('Historical export downloaded', {
+        description: activeMwdSession ? activeMwdSession.name : undefined,
+      });
+    } catch (error) {
+      toast.error('Export failed', {
+        description: error instanceof Error ? error.message : 'Unable to export historical data.',
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -101,7 +133,7 @@ export const ExportPage: React.FC = () => {
           {/* Format Selection */}
           <div className="space-y-2">
             <Label>Export Format</Label>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <Card 
                 className={cn(
                   "p-4 cursor-pointer transition-colors",
@@ -125,52 +157,12 @@ export const ExportPage: React.FC = () => {
                 <div className="font-medium">JSON</div>
                 <div className="text-xs text-muted-foreground">Structured data</div>
               </Card>
-
-              <Card 
-                className={cn(
-                  "p-4 cursor-pointer transition-colors",
-                  exportFormat === 'pdf' && "border-primary bg-primary/5"
-                )}
-                onClick={() => setExportFormat('pdf')}
-              >
-                <FileText className="size-8 mb-2" />
-                <div className="font-medium">PDF</div>
-                <div className="text-xs text-muted-foreground">Report document</div>
-              </Card>
             </div>
           </div>
 
-          {/* Additional Options */}
-          <div className="space-y-3">
-            <Label>Include in Export</Label>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Checkbox 
-                  id="include-charts"
-                  checked={includeCharts}
-                  onCheckedChange={(checked) => setIncludeCharts(checked as boolean)}
-                />
-                <Label htmlFor="include-charts" className="cursor-pointer">
-                  Include charts and visualizations (PDF only)
-                </Label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Checkbox 
-                  id="include-alarms"
-                  checked={includeAlarms}
-                  onCheckedChange={(checked) => setIncludeAlarms(checked as boolean)}
-                />
-                <Label htmlFor="include-alarms" className="cursor-pointer">
-                  Include alarm events and acknowledgments
-                </Label>
-              </div>
-            </div>
-          </div>
-
-          <Button onClick={handleExport} className="w-full" size="lg">
+          <Button onClick={() => void handleExport()} className="w-full" size="lg" disabled={exporting || !canExport}>
             <Download className="size-4 mr-2" />
-            Export Data
+            {exporting ? 'Exporting...' : 'Export Data'}
           </Button>
         </div>
       </Card>

@@ -1,14 +1,26 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useApp } from "@/context/AppContext";
+import {
+  getValidTrackValueRange,
+  getRenderableTracksFromPlotConfig,
+  getWrappedTrackValue,
+  getTrackWindow,
+  RenderablePlotCurve,
+  TrackValueRange,
+  WrappedTrackValue,
+} from "@/lib/plot-track-config";
 import { cn } from "@/lib/utils";
+import { TrackScaleType } from "@/types/plotting";
 
 type DepthRow = {
   depth: number;
   time: string;
+  metrics: Record<string, number>;
 };
 
 type MetricConfig = {
@@ -17,11 +29,14 @@ type MetricConfig = {
   color: string;
   min?: number;
   max?: number;
+  dataSource?: string;
 };
 
 type PlotTrack = {
   id: string;
   title: string;
+  scaleType: TrackScaleType;
+  densityTicMarks?: boolean;
   metrics: MetricConfig[];
 };
 
@@ -37,7 +52,7 @@ function formatMetricValue(value: number) {
   return value.toFixed(2);
 }
 
-const depthRows: DepthRow[] = [
+const fallbackDepthRows: DepthRow[] = [
   { depth: 1900, time: "08:10:12" },
   { depth: 2000, time: "08:14:36" },
   { depth: 2100, time: "08:19:10" },
@@ -48,50 +63,145 @@ const depthRows: DepthRow[] = [
   { depth: 2600, time: "08:45:56" },
   { depth: 2700, time: "08:51:14" },
   { depth: 2800, time: "08:56:42" },
-];
+].map((row) => ({ ...row, metrics: {} }));
 
-export const wellPlotTracks: PlotTrack[] = [
-  {
-    id: "plot-1",
-    title: "Pressure",
-    metrics: [
-      { id: "pressure_annular", label: "Pressure - Annular", color: "#2e7d32", min: 0, max: 3000 },
-      { id: "pressure_bore", label: "Pressure - Bore", color: "#5c6bc0", min: 0, max: 3000 },
-      { id: "pump_press", label: "Pump Press", color: "#bc8f5a", min: 0, max: 3000 },
-      { id: "an_diff_res", label: "An Diff Res", color: "#c9a227", min: 0, max: 2000 },
-    ],
-  },
-  {
-    id: "plot-2",
-    title: "Mud",
-    metrics: [
-      { id: "mud_weight", label: "Mud Weight", color: "#4caf50", min: 0, max: 20 },
-      { id: "ecd_calc", label: "ECD Calculation - ppg", color: "#3f51b5", min: 0, max: 10000 },
-    ],
-  },
-  {
-    id: "plot-3",
-    title: "Shock & Vib",
-    metrics: [
-      { id: "shock_ax_lat", label: "Shock (ax.lat)", color: "#d4a017", min: 0, max: 45 },
-      { id: "vib_ax_lat", label: "Vib (ax.lat)", color: "#26a69a", min: 0, max: 25 },
-      { id: "ssi", label: "SSI", color: "#607d8b", min: 0, max: 5 },
-      { id: "rpm_downhole", label: "RPM Downhole", color: "#ab47bc", min: 0, max: 300 },
-      { id: "temp", label: "Temp", color: "#ef5350", min: 0, max: 100 },
-    ],
-  },
-  {
-    id: "plot-4",
-    title: "Depth",
-    metrics: [
-      { id: "bit_depth", label: "Bit Depth", color: "#66bb6a", min: 0, max: 3000 },
-      { id: "hook_pos", label: "Hook Pos", color: "#8d6e63", min: 0, max: 105 },
-      { id: "hole_depth", label: "Hole Depth", color: "#3949ab", min: 0, max: 10000 },
-    ],
-  },
-];
+function normalizeMetricLookupKey(value: string) {
+  return value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
 
-function getMetricValue(metricId: string, depth: number, index: number) {
+function addMetricAlias(keys: Set<string>, key: string) {
+  keys.add(key);
+  keys.add(normalizeMetricLookupKey(key));
+}
+
+function buildMetricLookupKeys(metric: MetricConfig) {
+  const keys = new Set<string>();
+  const sourceValues = [metric.id, metric.label, metric.dataSource].filter((value): value is string => Boolean(value));
+
+  for (const value of sourceValues) {
+    addMetricAlias(keys, value);
+  }
+
+  const compactSource = sourceValues.map(normalizeMetricLookupKey).join(" ");
+
+  if (compactSource.includes("0713") || compactSource.includes("inclination") || compactSource.includes("incl")) {
+    ["inc", "inclination"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0714") || compactSource.includes("azimuth") || compactSource.includes("azi")) {
+    ["azi", "azimuth"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0823") || compactSource.includes("0824") || compactSource.includes("gamma")) {
+    ["gamma", "gammaRay"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0836") || compactSource.includes("temperature") || compactSource.includes("temp")) {
+    ["temp", "temperature"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0121") || compactSource.includes("standpipe") || compactSource.includes("pressure") || compactSource.includes("spp")) {
+    ["spp", "standpipePressure", "pressure", "pumpPressure"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0110") || compactSource.includes("depthmd") || compactSource.includes("holedepth")) {
+    ["depth", "depthMd", "depth_md", "holeDepth", "hole_depth", "md"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("bitdepth")) {
+    ["bitDepth", "bit_depth"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0113") || compactSource.includes("rop") || compactSource.includes("rateofpenetration")) {
+    ["rop", "rateOfPenetration"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  if (compactSource.includes("0130") || compactSource.includes("flow")) {
+    ["flowrate", "flowRate", "flow_rate"].forEach((key) => addMetricAlias(keys, key));
+  }
+
+  return Array.from(keys);
+}
+
+function getMetricValueFromRow(metric: MetricConfig, row: DepthRow) {
+  const compactSource = [metric.id, metric.label, metric.dataSource]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeMetricLookupKey)
+    .join(" ");
+
+  if (compactSource.includes("depthmd") || compactSource.includes("holedepth")) {
+    return row.depth;
+  }
+
+  for (const key of buildMetricLookupKeys(metric)) {
+    const value = row.metrics[key];
+    if (Number.isFinite(value)) return value;
+  }
+
+  return undefined;
+}
+
+function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
+  const depthValue = point.depth;
+  const depth = typeof depthValue === "number" ? depthValue : typeof depthValue === "string" ? Number(depthValue) : NaN;
+
+  if (!Number.isFinite(depth)) return null;
+
+  const timestamp = point.timestamp instanceof Date
+    ? point.timestamp
+    : typeof point.timestamp === "string" || typeof point.timestamp === "number"
+      ? new Date(point.timestamp)
+      : null;
+  const metrics: Record<string, number> = {};
+
+  for (const [key, value] of Object.entries(point)) {
+    if (key === "timestamp" || key === "depth") continue;
+    const numericValue = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    if (!Number.isFinite(numericValue)) continue;
+
+    metrics[key] = numericValue;
+    metrics[normalizeMetricLookupKey(key)] = numericValue;
+  }
+
+  return {
+    depth: Math.round(depth * 100) / 100,
+    time: timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toLocaleTimeString() : "-",
+    metrics,
+  };
+}
+
+function getMetricIdFromCurve(curve: RenderablePlotCurve) {
+  const source = curve.dataSource.toLowerCase();
+
+  if (source.includes("0713") || source.includes("inclination")) return "inc";
+  if (source.includes("0714") || source.includes("azimuth")) return "azi";
+  if (source.includes("0824") || source.includes("gamma")) return "gamma";
+  if (source.includes("0836") || source.includes("temperature")) return "temp";
+  if (source.includes("0110") || source.includes("hole depth")) return "holeDepth";
+  if (source.includes("annularpressure")) return "annularPressure";
+  if (source.includes("borepressure")) return "borePressure";
+  if (source.includes("mwdpressure")) return "mwdPressure";
+  if (source.includes("0121") || source.includes("standpipe") || source.includes("pressure")) return "spp";
+
+  return curve.id;
+}
+
+function mapCurveToMetric(curve: RenderablePlotCurve): MetricConfig {
+  return {
+    id: getMetricIdFromCurve(curve),
+    label: curve.label,
+    color: curve.lineColor,
+    min: curve.min,
+    max: curve.max,
+    dataSource: curve.dataSource,
+  };
+}
+
+function hashMetricId(metricId: string) {
+  return Array.from(metricId).reduce((total, char) => total + char.charCodeAt(0), 0);
+}
+
+function getFallbackMetricValue(metricId: string, depth: number, index: number) {
   switch (metricId) {
     case "pressure_annular":
       return 1100 + index * 40 + (index % 2 === 0 ? 120 : -80);
@@ -115,6 +225,12 @@ function getMetricValue(metricId: string, depth: number, index: number) {
       return 110 + index * 8;
     case "temp":
       return 45 + index * 3.2;
+    case "inclination":
+      return 12 + index * 1.8;
+    case "azimuth":
+      return (190 + index * 7.5) % 360;
+    case "gamma":
+      return 70 + index * 8 + (index % 2 === 0 ? 18 : -10);
     case "bit_depth":
       return depth - 40;
     case "hook_pos":
@@ -122,24 +238,259 @@ function getMetricValue(metricId: string, depth: number, index: number) {
     case "hole_depth":
       return depth + 120;
     default:
-      return index;
+      return (hashMetricId(metricId) % 80) + index * (4 + (hashMetricId(metricId) % 7));
   }
 }
 
-function buildPath(metric: MetricConfig, rows: DepthRow[], plotHeightPx: number) {
-  const values = rows.map((row, index) => getMetricValue(metric.id, row.depth, index));
-  const min = metric.min ?? Math.min(...values);
-  const max = metric.max ?? Math.max(...values);
-  const range = max - min || 1;
+const PLOT_X_MIN = 12;
+const PLOT_X_MAX = 88;
+const PLOT_X_WIDTH = PLOT_X_MAX - PLOT_X_MIN;
+
+type PlotPoint = WrappedTrackValue & {
+  x: number;
+  y: number;
+};
+
+type PlotSegment = {
+  d: string;
+  isWrapped: boolean;
+  originalStart: number;
+  originalEnd: number;
+  displayStart: number;
+  displayEnd: number;
+};
+
+function scaleValueToX(value: number, bounds: TrackValueRange) {
+  return PLOT_X_MIN + ((value - bounds.min) / (bounds.max - bounds.min)) * PLOT_X_WIDTH;
+}
+
+function createSegment(start: PlotPoint, end: PlotPoint, isWrapped: boolean): PlotSegment | null {
+  if (![start.x, start.y, end.x, end.y].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    d: `M ${start.x.toFixed(2)},${start.y.toFixed(2)} L ${end.x.toFixed(2)},${end.y.toFixed(2)}`,
+    isWrapped,
+    originalStart: start.originalValue,
+    originalEnd: end.originalValue,
+    displayStart: start.displayValue,
+    displayEnd: end.displayValue,
+  };
+}
+
+function interpolateYAtValue(start: PlotPoint, end: PlotPoint, value: number) {
+  const span = end.originalValue - start.originalValue;
+
+  if (!Number.isFinite(span) || span === 0) {
+    return (start.y + end.y) / 2;
+  }
+
+  const ratio = (value - start.originalValue) / span;
+
+  if (!Number.isFinite(ratio)) {
+    return (start.y + end.y) / 2;
+  }
+
+  return start.y + Math.min(Math.max(ratio, 0), 1) * (end.y - start.y);
+}
+
+function getTransitionBoundaryValue(start: PlotPoint, end: PlotPoint, bounds: TrackValueRange) {
+  const wrappedPoint = start.isWrapped ? start : end;
+
+  return wrappedPoint.direction === "left" ? bounds.min : bounds.max;
+}
+
+function makeEdgePoint(
+  source: PlotPoint,
+  y: number,
+  bounds: TrackValueRange,
+  isWrapped: boolean,
+  direction: WrappedTrackValue["direction"]
+): PlotPoint {
+  const edgeValue = direction === "left"
+    ? isWrapped
+      ? bounds.max
+      : bounds.min
+    : isWrapped
+      ? bounds.min
+      : bounds.max;
+
+  return {
+    ...source,
+    x: scaleValueToX(edgeValue, bounds),
+    y,
+    displayValue: edgeValue,
+    isWrapped,
+  };
+}
+
+function makeWrappedCycleEdgePoint(
+  source: PlotPoint,
+  y: number,
+  bounds: TrackValueRange,
+  direction: WrappedTrackValue["direction"],
+  side: "before" | "after"
+): PlotPoint {
+  const edgeValue = direction === "left"
+    ? side === "before"
+      ? bounds.min
+      : bounds.max
+    : side === "before"
+      ? bounds.max
+      : bounds.min;
+
+  return {
+    ...source,
+    x: scaleValueToX(edgeValue, bounds),
+    y,
+    displayValue: edgeValue,
+    isWrapped: true,
+  };
+}
+
+function getWrappedCycleBoundaryValue(start: PlotPoint, end: PlotPoint, bounds: TrackValueRange) {
+  const range = bounds.max - bounds.min;
+  const wrapCount = Math.max(start.wrapCount, end.wrapCount);
+
+  if (start.direction === "left" || end.direction === "left") {
+    return bounds.min - range * Math.max(wrapCount - 1, 1);
+  }
+
+  return bounds.min + range * wrapCount;
+}
+
+function appendSegment(segments: PlotSegment[], start: PlotPoint, end: PlotPoint, isWrapped: boolean) {
+  const segment = createSegment(start, end, isWrapped);
+
+  if (segment) {
+    segments.push(segment);
+  }
+}
+
+function buildWrappedSegments(points: PlotPoint[], bounds: TrackValueRange) {
+  const segments: PlotSegment[] = [];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+
+    if (start.isWrapped === end.isWrapped) {
+      const hasWrappedCycleBreak =
+        start.isWrapped &&
+        end.isWrapped &&
+        (start.wrapCount !== end.wrapCount || start.direction !== end.direction);
+
+      if (!hasWrappedCycleBreak) {
+        appendSegment(segments, start, end, start.isWrapped);
+        continue;
+      }
+
+      if (start.direction !== end.direction) {
+        continue;
+      }
+
+      const boundaryValue = getWrappedCycleBoundaryValue(start, end, bounds);
+      const boundaryY = interpolateYAtValue(start, end, boundaryValue);
+      const direction = start.direction;
+
+      appendSegment(
+        segments,
+        start,
+        makeWrappedCycleEdgePoint(start, boundaryY, bounds, direction, "before"),
+        true
+      );
+      appendSegment(
+        segments,
+        makeWrappedCycleEdgePoint(end, boundaryY, bounds, direction, "after"),
+        end,
+        true
+      );
+      continue;
+    }
+
+    const direction = start.isWrapped ? start.direction : end.direction;
+    const boundaryValue = getTransitionBoundaryValue(start, end, bounds);
+    const boundaryY = interpolateYAtValue(start, end, boundaryValue);
+
+    appendSegment(
+      segments,
+      start,
+      makeEdgePoint(start, boundaryY, bounds, start.isWrapped, direction),
+      start.isWrapped
+    );
+    appendSegment(
+      segments,
+      makeEdgePoint(end, boundaryY, bounds, end.isWrapped, direction),
+      end,
+      end.isWrapped
+    );
+  }
+
+  return segments;
+}
+
+function buildMetricSegments(metric: MetricConfig, rows: DepthRow[], plotHeightPx: number, useFallbackValues: boolean) {
+  const values = rows.map((row, index) => getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined));
+  const configuredBounds = getValidTrackValueRange(metric.min, metric.max);
+  const finiteValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const fallbackBounds = finiteValues.length
+    ? getValidTrackValueRange(Math.min(...finiteValues), Math.max(...finiteValues))
+    : null;
+  const bounds = configuredBounds ?? fallbackBounds;
+
+  if (!bounds) return [];
 
   const points = rows.map((row, index) => {
-    const value = getMetricValue(metric.id, row.depth, index);
-    const x = 12 + ((value - min) / range) * 76;
-    const y = 12 + (index / (rows.length - 1)) * (plotHeightPx - 24);
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
+    const value = values[index];
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    const y = 12 + (index / Math.max(rows.length - 1, 1)) * (plotHeightPx - 24);
+    const wrappedValue = configuredBounds
+      ? getWrappedTrackValue({ value, min: bounds.min, max: bounds.max })
+      : null;
+    const displayValue = wrappedValue?.displayValue ?? value;
 
-  return `M ${points.join(" L ")}`;
+    if (!Number.isFinite(displayValue)) return null;
+
+    return {
+      originalValue: value,
+      displayValue,
+      isWrapped: wrappedValue?.isWrapped ?? false,
+      wrapCount: wrappedValue?.wrapCount ?? 0,
+      direction: wrappedValue?.direction ?? "none",
+      x: scaleValueToX(displayValue, bounds),
+      y,
+    } satisfies PlotPoint;
+  }).filter((point): point is PlotPoint => Boolean(point));
+
+  if (points.length < 2) return [];
+
+  if (!configuredBounds) {
+    const segments: PlotSegment[] = [];
+
+    for (let index = 0; index < points.length - 1; index += 1) {
+      appendSegment(segments, points[index], points[index + 1], false);
+    }
+
+    return segments;
+  }
+
+  return buildWrappedSegments(points, bounds);
+}
+
+function metricHasWrappedValues(metric: MetricConfig, rows: DepthRow[], useFallbackValues: boolean) {
+  if (!getValidTrackValueRange(metric.min, metric.max)) return false;
+
+  return rows.some((row, index) => {
+    const value = getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined);
+    const wrappedValue = getWrappedTrackValue({
+      value,
+      min: metric.min,
+      max: metric.max,
+    });
+
+    return Boolean(wrappedValue?.isWrapped);
+  });
 }
 
 function MetricHeader({
@@ -273,6 +624,7 @@ function WellPlotTrack({
   compact = false,
   fullWidth = false,
   dense = false,
+  useFallbackValues = false,
 }: {
   track: PlotTrack;
   rows: DepthRow[];
@@ -281,6 +633,7 @@ function WellPlotTrack({
   compact?: boolean;
   fullWidth?: boolean;
   dense?: boolean;
+  useFallbackValues?: boolean;
 }) {
   const headerHeightClass = compact
     ? "h-[56px]"
@@ -293,6 +646,7 @@ function WellPlotTrack({
     : dense
       ? "left-[46px] sm:left-[48px] lg:left-[52px]"
       : "left-[64px] sm:left-[72px] lg:left-[84px]";
+  const hasWrappedData = track.metrics.some((metric) => metricHasWrappedValues(metric, rows, useFallbackValues));
 
   return (
     <div
@@ -306,8 +660,19 @@ function WellPlotTrack({
         className={`border-b border-slate-300 bg-slate-100 ${dense ? "px-1 py-1" : "px-2 py-2"} dark:border-slate-700 dark:bg-slate-900 ${headerHeightClass}`}
       >
         <div className="flex h-full flex-col justify-start space-y-1">
-          {track.metrics.map((metric) => (
-            <MetricHeader key={metric.id} metric={metric} compact={compact} dense={dense} />
+          <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[9px]">
+            <span className="truncate" title={track.title}>{track.title}</span>
+            <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[8px]">
+              {track.scaleType}
+            </span>
+          </div>
+          {track.metrics.map((metric, metricIndex) => (
+            <MetricHeader
+              key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-header`}
+              metric={metric}
+              compact={compact}
+              dense={dense}
+            />
           ))}
         </div>
       </div>
@@ -320,18 +685,31 @@ function WellPlotTrack({
 
           {track.metrics.map((metric, idx) => (
             <svg
-              key={metric.id}
+              key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${idx}-curve`}
               viewBox={`0 0 100 ${plotHeightPx}`}
               preserveAspectRatio="none"
               className="absolute inset-0 h-full w-full"
               style={{ zIndex: idx + 2 }}
             >
-              <path
-                d={buildPath(metric, rows, plotHeightPx)}
-                stroke={metric.color}
-                strokeWidth={compact ? "1.35" : dense ? "1.6" : "1.8"}
-                fill="none"
-              />
+              {buildMetricSegments(metric, rows, plotHeightPx, useFallbackValues).map((segment, segmentIndex) => (
+                <path
+                  key={`${metric.id}-segment-${segmentIndex}`}
+                  d={segment.d}
+                  stroke={metric.color}
+                  strokeWidth={compact ? "1.35" : dense ? "1.6" : "1.8"}
+                  strokeDasharray={segment.isWrapped ? "5 4" : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={segment.isWrapped ? 0.85 : 1}
+                  fill="none"
+                >
+                  <title>
+                    {segment.isWrapped
+                      ? `Wrapped overflow: original ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}, displayed ${formatMetricValue(segment.displayStart)}-${formatMetricValue(segment.displayEnd)}`
+                      : `${metric.label}: ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}`}
+                  </title>
+                </path>
+              ))}
             </svg>
           ))}
         </div>
@@ -351,13 +729,20 @@ function WellPlotTrack({
             "text-slate-500 dark:text-slate-400"
           )}
         >
-          {track.metrics.map((metric) => {
+          {track.metrics.map((metric, metricIndex) => {
             const lastRow = rows[rows.length - 1];
-            const lastValue = getMetricValue(metric.id, lastRow.depth, rows.length - 1);
+            const lastValue =
+              [...rows]
+                .reverse()
+                .map((row, reversedIndex) => {
+                  const index = rows.length - 1 - reversedIndex;
+                  return getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined);
+                })
+                .find((value) => Number.isFinite(value)) ?? NaN;
 
             return (
               <div
-                key={`${track.id}-${metric.id}-footer`}
+                key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-footer`}
                 className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 leading-tight"
               >
                 <div
@@ -368,11 +753,17 @@ function WellPlotTrack({
                   {metric.label}
                 </div>
                 <div className="tabular-nums text-right text-slate-600 dark:text-slate-300">
-                  {formatMetricValue(lastValue)}
+                  {Number.isFinite(lastValue) ? formatMetricValue(lastValue) : "-"}
                 </div>
               </div>
             );
           })}
+          {hasWrappedData ? (
+            <div className="mt-0.5 flex items-center gap-1.5 text-[7px] font-medium uppercase tracking-[0.04em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
+              <span className="h-px w-5 border-t border-dashed border-current" />
+              <span className="truncate">wrapped overflow</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -398,12 +789,73 @@ function PlotTabs({
           type="button"
           variant={activePlotId === track.id ? "default" : "outline"}
           size="sm"
-          className="justify-center"
+          className="min-w-0 justify-center"
           onClick={() => onChange(track.id)}
+          title={track.title}
         >
-          {track.title}
+          <span className="truncate">{track.title}</span>
         </Button>
       ))}
+    </div>
+  );
+}
+
+function TrackWindowControls({
+  tracks,
+  startIndex,
+  visibleCount,
+  onStartChange,
+}: {
+  tracks: PlotTrack[];
+  startIndex: number;
+  visibleCount: number;
+  onStartChange: (startIndex: number) => void;
+}) {
+  const windowState = getTrackWindow(tracks, startIndex, visibleCount);
+
+  if (tracks.length <= visibleCount) return null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0 text-xs text-muted-foreground">
+        Showing tracks {windowState.startIndex + 1}-{windowState.endIndex} of {tracks.length}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!windowState.hasPrevious}
+          onClick={() => onStartChange(Math.max(windowState.startIndex - visibleCount, 0))}
+        >
+          Previous
+        </Button>
+        {Array.from({ length: windowState.pageCount }).map((_, pageIndex) => {
+          const pageStart = Math.min(pageIndex * visibleCount, windowState.maxStart);
+
+          return (
+            <Button
+              key={`track-window-${pageIndex}`}
+              type="button"
+              variant={windowState.pageIndex === pageIndex ? "default" : "outline"}
+              size="sm"
+              className="h-8 min-w-8 px-2"
+              onClick={() => onStartChange(pageStart)}
+            >
+              {pageIndex + 1}
+            </Button>
+          );
+        })}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!windowState.hasNext}
+          onClick={() => onStartChange(Math.min(windowState.startIndex + visibleCount, windowState.maxStart))}
+        >
+          Next
+        </Button>
+      </div>
     </div>
   );
 }
@@ -416,6 +868,7 @@ export function WellPlotPanel({
   compactDashboardHeightPx,
   compactDashboardHeightCss,
   allTracksMinWidth,
+  maxVisibleTracks,
 }: {
   compact?: boolean;
   showHeader?: boolean;
@@ -424,8 +877,48 @@ export function WellPlotPanel({
   compactDashboardHeightPx?: number;
   compactDashboardHeightCss?: string;
   allTracksMinWidth?: number;
+  maxVisibleTracks?: number;
 }) {
-  const [activePlotId, setActivePlotId] = useState<string>(wellPlotTracks[0].id);
+  const { activePlotConfig, activeMwdSession, chartData } = useApp();
+  const tracks = useMemo<PlotTrack[]>(() => {
+    return getRenderableTracksFromPlotConfig(activePlotConfig).map((track) => ({
+      id: track.id,
+      title: track.label,
+      scaleType: track.scaleType,
+      densityTicMarks: track.densityTicMarks,
+      metrics: track.curves.map(mapCurveToMetric),
+    }));
+  }, [activePlotConfig]);
+  const backendDepthRows = useMemo<DepthRow[]>(() => {
+    return chartData
+      .map((point) => chartPointToDepthRow(point as Record<string, unknown>))
+      .filter((row): row is DepthRow => Boolean(row))
+      .sort((left, right) => left.depth - right.depth);
+  }, [chartData]);
+  const plotDepthRows = useMemo<DepthRow[]>(() => {
+    if (backendDepthRows.length > 0) {
+      return backendDepthRows;
+    }
+
+    const general = activePlotConfig?.general;
+    const start = general?.depthRange?.start ?? general?.measuredDepthStart ?? fallbackDepthRows[0].depth;
+    const end = general?.depthRange?.end ?? general?.measuredDepthEnd ?? fallbackDepthRows[fallbackDepthRows.length - 1].depth;
+    const safeStart = Number.isFinite(start) ? start : fallbackDepthRows[0].depth;
+    const safeEnd = Number.isFinite(end) && end > safeStart ? end : safeStart + 900;
+    const step = (safeEnd - safeStart) / Math.max(fallbackDepthRows.length - 1, 1);
+
+    return fallbackDepthRows.map((row, index) => ({
+      time: row.time,
+      depth: Math.round((safeStart + step * index) * 100) / 100,
+      metrics: row.metrics,
+    }));
+  }, [activePlotConfig, backendDepthRows]);
+  const useFallbackValues = backendDepthRows.length === 0;
+  const activeGeneral = activePlotConfig?.general;
+  const activeDepthCorrection = activeGeneral?.depthCorrection ?? "MD";
+  const activeDepthScale = activeGeneral?.grid?.depthScale ?? activeGeneral?.depthScale ?? "1:500";
+  const [activePlotId, setActivePlotId] = useState<string>(tracks[0]?.id ?? "");
+  const [trackWindowStart, setTrackWindowStart] = useState(0);
 
   const compactDashboardMode = compact && !showHeader;
   const plotHeightPx = compact
@@ -444,10 +937,56 @@ export function WellPlotPanel({
       : "clamp(720px, calc(100vh - 180px), 1280px)";
 
   const activeTrack = useMemo(
-    () => wellPlotTracks.find((track) => track.id === activePlotId) ?? wellPlotTracks[0],
-    [activePlotId]
+    () => tracks.find((track) => track.id === activePlotId) ?? tracks[0],
+    [activePlotId, tracks]
   );
   const dashboardDense = dashboardStretch && showAllTracks;
+  const multiTrackLimit = Math.max(1, maxVisibleTracks ?? (dashboardStretch ? 3 : 4));
+  const visibleTrackWindow = getTrackWindow(tracks, trackWindowStart, multiTrackLimit);
+
+  useEffect(() => {
+    if (!tracks.length) {
+      setActivePlotId("");
+      return;
+    }
+
+    if (!tracks.some((track) => track.id === activePlotId)) {
+      setActivePlotId(tracks[0].id);
+    }
+  }, [activePlotId, tracks]);
+
+  useEffect(() => {
+    const nextWindow = getTrackWindow(tracks, trackWindowStart, multiTrackLimit);
+    if (nextWindow.startIndex !== trackWindowStart) {
+      setTrackWindowStart(nextWindow.startIndex);
+    }
+  }, [multiTrackLimit, trackWindowStart, tracks]);
+
+  if (!tracks.length || !activeTrack) {
+    return (
+      <div className={compact ? "space-y-3" : "space-y-4 sm:space-y-5"}>
+        {showHeader ? (
+          <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
+            <div>
+              <Badge variant="outline">Trajectory / Well Plot</Badge>
+              <Badge variant="secondary">{activeDepthCorrection}</Badge>
+              <Badge variant="outline">{activeDepthScale}</Badge>
+              {activeMwdSession ? (
+                <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
+              ) : null}
+              <h1 className="mt-3 text-xl font-bold sm:text-3xl">Well Plot Viewer</h1>
+              <p className="text-[11px] text-muted-foreground sm:text-base">
+                Active tracks come from the selected Plotting configuration.
+              </p>
+            </div>
+          </div>
+        ) : null}
+        <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
+          No enabled tracks in the active Plotting configuration. Add a curve or choose a non-None data source in Data Management &gt; Plotting.
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4 sm:space-y-5"}>
@@ -456,10 +995,15 @@ export function WellPlotPanel({
           <div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <Badge variant="outline">Trajectory / Well Plot</Badge>
+              <Badge variant="secondary">{activeDepthCorrection}</Badge>
+              <Badge variant="outline">{activeDepthScale}</Badge>
+              {activeMwdSession ? (
+                <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
+              ) : null}
             </div>
             <h1 className="mt-3 text-xl font-bold sm:text-3xl">Well Plot Viewer</h1>
             <p className="text-[11px] text-muted-foreground sm:text-base">
-              Full-height vertical grouped plots with major/minor depth ticks and metric scale headers.
+              Full-height grouped plots using the active Plotting depth range, scale, and correction mode.
             </p>
           </div>
         </div>
@@ -467,26 +1011,27 @@ export function WellPlotPanel({
 
       {compact ? (
         <PlotTabs
-          tracks={wellPlotTracks}
+          tracks={tracks}
           activePlotId={activePlotId}
           onChange={setActivePlotId}
           compact
         />
       ) : showAllTracks ? null : (
         <>
-          <PlotTabs tracks={wellPlotTracks} activePlotId={activePlotId} onChange={setActivePlotId} />
+          <PlotTabs tracks={tracks} activePlotId={activePlotId} onChange={setActivePlotId} />
 
           <div className="hidden sm:grid sm:grid-cols-2 sm:gap-2 xl:hidden">
-            {wellPlotTracks.map((track) => (
+            {tracks.map((track) => (
               <Button
                 key={track.id}
                 type="button"
                 variant={activePlotId === track.id ? "default" : "outline"}
                 size="sm"
-                className="justify-center"
+                className="min-w-0 justify-center"
                 onClick={() => setActivePlotId(track.id)}
+                title={track.title}
               >
-                {track.title}
+                <span className="truncate">{track.title}</span>
               </Button>
             ))}
           </div>
@@ -497,57 +1042,83 @@ export function WellPlotPanel({
         <Card className="overflow-hidden p-0">
           <WellPlotTrack
             track={activeTrack}
-            rows={depthRows}
+            rows={plotDepthRows}
             plotHeightPx={plotHeightPx}
             plotHeightCss={plotHeightCss}
             compact
             fullWidth
+            useFallbackValues={useFallbackValues}
           />
         </Card>
       ) : showAllTracks ? (
-        <Card className="overflow-hidden p-0">
-          <div
-            className="grid grid-cols-4 divide-x divide-slate-300 dark:divide-slate-700"
-            style={{ minWidth: allTracksMinWidth ? `${allTracksMinWidth}px` : undefined }}
-          >
-            {wellPlotTracks.map((track) => (
-              <WellPlotTrack
-                key={track.id}
-                track={track}
-                rows={depthRows}
-                plotHeightPx={plotHeightPx}
-                plotHeightCss={plotHeightCss}
-                fullWidth
-                dense={dashboardDense}
-              />
-            ))}
-          </div>
-        </Card>
+        <>
+          <TrackWindowControls
+            tracks={tracks}
+            startIndex={trackWindowStart}
+            visibleCount={multiTrackLimit}
+            onStartChange={setTrackWindowStart}
+          />
+          <Card className="overflow-hidden p-0">
+            <div
+              className="grid divide-x divide-slate-300 dark:divide-slate-700"
+              style={{
+                minWidth: allTracksMinWidth ? `${allTracksMinWidth}px` : undefined,
+                gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {visibleTrackWindow.tracks.map((track) => (
+                <WellPlotTrack
+                  key={track.id}
+                  track={track}
+                  rows={plotDepthRows}
+                  plotHeightPx={plotHeightPx}
+                  plotHeightCss={plotHeightCss}
+                  fullWidth
+                  dense={dashboardDense}
+                  useFallbackValues={useFallbackValues}
+                />
+              ))}
+            </div>
+          </Card>
+        </>
       ) : (
         <>
           <div className="2xl:hidden">
             <Card className="overflow-hidden p-0">
               <WellPlotTrack
                 track={activeTrack}
-                rows={depthRows}
+                rows={plotDepthRows}
                 plotHeightPx={plotHeightPx}
                 plotHeightCss={plotHeightCss}
                 fullWidth
+                useFallbackValues={useFallbackValues}
               />
             </Card>
           </div>
 
-          <div className="hidden 2xl:block">
+          <div className="hidden space-y-3 2xl:block">
+            <TrackWindowControls
+              tracks={tracks}
+              startIndex={trackWindowStart}
+              visibleCount={multiTrackLimit}
+              onStartChange={setTrackWindowStart}
+            />
             <Card className="overflow-hidden p-0">
-              <div className="grid grid-cols-1 divide-y divide-slate-300 sm:grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-y-0 2xl:grid-cols-4 dark:divide-slate-700">
-                {wellPlotTracks.map((track) => (
+              <div
+                className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                style={{
+                  gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {visibleTrackWindow.tracks.map((track) => (
                   <WellPlotTrack
                     key={track.id}
                     track={track}
-                    rows={depthRows}
+                    rows={plotDepthRows}
                     plotHeightPx={plotHeightPx}
                     plotHeightCss={plotHeightCss}
                     fullWidth
+                    useFallbackValues={useFallbackValues}
                   />
                 ))}
               </div>

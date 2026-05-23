@@ -1,9 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { EyeOff, FileUp, Filter, MoveHorizontal, Plus, Scale, Search } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  Eye,
+  EyeOff,
+  FileUp,
+  Filter,
+  GitCompare,
+  History,
+  MoveHorizontal,
+  RefreshCw,
+  Scale,
+  Search,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
 import {
@@ -26,6 +41,24 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -33,6 +66,28 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { mockLogDataRecords } from "@/data/monitoring-data";
 import { mockPolarisWitsIds } from "@/data/polaris-config";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
+import {
+  applyCopyMwdDepth,
+  applyMoveMwdDepth,
+  applyRescaleMwdData,
+  deleteMwdDepthRange,
+  getMwdEditOperations,
+  hideMwdDepthRange,
+  MwdEditMoveDepthApplyPayload,
+  MwdEditMoveDepthPreviewQuery,
+  MwdEditCopyDepthPayload,
+  MwdEditOperation,
+  MwdEditPreviewResult,
+  MwdEditRescalePayload,
+  previewCopyMwdDepth,
+  previewMoveMwdDepth,
+  previewRescaleMwdData,
+  unhideMwdDepthRange,
+} from "@/lib/mwd-edit-tools-api";
+import { getWitsConfig, getWitsDataValues, WitsDataValue } from "@/lib/api/wits";
 import { formatConfiguredWitsId, loadStoredWitsIds } from "@/lib/wits-config-store";
 import { getWitsDescription } from "@/lib/wits-map";
 import { DepthRange, LogDataRecord, RescaleMode, RescalePreview, RescaleRequest, RescaleResultSummary } from "@/types/monitoring";
@@ -47,19 +102,204 @@ function formatRescaleMode(mode: RescaleMode) {
   return mode === "example-value" ? "Example value" : "Percentage";
 }
 
+type LogDataViewMode = "list" | "detail";
+
+type LogDataActionDialog = "import" | "memory" | "batch" | "delete-range" | "export";
+type LogEditorTool = "edit" | "delete-depths" | "move-depths" | "copy-depths" | "rescale" | "import";
+type EditPreviewKind = "move-depths" | "copy-depths" | "rescale";
+type EditActionKind = "hide-range" | "unhide-range" | "delete-depth-range" | EditPreviewKind | "operations";
+
+type ActiveEditPreview = {
+  kind: EditPreviewKind;
+  request: MwdEditMoveDepthApplyPayload | MwdEditCopyDepthPayload | MwdEditRescalePayload;
+  result: MwdEditPreviewResult;
+};
+
+type GroupedLogChannel = {
+  key: string;
+  label: string;
+  channels: LogDataChannelSummary[];
+};
+
+const WITS_GROUP_LABELS: Record<string, string> = {
+  "00": "System",
+  "01": "Rig / Surface",
+  "07": "Directional",
+  "08": "Formation",
+  "09": "Mechanical",
+  "57": "Records (relog)",
+  "58": "Records (relog)",
+  "64": "Records",
+  "66": "Records",
+  "77": "Records",
+  "88": "Records",
+  "99": "Records",
+};
+
+const WITS_GROUP_ORDER = ["00", "01", "07", "08", "09", "57", "58", "64", "66", "77", "88", "99", "other"];
+
+const LOG_EDITOR_TOOLS: Array<{ value: LogEditorTool; label: string; description: string }> = [
+  {
+    value: "edit",
+    label: "Edit Data",
+    description: "Edit data values between the starting depth and the ending depth.",
+  },
+  {
+    value: "delete-depths",
+    label: "Delete Depths",
+    description: "Delete data by depth range.",
+  },
+  {
+    value: "move-depths",
+    label: "Move Depths",
+    description: "Move data from one depth range to another.",
+  },
+  {
+    value: "copy-depths",
+    label: "Copy Depths",
+    description: "Copy data from one depth range to another.",
+  },
+  {
+    value: "rescale",
+    label: "Rescale Data",
+    description: "Rescale data values within the selected depth range.",
+  },
+  {
+    value: "import",
+    label: "Import Data",
+    description: "Import data into the selected WITS ID or log context.",
+  },
+];
+
+function getWitsGroupKey(witsId: string) {
+  const prefix = witsId.padStart(4, "0").slice(0, 2);
+  return WITS_GROUP_LABELS[prefix] ? prefix : "other";
+}
+
+function getWitsGroupLabel(groupKey: string) {
+  return groupKey === "other" ? "Other" : `${groupKey} ${WITS_GROUP_LABELS[groupKey]}`;
+}
+
+function groupChannelsByPrefix(channels: LogDataChannelSummary[]): GroupedLogChannel[] {
+  const grouped = channels.reduce<Record<string, LogDataChannelSummary[]>>((accumulator, channel) => {
+    const groupKey = getWitsGroupKey(channel.witsId);
+    if (!accumulator[groupKey]) {
+      accumulator[groupKey] = [];
+    }
+    accumulator[groupKey].push(channel);
+    return accumulator;
+  }, {});
+
+  return WITS_GROUP_ORDER
+    .filter((groupKey) => grouped[groupKey]?.length)
+    .map((groupKey) => ({
+      key: groupKey,
+      label: getWitsGroupLabel(groupKey),
+      channels: grouped[groupKey].sort((left, right) => left.witsId.localeCompare(right.witsId)),
+    }));
+}
+
+function formatOptionalDepth(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "-";
+}
+
+function formatOptionalTimestamp(value?: Date) {
+  return value ? value.toISOString() : new Date(0).toISOString();
+}
+
+function getRangeValidationError(range: DepthRange) {
+  if (!Number.isFinite(range.startDepth) || !Number.isFinite(range.endDepth)) {
+    return "Start depth and end depth must be valid numbers.";
+  }
+  if (range.startDepth > range.endDepth) {
+    return "Start depth must be less than or equal to end depth.";
+  }
+
+  return "";
+}
+
+function formatPreviewValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value.toFixed(3);
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return "-";
+}
+
+function formatOperationDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : format(date, "dd MMM HH:mm");
+}
+
+function summarizePreviewRows(result: MwdEditPreviewResult) {
+  if (result.rows.length > 0) return result.rows.slice(0, 8);
+  if (result.raw && typeof result.raw === "object" && !Array.isArray(result.raw)) {
+    return [result.raw as Record<string, unknown>];
+  }
+
+  return [];
+}
+
+function witsDataValueToLogRecord(value: WitsDataValue, config?: PolarisWitsId): LogDataRecord {
+  const witsId = value.witsId.padStart(4, "0");
+  const timestamp = formatOptionalTimestamp(value.timestamp);
+  const depth = typeof value.depth === "number" && Number.isFinite(value.depth) ? value.depth : 0;
+
+  return {
+    id: value.id ?? `${witsId}-${timestamp}-${depth}`,
+    witsId,
+    witsConfigId: value.witsConfigId,
+    mwdDataId: value.mwdDataId,
+    sessionId: value.sessionId,
+    label: config?.name || value.label || `WITS ${witsId}`,
+    depth,
+    value: value.value,
+    timestamp,
+    hidden: false,
+    source: "WITS Data Values API",
+    notes: [
+      value.sessionId ? `Session ${value.sessionId}` : "",
+      value.depth === undefined ? "Depth missing from response" : "",
+    ]
+      .filter(Boolean)
+      .join(" | "),
+  };
+}
+
 export default function LogDataPage({
   onNavigate,
 }: {
   onNavigate?: (page: AppPage) => void;
 }) {
   const router = useRouter();
+  const { token, user } = useAuth();
+  const { activeMwdSessionId } = useApp();
   const [records, setRecords] = useState<LogDataRecord[]>(mockLogDataRecords);
-  const [configuredWitsIds] = useState<PolarisWitsId[]>(() =>
+  const [configuredWitsIds, setConfiguredWitsIds] = useState<PolarisWitsId[]>(() =>
     loadStoredWitsIds(mockPolarisWitsIds)
   );
+  const [mwdDataRecords, setMwdDataRecords] = useState<MwdDataRecord[]>([]);
+  const [witsDataValues, setWitsDataValues] = useState<WitsDataValue[]>([]);
+  const [witsConfigLoading, setWitsConfigLoading] = useState(false);
+  const [mwdDataLoading, setMwdDataLoading] = useState(false);
+  const [witsValuesLoading, setWitsValuesLoading] = useState(false);
+  const [editOperations, setEditOperations] = useState<MwdEditOperation[]>([]);
+  const [editOperationsLoading, setEditOperationsLoading] = useState(false);
+  const [witsConfigError, setWitsConfigError] = useState("");
+  const [mwdDataError, setMwdDataError] = useState("");
+  const [witsValuesError, setWitsValuesError] = useState("");
+  const [editOperationsError, setEditOperationsError] = useState("");
+  const [editToolError, setEditToolError] = useState("");
+  const [activeEditAction, setActiveEditAction] = useState<EditActionKind | null>(null);
+  const [activeEditPreview, setActiveEditPreview] = useState<ActiveEditPreview | null>(null);
+  const [mwdDeletingId, setMwdDeletingId] = useState("");
+  const [usingBackendData, setUsingBackendData] = useState(false);
   const [search, setSearch] = useState("");
+  const [logDataViewMode, setLogDataViewMode] = useState<LogDataViewMode>("list");
+  const [activeActionDialog, setActiveActionDialog] = useState<LogDataActionDialog | null>(null);
   const [selectedWitsId, setSelectedWitsId] = useState<string>(mockLogDataRecords[0]?.witsId ?? "");
-  const [activeLogTab, setActiveLogTab] = useState("edit");
+  const [selectedToolWitsIds, setSelectedToolWitsIds] = useState<string[]>([]);
+  const [activeLogTab, setActiveLogTab] = useState<LogEditorTool>("edit");
   const [selectedRange, setSelectedRange] = useState<DepthRange>({ startDepth: 3810, endDepth: 3840 });
   const [valueFilter, setValueFilter] = useState({ min: 0, max: 9999 });
   const [moveOffset, setMoveOffset] = useState(5);
@@ -68,11 +308,153 @@ export default function LogDataPage({
   const [originalExampleValue, setOriginalExampleValue] = useState(80);
   const [desiredExampleValue, setDesiredExampleValue] = useState(95);
   const [rescalePercentage, setRescalePercentage] = useState(10);
-  const [newDepth, setNewDepth] = useState(3855);
-  const [newValue, setNewValue] = useState(27.1);
-  const [newNotes, setNewNotes] = useState("Manual QA insertion");
+  const [importFileName, setImportFileName] = useState("");
+  const [exportFileType, setExportFileType] = useState("LAS");
+  const [exportScope, setExportScope] = useState("selected");
+  const [exportIncludeHidden, setExportIncludeHidden] = useState(false);
+  const canManageMwdData = user?.role === "engineer" || user?.role === "admin";
 
-  const channels = useMemo(() => {
+  const loadBackendLogData = useCallback(async () => {
+    if (!token) {
+      setWitsConfigError("");
+      setMwdDataError("");
+      setWitsValuesError("");
+      return;
+    }
+
+    setWitsConfigLoading(true);
+    setMwdDataLoading(true);
+    setWitsValuesLoading(true);
+    setWitsConfigError("");
+    setMwdDataError("");
+    setWitsValuesError("");
+
+    const [configResult, mwdResult, valuesResult] = await Promise.allSettled([
+      getWitsConfig(token),
+      getMwdData(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}),
+      getWitsDataValues(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}),
+    ]);
+
+    let nextConfigs = configuredWitsIds;
+
+    if (configResult.status === "fulfilled") {
+      nextConfigs = configResult.value;
+      setConfiguredWitsIds(configResult.value);
+    } else {
+      setWitsConfigError(
+        configResult.reason instanceof Error
+          ? configResult.reason.message
+          : "Unable to load WITS config."
+      );
+    }
+    setWitsConfigLoading(false);
+
+    if (mwdResult.status === "fulfilled") {
+      const scopedMwdData = filterMwdDataForSession(mwdResult.value, activeMwdSessionId);
+      setMwdDataRecords(scopedMwdData);
+    } else {
+      setMwdDataError(
+        mwdResult.reason instanceof Error ? mwdResult.reason.message : "Unable to load MWD data."
+      );
+    }
+    setMwdDataLoading(false);
+
+    if (valuesResult.status === "fulfilled") {
+      const configByWitsId = new Map(
+        nextConfigs.map((config) => [formatConfiguredWitsId(config.numericId), config])
+      );
+      const scopedValues = activeMwdSessionId
+        ? valuesResult.value.filter((value) => !value.sessionId || value.sessionId === activeMwdSessionId)
+        : valuesResult.value;
+
+      setWitsDataValues(scopedValues);
+      setRecords(scopedValues.map((value) => witsDataValueToLogRecord(value, configByWitsId.get(value.witsId))));
+      setUsingBackendData(true);
+      setSelectedWitsId((current) => {
+        if (current && scopedValues.some((value) => value.witsId === current)) return current;
+        return scopedValues[0]?.witsId ?? (nextConfigs[0] ? formatConfiguredWitsId(nextConfigs[0].numericId) : "");
+      });
+    } else {
+      setWitsValuesError(
+        valuesResult.reason instanceof Error
+          ? valuesResult.reason.message
+          : "Unable to load WITS data values."
+      );
+    }
+    setWitsValuesLoading(false);
+  }, [activeMwdSessionId, token]);
+
+  const loadEditOperations = useCallback(async () => {
+    if (!token) {
+      setEditOperations([]);
+      setEditOperationsError("");
+      return;
+    }
+
+    setEditOperationsLoading(true);
+    setEditOperationsError("");
+
+    try {
+      setEditOperations(await getMwdEditOperations(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load MWD edit operations.";
+      setEditOperationsError(message);
+    } finally {
+      setEditOperationsLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  useEffect(() => {
+    void loadBackendLogData();
+  }, [loadBackendLogData]);
+
+  useEffect(() => {
+    void loadEditOperations();
+  }, [loadEditOperations]);
+
+  useEffect(() => {
+    setActiveEditPreview(null);
+  }, [
+    activeLogTab,
+    copyOffset,
+    desiredExampleValue,
+    moveOffset,
+    originalExampleValue,
+    rescaleMode,
+    rescalePercentage,
+    selectedRange.endDepth,
+    selectedRange.startDepth,
+    selectedWitsId,
+  ]);
+
+  const handleDeleteMwdRecord = async (record: MwdDataRecord) => {
+    if (!token || !record.id) {
+      toast.error("MWD data id is missing.");
+      return;
+    }
+    if (!canManageMwdData) {
+      toast.warning("Only admin or engineer users can delete MWD data.");
+      return;
+    }
+
+    setMwdDeletingId(record.id);
+    setMwdDataError("");
+
+    try {
+      await deleteMwdData(token, record.id);
+      toast.success("MWD data row deleted.");
+      await loadBackendLogData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete MWD data.";
+      setMwdDataError(message);
+      toast.error("Unable to delete MWD data", { description: message });
+    } finally {
+      setMwdDeletingId("");
+    }
+  };
+
+  const allChannels = useMemo(() => {
     const recordCounts = records.reduce<Record<string, { count: number; hiddenCount: number }>>(
       (accumulator, record) => {
         if (!accumulator[record.witsId]) {
@@ -92,6 +474,7 @@ export default function LogDataPage({
       const counts = recordCounts[witsId];
       return {
         witsId,
+        mappedField: config.mappedField,
         label: config.name || `WITS ${witsId}`,
         units: config.units,
         enabled: config.enabled,
@@ -108,21 +491,34 @@ export default function LogDataPage({
         isMemoryStorage: config.useForMemoryImportStorage,
         hasRecords: Boolean(counts?.count),
       };
-    }).filter((channel) => {
-      const query = search.trim().toLowerCase();
-      if (!query) return true;
-      return (
+    });
+  }, [configuredWitsIds, records]);
+
+  const channels = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return allChannels;
+    }
+
+    return allChannels.filter(
+      (channel) =>
         channel.witsId.toLowerCase().includes(query) ||
         channel.label.toLowerCase().includes(query) ||
         channel.units.toLowerCase().includes(query) ||
         channel.lasMnemonic.toLowerCase().includes(query)
-      );
-    });
-  }, [configuredWitsIds, records, search]);
+    );
+  }, [allChannels, search]);
+
+  const groupedChannels = useMemo(() => groupChannelsByPrefix(channels), [channels]);
 
   const selectedChannel = useMemo(
-    () => channels.find((channel) => channel.witsId === selectedWitsId) ?? channels[0] ?? null,
-    [channels, selectedWitsId]
+    () => allChannels.find((channel) => channel.witsId === selectedWitsId) ?? allChannels[0] ?? null,
+    [allChannels, selectedWitsId]
+  );
+
+  const selectedToolChannels = useMemo(
+    () => allChannels.filter((channel) => selectedToolWitsIds.includes(channel.witsId)),
+    [allChannels, selectedToolWitsIds]
   );
 
   const channelRecords = useMemo(() => {
@@ -135,6 +531,51 @@ export default function LogDataPage({
       .filter((record) => record.value >= valueFilter.min && record.value <= valueFilter.max)
       .sort((left, right) => left.depth - right.depth);
   }, [records, selectedChannel, valueFilter.max, valueFilter.min]);
+
+  const channelDepthRanges = useMemo(() => {
+    return records.reduce<Record<string, { min: number; max: number }>>((accumulator, record) => {
+      const current = accumulator[record.witsId];
+      if (!current) {
+        accumulator[record.witsId] = { min: record.depth, max: record.depth };
+        return accumulator;
+      }
+
+      accumulator[record.witsId] = {
+        min: Math.min(current.min, record.depth),
+        max: Math.max(current.max, record.depth),
+      };
+      return accumulator;
+    }, {});
+  }, [records]);
+
+  const activeTool = LOG_EDITOR_TOOLS.find((tool) => tool.value === activeLogTab) ?? LOG_EDITOR_TOOLS[0];
+  const rangeValidationError = getRangeValidationError(selectedRange);
+  const hasActiveEditSession = Boolean(activeMwdSessionId);
+  const canPreviewEditTools = Boolean(token) && hasActiveEditSession && !rangeValidationError && Boolean(selectedChannel);
+  const canApplyEditTools = canPreviewEditTools && canManageMwdData;
+  const editToolValidationMessage = !hasActiveEditSession
+    ? "Select an active MWD session before using edit tools."
+    : rangeValidationError || editToolError;
+  const activePreviewRows = activeEditPreview ? summarizePreviewRows(activeEditPreview.result) : [];
+
+  const latestMwdRecord = useMemo(
+    () =>
+      mwdDataRecords.reduce<MwdDataRecord | null>((latest, record) => {
+        if (!latest) return record;
+        return record.timestamp.getTime() > latest.timestamp.getTime() ? record : latest;
+      }, null),
+    [mwdDataRecords]
+  );
+  const recentMwdRecords = useMemo(
+    () =>
+      [...mwdDataRecords]
+        .sort((left, right) => right.timestamp.getTime() - left.timestamp.getTime())
+        .slice(0, 8),
+    [mwdDataRecords]
+  );
+
+  const logDataLoading = witsConfigLoading || mwdDataLoading || witsValuesLoading;
+  const logDataErrors = [witsConfigError, mwdDataError, witsValuesError].filter(Boolean);
 
   const rescaleScaleFactor = useMemo(() => {
     if (rescaleMode === "example-value") {
@@ -195,7 +636,6 @@ export default function LogDataPage({
 
   const canApplyRescale =
     Boolean(selectedChannel) &&
-    rescaleAffectedRecords.length > 0 &&
     Number.isFinite(rescaleScaleFactor) &&
     rescaleScaleFactor > 0;
 
@@ -204,6 +644,19 @@ export default function LogDataPage({
       ...current,
       [key]: value,
     }));
+  };
+
+  const openActionDialog = (action: LogDataActionDialog) => {
+    if (selectedToolWitsIds.length === 0 && selectedChannel) {
+      setSelectedToolWitsIds([selectedChannel.witsId]);
+    }
+    setActiveActionDialog(action);
+  };
+
+  const toggleToolWitsId = (witsId: string) => {
+    setSelectedToolWitsIds((current) =>
+      current.includes(witsId) ? current.filter((item) => item !== witsId) : [...current, witsId]
+    );
   };
 
   const runForSelectedChannel = (updater: (record: LogDataRecord) => LogDataRecord | null) => {
@@ -223,224 +676,660 @@ export default function LogDataPage({
     );
   };
 
-  const handleHideRange = () => {
-    runForSelectedChannel((record) =>
-      withinRange(record.depth, selectedRange)
-        ? {
-            ...record,
-            hidden: true,
-          }
-        : record
-    );
-    toast.success("Selected depth range hidden locally");
-  };
-
-  const handleDeleteDepths = () => {
-    runForSelectedChannel((record) => (withinRange(record.depth, selectedRange) ? null : record));
-    toast.success("Selected depth range deleted locally");
-  };
-
-  const handleMoveDepths = () => {
-    runForSelectedChannel((record) =>
-      withinRange(record.depth, selectedRange)
-        ? {
-            ...record,
-            depth: Number((record.depth + moveOffset).toFixed(2)),
-          }
-        : record
-    );
-    toast.success("Depths moved in local state");
-  };
-
-  const handleCopyDepths = () => {
+  const requireEditToolPreviewAccess = () => {
+    if (!token) {
+      const message = "Sign in before using MWD edit tools.";
+      setEditToolError(message);
+      toast.error(message);
+      return false;
+    }
+    if (!activeMwdSessionId) {
+      const message = "Select an active MWD session before using edit tools.";
+      setEditToolError(message);
+      toast.error(message);
+      return false;
+    }
     if (!selectedChannel) {
-      return;
+      const message = "Select a WITS ID first.";
+      setEditToolError(message);
+      toast.error(message);
+      return false;
+    }
+    if (rangeValidationError) {
+      setEditToolError(rangeValidationError);
+      toast.error(rangeValidationError);
+      return false;
     }
 
-    const copied = records
-      .filter((record) => record.witsId === selectedChannel.witsId && withinRange(record.depth, selectedRange))
-      .map((record) => ({
-        ...record,
-        id: `${record.id}-copy-${Date.now()}-${record.depth}`,
-        depth: Number((record.depth + copyOffset).toFixed(2)),
-        notes: `${record.notes ?? ""} Copied locally`.trim(),
-      }));
-
-    setRecords((current) => [...current, ...copied]);
-    toast.success("Depth range copied locally");
+    return true;
   };
 
-  const handleRescale = () => {
-    if (!selectedChannel || !rescaleSummary || !canApplyRescale) {
-      toast.error("Review rescale settings before applying");
-      return;
+  const requireEditToolApplyAccess = () => {
+    if (!requireEditToolPreviewAccess()) return false;
+    if (!canManageMwdData) {
+      const message = "Only admin or engineer users can apply MWD edit tools.";
+      setEditToolError(message);
+      toast.warning(message);
+      return false;
     }
 
-    setRecords((current) =>
-      current.map((record) =>
-        record.witsId === selectedChannel.witsId && withinRange(record.depth, selectedRange)
-          ? {
-              ...record,
-              value: Number((record.value * rescaleScaleFactor).toFixed(3)),
-              notes: `${record.notes ?? ""} Rescaled ${rescaleScaleFactor.toFixed(4)}x`.trim(),
-            }
-          : record
-      )
-    );
-
-    toast.success(`${rescaleSummary.affectedRows} ${selectedChannel.label} rows rescaled locally`);
+    return true;
   };
 
-  const handleAddData = () => {
-    if (!selectedChannel) {
+  const buildDepthRangePayload = (note?: string) => {
+    if (!activeMwdSessionId) return null;
+    return {
+      sessionId: activeMwdSessionId,
+      depthMin: selectedRange.startDepth,
+      depthMax: selectedRange.endDepth,
+      note,
+    };
+  };
+
+  const buildMovePreviewQuery = (): MwdEditMoveDepthPreviewQuery | null => {
+    const basePayload = buildDepthRangePayload();
+    if (!basePayload) return null;
+    if (!Number.isFinite(moveOffset)) {
+      setEditToolError("Move offset must be a valid number.");
+      toast.error("Move offset must be a valid number.");
+      return null;
+    }
+
+    return {
+      sessionId: basePayload.sessionId,
+      depthMin: basePayload.depthMin,
+      depthMax: basePayload.depthMax,
+      targetStartDepth: Number((selectedRange.startDepth + moveOffset).toFixed(3)),
+    };
+  };
+
+  const buildMoveApplyPayload = (): MwdEditMoveDepthApplyPayload | null => {
+    const basePayload = buildDepthRangePayload("move interval");
+    if (!basePayload) return null;
+    if (!Number.isFinite(moveOffset)) {
+      setEditToolError("Move offset must be a valid number.");
+      toast.error("Move offset must be a valid number.");
+      return null;
+    }
+
+    return {
+      ...basePayload,
+      depthOffset: moveOffset,
+    };
+  };
+
+  const buildCopyPayload = (): MwdEditCopyDepthPayload | null => {
+    const basePayload = buildDepthRangePayload();
+    if (!basePayload) return null;
+    if (!Number.isFinite(copyOffset)) {
+      setEditToolError("Copy offset must be a valid number.");
+      toast.error("Copy offset must be a valid number.");
+      return null;
+    }
+
+    return {
+      sessionId: basePayload.sessionId,
+      depthMin: basePayload.depthMin,
+      depthMax: basePayload.depthMax,
+      targetStartDepth: Number((selectedRange.startDepth + copyOffset).toFixed(3)),
+      measuredAtOffsetMs: 0,
+    };
+  };
+
+  const buildRescalePayload = (): MwdEditRescalePayload | null => {
+    const basePayload = buildDepthRangePayload();
+    if (!basePayload) return null;
+    const field = selectedChannel?.mappedField?.trim();
+
+    if (!field) {
+      const message = "Selected WITS ID has no mappedField. Rescale requires an MWD data field.";
+      setEditToolError(message);
+      toast.error(message);
+      return null;
+    }
+    if (!Number.isFinite(rescaleScaleFactor) || rescaleScaleFactor <= 0) {
+      const message = "Scale factor must be greater than 0.";
+      setEditToolError(message);
+      toast.error(message);
+      return null;
+    }
+
+    return {
+      ...basePayload,
+      field,
+      scaleFactor: rescaleScaleFactor,
+      biasOffset: 0,
+    };
+  };
+
+  const refreshAfterEditApply = async () => {
+    await Promise.all([loadBackendLogData(), loadEditOperations()]);
+  };
+
+  const handleHideRange = async () => {
+    if (!requireEditToolApplyAccess()) return;
+    const payload = buildDepthRangePayload("bad sensor interval");
+    if (!payload || !token) return;
+
+    setActiveEditAction("hide-range");
+    setEditToolError("");
+
+    try {
+      await hideMwdDepthRange(token, payload);
+      toast.success("Selected depth range hidden.");
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to hide depth range.";
+      setEditToolError(message);
+      toast.error("Unable to hide depth range", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleUnhideRange = async () => {
+    if (!requireEditToolApplyAccess()) return;
+    const payload = buildDepthRangePayload("restore interval");
+    if (!payload || !token) return;
+
+    setActiveEditAction("unhide-range");
+    setEditToolError("");
+
+    try {
+      await unhideMwdDepthRange(token, payload);
+      toast.success("Selected depth range unhidden.");
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to unhide depth range.";
+      setEditToolError(message);
+      toast.error("Unable to unhide depth range", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleDeleteDepths = async () => {
+    if (!requireEditToolApplyAccess()) return;
+    const payload = buildDepthRangePayload("delete bad interval");
+    if (!payload || !token) return;
+
+    setActiveEditAction("delete-depth-range");
+    setEditToolError("");
+
+    try {
+      await deleteMwdDepthRange(token, payload);
+      toast.success("Selected depth range deleted.");
+      setActiveActionDialog(null);
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete depth range.";
+      setEditToolError(message);
+      toast.error("Unable to delete depth range", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleDialogDeleteDepths = () => {
+    const targetWitsIds = selectedToolWitsIds.length > 0 ? selectedToolWitsIds : selectedChannel ? [selectedChannel.witsId] : [];
+    if (targetWitsIds.length === 0) {
+      toast.error("Select at least one WITS ID before deleting depths");
       return;
     }
 
-    setRecords((current) => [
-      ...current,
-      {
-        id: `log-${Date.now()}`,
-        witsId: selectedChannel.witsId,
-        label: selectedChannel.label,
-        depth: newDepth,
-        value: newValue,
-        timestamp: new Date().toISOString(),
-        hidden: false,
-        source: "Manual entry",
-        notes: newNotes,
-      },
-    ]);
-    toast.success("Log data row added locally");
+    void handleDeleteDepths();
+  };
+
+  const handlePreviewMoveDepths = async () => {
+    if (!requireEditToolPreviewAccess()) return;
+    const previewQuery = buildMovePreviewQuery();
+    const applyPayload = buildMoveApplyPayload();
+    if (!previewQuery || !applyPayload || !token) return;
+
+    setActiveEditAction("move-depths");
+    setEditToolError("");
+
+    try {
+      const result = await previewMoveMwdDepth(token, previewQuery);
+      setActiveEditPreview({ kind: "move-depths", request: applyPayload, result });
+      toast.success("Move depth preview loaded.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to preview move depth.";
+      setEditToolError(message);
+      toast.error("Unable to preview move depth", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleApplyMoveDepths = async () => {
+    if (!requireEditToolApplyAccess() || activeEditPreview?.kind !== "move-depths" || !token) return;
+
+    setActiveEditAction("move-depths");
+    setEditToolError("");
+
+    try {
+      await applyMoveMwdDepth(token, activeEditPreview.request as MwdEditMoveDepthApplyPayload);
+      toast.success("Move depth applied.");
+      setActiveEditPreview(null);
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply move depth.";
+      setEditToolError(message);
+      toast.error("Unable to apply move depth", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handlePreviewCopyDepths = async () => {
+    if (!requireEditToolPreviewAccess()) return;
+    const payload = buildCopyPayload();
+    if (!payload || !token) return;
+
+    setActiveEditAction("copy-depths");
+    setEditToolError("");
+
+    try {
+      const result = await previewCopyMwdDepth(token, payload);
+      setActiveEditPreview({ kind: "copy-depths", request: payload, result });
+      toast.success("Copy depth preview loaded.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to preview copy depth.";
+      setEditToolError(message);
+      toast.error("Unable to preview copy depth", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleApplyCopyDepths = async () => {
+    if (!requireEditToolApplyAccess() || activeEditPreview?.kind !== "copy-depths" || !token) return;
+
+    setActiveEditAction("copy-depths");
+    setEditToolError("");
+
+    try {
+      await applyCopyMwdDepth(token, activeEditPreview.request as MwdEditCopyDepthPayload);
+      toast.success("Copy depth applied.");
+      setActiveEditPreview(null);
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply copy depth.";
+      setEditToolError(message);
+      toast.error("Unable to apply copy depth", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handlePreviewRescale = async () => {
+    if (!requireEditToolPreviewAccess()) return;
+    const payload = buildRescalePayload();
+    if (!payload || !token) return;
+
+    setActiveEditAction("rescale");
+    setEditToolError("");
+
+    try {
+      const result = await previewRescaleMwdData(token, payload);
+      setActiveEditPreview({ kind: "rescale", request: payload, result });
+      toast.success("Rescale preview loaded.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to preview rescale.";
+      setEditToolError(message);
+      toast.error("Unable to preview rescale", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
+  };
+
+  const handleRescale = async () => {
+    if (!requireEditToolApplyAccess() || activeEditPreview?.kind !== "rescale" || !token) {
+      toast.error("Load a backend preview before applying rescale.");
+      return;
+    }
+
+    setActiveEditAction("rescale");
+    setEditToolError("");
+
+    try {
+      await applyRescaleMwdData(token, activeEditPreview.request as MwdEditRescalePayload);
+      toast.success("Rescale applied.");
+      setActiveEditPreview(null);
+      await refreshAfterEditApply();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply rescale.";
+      setEditToolError(message);
+      toast.error("Unable to apply rescale", { description: message });
+    } finally {
+      setActiveEditAction(null);
+    }
   };
 
   const content = (
     <div className="space-y-6">
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">Data Management</Badge>
-          <Badge variant="outline">Log Data</Badge>
+      {logDataViewMode === "list" ? (
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Log Data</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
+            Review incoming MWD log data, configured WITS IDs, and WITS values derived from MWD data.
+          </p>
         </div>
-        <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Log Data</h1>
-        <p className="text-sm text-muted-foreground sm:text-base">
-          Edit and manipulate stored WITS channel values with local range tools, batch actions, and channel-focused review.
-        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void loadBackendLogData()} disabled={logDataLoading || !token}>
+            <RefreshCw className={cn("mr-2 size-4", logDataLoading && "animate-spin")} />
+            Refresh API
+          </Button>
+          {logDataViewMode === "list" ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                Tools
+                <ChevronDown className="ml-2 size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuLabel>Log Data Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => openActionDialog("import")}>
+                <FileUp className="mr-2 size-4" />
+                Import data from CSV or LAS file
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openActionDialog("memory")}>
+                <GitCompare className="mr-2 size-4" />
+                Memory Correlation Editor
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openActionDialog("batch")}>
+                <Settings2 className="mr-2 size-4" />
+                Batch Settings Editor
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => openActionDialog("delete-range")} className="text-destructive">
+                <Trash2 className="mr-2 size-4" />
+                Delete Depth Range
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openActionDialog("export")}>
+                <Download className="mr-2 size-4" />
+                Export Data
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          ) : null}
+        </div>
       </div>
+      ) : null}
+
+      {logDataViewMode === "list" ? (
+        <div className="grid gap-3 lg:grid-cols-3">
+          <Card className="rounded-2xl p-4">
+            <div className="text-sm text-muted-foreground">WITS Config</div>
+            <div className="mt-2 text-2xl font-semibold">{configuredWitsIds.length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {witsConfigLoading ? "Loading /api/wits-config..." : "Master WITS ID list"}
+            </div>
+          </Card>
+          <Card className="rounded-2xl p-4">
+            <div className="text-sm text-muted-foreground">MWD Data</div>
+            <div className="mt-2 text-2xl font-semibold">{mwdDataRecords.length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {mwdDataLoading
+                ? "Loading /api/mwd-data..."
+                : latestMwdRecord
+                  ? `Latest depth ${formatOptionalDepth(latestMwdRecord.depth)}`
+                  : "No backend MWD rows loaded"}
+            </div>
+          </Card>
+          <Card className="rounded-2xl p-4">
+            <div className="text-sm text-muted-foreground">WITS Data Values</div>
+            <div className="mt-2 text-2xl font-semibold">{witsDataValues.length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {witsValuesLoading ? "Loading /api/wits-data-values..." : "Values derived from MWD data"}
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {logDataErrors.length > 0 ? (
+        <Card className="rounded-2xl border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          {logDataErrors.map((message) => (
+            <div key={message}>{message}</div>
+          ))}
+        </Card>
+      ) : null}
+
+      {logDataViewMode === "list" ? (
+      <Card className="rounded-2xl p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Incoming MWD Data</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Recent rows from GET /api/mwd-data. WITS values are displayed separately per configured WITS ID.
+            </p>
+          </div>
+          <Badge variant="outline">
+            {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "All sessions"}
+          </Badge>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Depth</TableHead>
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Session</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Metrics</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recentMwdRecords.map((record, index) => (
+                <TableRow key={record.id ?? `${record.timestamp.toISOString()}-${index}`}>
+                  <TableCell>{formatOptionalDepth(record.depth)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {format(record.timestamp, "dd MMM HH:mm:ss")}
+                  </TableCell>
+                  <TableCell>{record.sessionId ?? "-"}</TableCell>
+                  <TableCell>{record.status ?? "-"}</TableCell>
+                  <TableCell className="max-w-[420px] truncate font-mono text-xs">
+                    {Object.entries(record.metrics)
+                      .slice(0, 6)
+                      .map(([key, value]) => `${key}: ${value}`)
+                      .join(" | ") || "-"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ConfirmDeleteButton
+                      title="Delete MWD data row?"
+                      description={`MWD row ${record.id ?? "without id"} will be deleted. WITS data values are refreshed after deletion.`}
+                      size="sm"
+                      variant="ghost"
+                      disabled={!record.id || !canManageMwdData || mwdDeletingId === record.id}
+                      onConfirm={() => void handleDeleteMwdRecord(record)}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!mwdDataLoading && recentMwdRecords.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
+                    No MWD data loaded from /api/mwd-data.
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+      ) : null}
+
+      
 
       <WorkspaceSection
-        title="Log Data Editor"
-        description="Select a WITS ID on the left to inspect or manipulate its stored values on the right."
-        badge="Local editing only"
+        title={logDataViewMode === "list" ? "WITS ID Browser" : "Log Data Editor"}
+        description={
+          logDataViewMode === "list"
+            ? "Browse configured WITS IDs by category, then select one channel to open its log data workflow."
+            : "Inspect and manipulate stored values for the selected WITS channel."
+        }
+        badge={usingBackendData ? "Backend API" : "Mock fallback"}
       >
-        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <Card className="rounded-2xl p-0">
-            <div className="border-b px-4 py-4">
-              <div className="relative">
+        {logDataViewMode === "list" ? (
+          <div className="space-y-4">
+            <Card className="rounded-2xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Configured WITS IDs</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Select one WITS ID to open its log editor, import tools, range tools, and batch workflow.
+                  </p>
+                </div>
+                <Badge variant="secondary">{allChannels.length} WITS IDs</Badge>
+              </div>
+              <div className="relative mt-4">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-9"
-                  placeholder="Search WITS ID or label"
+                  placeholder="Search WITS ID, label, units, or LAS mnemonic"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </div>
-            </div>
-            <ScrollArea className="h-[640px]">
-              <div className="space-y-2 p-3">
-                {channels.map((channel) => (
-                  <button
-                    key={channel.witsId}
-                    type="button"
-                    className={cn(
-                      "w-full rounded-xl border p-3 text-left transition-colors",
-                      selectedChannel?.witsId === channel.witsId
-                        ? "border-primary/40 bg-primary/10"
-                        : "hover:bg-muted/40"
-                    )}
-                    onClick={() => setSelectedWitsId(channel.witsId)}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-mono text-sm font-semibold">{channel.witsId}</div>
-                      <Badge variant="outline">{channel.count}</Badge>
-                    </div>
-                    <div className="mt-1 text-sm font-medium">{channel.label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {channel.units || "No units"} | {channel.lasMnemonic || "No LAS tag"}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                      <span>{channel.hiddenCount} hidden</span>
-                      <Badge variant={channel.enabled ? "secondary" : "outline"}>
-                        {channel.enabled ? "Enabled" : "Disabled"}
-                      </Badge>
-                      {channel.isMemoryStorage ? <Badge variant="secondary">Memory</Badge> : null}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          </Card>
-
-          <div className="space-y-4">
-            <Card className="rounded-2xl border-dashed p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">{selectedChannel?.witsId ?? "No channel"}</Badge>
-                    <Badge variant="outline">{selectedChannel?.label ?? "Select a channel"}</Badge>
-                    {selectedChannel?.units ? <Badge variant="outline">{selectedChannel.units}</Badge> : null}
-                    {selectedChannel?.isMemoryStorage ? <Badge variant="secondary">Memory Storage</Badge> : null}
-                  </div>
-                  <h2 className="mt-3 text-lg font-semibold">{selectedChannel?.label ?? "No channel selected"}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {selectedChannel ? getWitsDescription(selectedChannel.witsId) : "Choose a channel from the left list."}
-                  </p>
-                  {selectedChannel ? (
-                    <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                        Decimals: <span className="font-medium text-foreground">{selectedChannel.decimalPlaces}</span>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                        Scale: <span className="font-medium text-foreground">{selectedChannel.scaleFactor}</span>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                        Plot: <span className="font-medium text-foreground">{selectedChannel.plotName}</span>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                        Alarm:{" "}
-                        <span className="font-medium text-foreground">
-                          {selectedChannel.alarmEnabled
-                            ? `${selectedChannel.alarmLow} - ${selectedChannel.alarmHigh}`
-                            : "Disabled"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setActiveLogTab("memory")}>
-                    <FileUp className="mr-2 size-4" />
-                    Import Data
-                  </Button>
-                  <Button variant="outline" onClick={() => toast.message("Export UI ready; backend export not wired")}>
-                    Export Data
-                  </Button>
-                  <Button variant="outline" onClick={() => setActiveLogTab("memory")}>
-                    Memory Correlation Editor
-                  </Button>
-                  <Button variant="outline" onClick={() => toast.message("Batch Settings Editor is a placeholder action")}>
-                    Batch Settings Editor
-                  </Button>
-                </div>
-              </div>
             </Card>
 
-            <Tabs value={activeLogTab} onValueChange={setActiveLogTab} className="space-y-4">
-              <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
-                <TabsTrigger value="edit">Edit Data</TabsTrigger>
-                <TabsTrigger value="memory">Import / Correlate</TabsTrigger>
-                <TabsTrigger value="ranges">Hide / Delete / Filter</TabsTrigger>
-                <TabsTrigger value="transform">Move / Copy / Rescale</TabsTrigger>
-                <TabsTrigger value="batch">Batch Operations</TabsTrigger>
+            {groupedChannels.length > 0 ? (
+              <div className="grid gap-4">
+                {groupedChannels.map((group) => (
+                  <Card key={group.key} className="rounded-2xl p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+                      <div>
+                        <h3 className="font-semibold">{group.label}</h3>
+                        <p className="text-sm text-muted-foreground">{group.channels.length} configured WITS IDs</p>
+                      </div>
+                      <Badge variant="outline">{group.key === "other" ? "Other" : group.key}</Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      {group.channels.map((channel) => (
+                        <button
+                          key={channel.witsId}
+                          type="button"
+                          className={cn(
+                            "rounded-xl border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40",
+                            selectedChannel?.witsId === channel.witsId && "border-primary/40 bg-primary/10"
+                          )}
+                          onClick={() => {
+                            setSelectedWitsId(channel.witsId);
+                            setActiveLogTab("edit");
+                            setLogDataViewMode("detail");
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-mono text-sm font-semibold">{channel.witsId}</div>
+                              <div className="mt-1 text-sm font-medium">{channel.label}</div>
+                            </div>
+                            <Badge variant={channel.count > 0 ? "secondary" : "outline"}>{channel.count} records</Badge>
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {channel.units || "No units"} | {channel.lasMnemonic || "No LAS tag"}
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-1">
+                            <Badge variant={channel.enabled ? "secondary" : "outline"}>
+                              {channel.enabled ? "Enabled" : "Disabled"}
+                            </Badge>
+                            {channel.hiddenCount > 0 ? <Badge variant="outline">{channel.hiddenCount} hidden</Badge> : null}
+                            {channel.isMemoryStorage ? <Badge variant="secondary">Memory Storage</Badge> : null}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card className="rounded-2xl border-dashed p-8 text-center">
+                <h2 className="text-lg font-semibold">No WITS IDs found</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Adjust the search query or add configured WITS IDs from Configuration.
+                </p>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Tabs value={activeLogTab} onValueChange={(value) => setActiveLogTab(value as LogEditorTool)} className="space-y-4">
+            <Card className="rounded-2xl p-4">
+              <div className="grid gap-3 md:grid-cols-[auto_72px_minmax(220px,1fr)_auto] md:items-center">
+                <Button size="sm" variant="outline" onClick={() => setLogDataViewMode("list")}>
+                  Close
+                </Button>
+                <Label className="text-xs font-semibold md:text-right">WITS ID:</Label>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={selectedWitsId}
+                  onChange={(event) => {
+                    setSelectedWitsId(event.target.value);
+                    setActiveLogTab("edit");
+                  }}
+                  disabled={allChannels.length === 0}
+                >
+                  {allChannels.map((channel) => {
+                    const range = channelDepthRanges[channel.witsId];
+                    const rangeLabel = range ? ` (${range.min.toFixed(2)} - ${range.max.toFixed(2)})` : "";
+                    return (
+                      <option key={channel.witsId} value={channel.witsId}>
+                        {channel.witsId} - {channel.label || "Unnamed"}{rangeLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+                <Badge variant="secondary" className="justify-center px-3 py-1.5">
+                  Data Editor
+                </Badge>
+              </div>
+
+              <TabsList className="mt-4 h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
+                {LOG_EDITOR_TOOLS.map((tool) => (
+                  <TabsTrigger key={tool.value} value={tool.value}>
+                    {tool.label}
+                  </TabsTrigger>
+                ))}
               </TabsList>
+            </Card>
+
+              <Card className="rounded-2xl p-4">
+                <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold">{activeTool.label}</div>
+                    <Badge variant={channelRecords.length > 0 ? "secondary" : "outline"}>
+                      {channelRecords.length} values
+                    </Badge>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">Description:</h3>
+                    <p className="mt-3 text-sm text-muted-foreground">{activeTool.description}</p>
+                    {channelRecords.length === 0 ? (
+                      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        No values are currently available for the selected WITS ID. Editor tools remain visible and values will appear when MWD data is received.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </Card>
+
+              {!canManageMwdData ? (
+                <Card className="rounded-2xl border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  Edit tools are read-only for this role. Only engineer and admin users can apply backend edit actions.
+                </Card>
+              ) : null}
+
+              {editToolValidationMessage ? (
+                <Card className="rounded-2xl border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  {editToolValidationMessage}
+                </Card>
+              ) : null}
 
               <TabsContent value="edit" className="space-y-4">
                 <Card className="rounded-2xl p-0">
@@ -448,10 +1337,11 @@ export default function LogDataPage({
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead>MWD Data ID</TableHead>
                           <TableHead>Depth</TableHead>
                           <TableHead>Value</TableHead>
                           <TableHead>Time</TableHead>
-                          <TableHead>Source</TableHead>
+                          <TableHead>Session</TableHead>
                           <TableHead>Notes</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -465,111 +1355,58 @@ export default function LogDataPage({
                               record.hidden && "opacity-60"
                             )}
                           >
+                            <TableCell className="font-mono text-xs">{record.mwdDataId ?? "-"}</TableCell>
                             <TableCell>{record.depth.toFixed(2)}</TableCell>
-                            <TableCell>
-                              <Input
-                                type="number"
-                                value={record.value}
-                                onChange={(event) =>
-                                  setRecords((current) =>
-                                    current.map((item) =>
-                                      item.id === record.id
-                                        ? { ...item, value: Number(event.target.value) }
-                                        : item
-                                    )
-                                  )
-                                }
-                              />
+                            <TableCell className="font-mono">
+                              {record.value.toLocaleString("en-US", {
+                                maximumFractionDigits: selectedChannel?.decimalPlaces ?? 3,
+                              })}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
                               {format(new Date(record.timestamp), "dd MMM HH:mm")}
                             </TableCell>
-                            <TableCell>{record.source}</TableCell>
-                            <TableCell>
-                              <Input
-                                value={record.notes ?? ""}
-                                onChange={(event) =>
-                                  setRecords((current) =>
-                                    current.map((item) =>
-                                      item.id === record.id
-                                        ? { ...item, notes: event.target.value }
-                                        : item
-                                    )
-                                  )
-                                }
-                              />
+                            <TableCell>{record.sessionId ?? "-"}</TableCell>
+                            <TableCell className="max-w-[260px] truncate text-xs text-muted-foreground">
+                              {record.notes || "-"}
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="flex justify-end gap-1">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    setRecords((current) =>
-                                      current.map((item) =>
-                                        item.id === record.id
-                                          ? { ...item, hidden: !item.hidden }
-                                          : item
-                                      )
-                                    )
-                                  }
-                                >
-                                  <EyeOff className="size-4" />
-                                </Button>
-                                <ConfirmDeleteButton
-                                  title="Delete log data row?"
-                                  description={`Depth ${record.depth.toFixed(2)} for ${record.witsId} will be removed from local log data.`}
-                                  onConfirm={() => {
-                                    setRecords((current) => current.filter((item) => item.id !== record.id));
-                                    toast.success("Log data row deleted locally");
-                                  }}
-                                />
-                              </div>
+                              <Badge variant="outline">Read only</Badge>
                             </TableCell>
                           </TableRow>
                         ))}
+                        {!witsValuesLoading && channelRecords.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                              No WITS data values loaded for this WITS ID.
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
                       </TableBody>
                     </Table>
                   </ScrollArea>
                 </Card>
 
                 <Card className="rounded-2xl border-dashed p-4">
-                  <h2 className="text-lg font-semibold">Add data</h2>
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label>Depth</Label>
-                      <Input type="number" value={newDepth} onChange={(event) => setNewDepth(Number(event.target.value))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Value</Label>
-                      <Input type="number" value={newValue} onChange={(event) => setNewValue(Number(event.target.value))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Notes</Label>
-                      <Input value={newNotes} onChange={(event) => setNewNotes(event.target.value)} />
-                    </div>
-                  </div>
-                  <Button className="mt-4" onClick={handleAddData}>
-                    <Plus className="mr-2 size-4" />
-                    Add Data
-                  </Button>
+                  <h2 className="text-lg font-semibold">MWD-driven values</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    WITS values are read from GET /api/wits-data-values and should be generated from incoming MWD data by the backend. This page does not create manual WITS value rows.
+                  </p>
                 </Card>
               </TabsContent>
 
-              <TabsContent value="memory" className="space-y-4">
+              <TabsContent value="import" className="space-y-4">
                 <LogDataMemoryImportPanel
                   selectedChannel={selectedChannel}
-                  channels={channels}
+                  channels={allChannels}
                   records={records}
                   setRecords={setRecords}
                   onNavigate={onNavigate}
                 />
               </TabsContent>
 
-              <TabsContent value="ranges" className="space-y-4">
+              <TabsContent value="delete-depths" className="space-y-4">
                 <Card className="rounded-2xl border-dashed p-4">
-                  <h2 className="text-lg font-semibold">Range tools</h2>
+                  <h2 className="text-lg font-semibold">Delete Depths</h2>
                   <div className="mt-4 grid gap-4 md:grid-cols-4">
                     <div className="space-y-2">
                       <Label>Start depth</Label>
@@ -589,17 +1426,42 @@ export default function LogDataPage({
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={handleHideRange}>
-                      <EyeOff className="mr-2 size-4" />
-                      Hide Depth Range
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" disabled={!canApplyEditTools || activeEditAction === "hide-range"}>
+                          <EyeOff className="mr-2 size-4" />
+                          {activeEditAction === "hide-range" ? "Hiding..." : "Hide Depth Range"}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Hide selected depth range?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            WITS {selectedChannel?.witsId ?? "-"} rows from {selectedRange.startDepth} to {selectedRange.endDepth} will be hidden through POST /api/mwd-data/edit/hide-range.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void handleHideRange()}>Hide Range</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleUnhideRange()}
+                      disabled={!canApplyEditTools || activeEditAction === "unhide-range"}
+                    >
+                      <Eye className="mr-2 size-4" />
+                      {activeEditAction === "unhide-range" ? "Unhiding..." : "Unhide Depth Range"}
                     </Button>
                     <ConfirmDeleteButton
                       title="Delete selected depth range?"
-                      description={`Rows from ${selectedRange.startDepth} to ${selectedRange.endDepth} for the selected WITS ID will be removed locally.`}
+                      description={`Rows from ${selectedRange.startDepth} to ${selectedRange.endDepth} for WITS ${selectedChannel?.witsId ?? "-"} will be deleted through POST /api/mwd-data/edit/delete-depth-range.`}
                       triggerLabel="Delete Depths"
                       size="sm"
                       variant="outline"
-                      onConfirm={handleDeleteDepths}
+                      disabled={!canApplyEditTools || activeEditAction === "delete-depth-range"}
+                      onConfirm={() => void handleDeleteDepths()}
                     />
                     <Button variant="outline" onClick={() => toast.success("Value filter applied to table view")}>
                       <Filter className="mr-2 size-4" />
@@ -609,13 +1471,98 @@ export default function LogDataPage({
                 </Card>
               </TabsContent>
 
-              <TabsContent value="transform" className="space-y-4">
+              <TabsContent value="move-depths" className="space-y-4">
                 <Card className="rounded-2xl border-dashed p-4">
-                  <h2 className="text-lg font-semibold">Depth and value transforms</h2>
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <h2 className="text-lg font-semibold">Move Depths</h2>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Start depth</Label>
+                      <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End depth</Label>
+                      <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
+                    </div>
                     <div className="space-y-2">
                       <Label>Move offset</Label>
                       <Input type="number" value={moveOffset} onChange={(event) => setMoveOffset(Number(event.target.value))} />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => void handlePreviewMoveDepths()}
+                      disabled={!canPreviewEditTools || activeEditAction === "move-depths"}
+                    >
+                      <MoveHorizontal className="mr-2 size-4" />
+                      {activeEditAction === "move-depths" ? "Loading Preview..." : "Preview Move"}
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "move-depths" || activeEditAction === "move-depths"}>
+                          Apply Move
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Apply move depth?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This applies the last successful move preview through POST /api/mwd-data/edit/move-depth, then refreshes MWD and WITS data.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void handleApplyMoveDepths()}>Apply Move</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  {activeEditPreview?.kind === "move-depths" ? (
+                    <Card className="mt-4 rounded-xl p-0">
+                      <div className="border-b px-4 py-3">
+                        <h3 className="font-semibold">Backend move preview</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Preview from GET /api/mwd-data/edit/move-depth. Apply is disabled until this preview succeeds.
+                        </p>
+                      </div>
+                      <ScrollArea className="h-[220px]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Depth</TableHead>
+                              <TableHead>Target</TableHead>
+                              <TableHead>Value</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {activePreviewRows.map((row, index) => (
+                              <TableRow key={`${activeEditPreview.kind}-${index}`}>
+                                <TableCell>{formatPreviewValue(row.depth ?? row.sourceDepth ?? row.startDepth)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.targetDepth ?? row.newDepth ?? row.endDepth)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.value ?? row.beforeValue ?? row.afterValue)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
+                    </Card>
+                  ) : null}
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="copy-depths" className="space-y-4">
+                <Card className="rounded-2xl border-dashed p-4">
+                  <h2 className="text-lg font-semibold">Copy Depths</h2>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Start depth</Label>
+                      <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End depth</Label>
+                      <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
                     </div>
                     <div className="space-y-2">
                       <Label>Copy offset</Label>
@@ -623,16 +1570,69 @@ export default function LogDataPage({
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={handleMoveDepths}>
-                      <MoveHorizontal className="mr-2 size-4" />
-                      Move Depths
+                    <Button
+                      variant="outline"
+                      onClick={() => void handlePreviewCopyDepths()}
+                      disabled={!canPreviewEditTools || activeEditAction === "copy-depths"}
+                    >
+                      {activeEditAction === "copy-depths" ? "Loading Preview..." : "Preview Copy"}
                     </Button>
-                    <Button variant="outline" onClick={handleCopyDepths}>
-                      Copy Depths
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "copy-depths" || activeEditAction === "copy-depths"}>
+                          Apply Copy
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Apply copy depth?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This applies the last successful copy preview through POST /api/mwd-data/edit/copy-depth, then refreshes MWD and WITS data.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void handleApplyCopyDepths()}>Apply Copy</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
+                  {activeEditPreview?.kind === "copy-depths" ? (
+                    <Card className="mt-4 rounded-xl p-0">
+                      <div className="border-b px-4 py-3">
+                        <h3 className="font-semibold">Backend copy preview</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Preview from GET /api/mwd-data/edit/copy-depth. Apply is disabled until this preview succeeds.
+                        </p>
+                      </div>
+                      <ScrollArea className="h-[220px]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Depth</TableHead>
+                              <TableHead>Target</TableHead>
+                              <TableHead>Value</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {activePreviewRows.map((row, index) => (
+                              <TableRow key={`${activeEditPreview.kind}-${index}`}>
+                                <TableCell>{formatPreviewValue(row.depth ?? row.sourceDepth ?? row.startDepth)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.targetDepth ?? row.newDepth ?? row.endDepth)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.value ?? row.beforeValue ?? row.afterValue)}</TableCell>
+                                <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
+                    </Card>
+                  ) : null}
                 </Card>
+              </TabsContent>
 
+              <TabsContent value="rescale" className="space-y-4">
                 <Card className="rounded-2xl p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -657,7 +1657,7 @@ export default function LogDataPage({
                             value={selectedWitsId}
                             onChange={(event) => setSelectedWitsId(event.target.value)}
                           >
-                            {channels.map((channel) => (
+                            {allChannels.map((channel) => (
                               <option key={channel.witsId} value={channel.witsId}>
                                 {channel.witsId} - {channel.label}
                               </option>
@@ -711,8 +1711,8 @@ export default function LogDataPage({
 
                       <Card className="rounded-xl p-0">
                         <div className="border-b px-4 py-3">
-                          <h3 className="font-semibold">Before / after preview</h3>
-                          <p className="text-sm text-muted-foreground">Preview shows up to 8 records from the affected depth range.</p>
+                          <h3 className="font-semibold">Local before / after estimate</h3>
+                          <p className="text-sm text-muted-foreground">Estimate shows up to 8 currently loaded records. Backend preview is required before apply.</p>
                         </div>
                         <ScrollArea className="h-[220px]">
                           <Table>
@@ -744,6 +1744,38 @@ export default function LogDataPage({
                           </Table>
                         </ScrollArea>
                       </Card>
+                      {activeEditPreview?.kind === "rescale" ? (
+                        <Card className="rounded-xl p-0">
+                          <div className="border-b px-4 py-3">
+                            <h3 className="font-semibold">Backend rescale preview</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Preview from GET /api/mwd-data/edit/rescale. Apply is disabled until this preview succeeds.
+                            </p>
+                          </div>
+                          <ScrollArea className="h-[220px]">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Depth</TableHead>
+                                  <TableHead>Before</TableHead>
+                                  <TableHead>After</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {activePreviewRows.map((row, index) => (
+                                  <TableRow key={`${activeEditPreview.kind}-${index}`}>
+                                    <TableCell>{formatPreviewValue(row.depth ?? row.md ?? row.startDepth)}</TableCell>
+                                    <TableCell>{formatPreviewValue(row.beforeValue ?? row.originalValue ?? row.value)}</TableCell>
+                                    <TableCell>{formatPreviewValue(row.afterValue ?? row.newValue ?? row.scaledValue)}</TableCell>
+                                    <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </ScrollArea>
+                        </Card>
+                      ) : null}
                     </div>
 
                     <Card className="rounded-xl border-dashed p-4">
@@ -772,12 +1804,22 @@ export default function LogDataPage({
                       </div>
 
                       <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        This applies to local state only and updates values inside the selected channel and depth range.
+                        Use backend preview first. Apply calls POST /api/mwd-data/edit/rescale only after the preview succeeds and you confirm.
                       </div>
+
+                      <Button
+                        className="mt-4 w-full"
+                        variant="outline"
+                        disabled={!canPreviewEditTools || !canApplyRescale || activeEditAction === "rescale"}
+                        onClick={() => void handlePreviewRescale()}
+                      >
+                        <Scale className="mr-2 size-4" />
+                        {activeEditAction === "rescale" ? "Loading Preview..." : "Preview Rescale"}
+                      </Button>
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button className="mt-4 w-full" disabled={!canApplyRescale}>
+                          <Button className="mt-2 w-full" disabled={!canApplyEditTools || activeEditPreview?.kind !== "rescale" || activeEditAction === "rescale"}>
                             <Scale className="mr-2 size-4" />
                             Apply Rescale
                           </Button>
@@ -832,14 +1874,339 @@ export default function LogDataPage({
                   </div>
                 </Card>
               </TabsContent>
-            </Tabs>
-
             <PlaceholderNote>
-              Search, depth range selection, hide/unhide, add data, move, copy, and rescale all operate on local state only.
+              WITS value rows are read from /api/wits-data-values. Move, copy, and rescale use backend preview before apply; destructive actions require confirmation.
             </PlaceholderNote>
+            </Tabs>
           </div>
-        </div>
+        )}
       </WorkspaceSection>
+
+      {logDataViewMode === "list" ? (
+        <Card className="rounded-2xl p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Edit Operations History</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Audit trail from GET /api/mwd-data/edit/operations.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadEditOperations()}
+              disabled={!token || editOperationsLoading}
+            >
+              <History className={cn("mr-2 size-4", editOperationsLoading && "animate-spin")} />
+              Refresh History
+            </Button>
+          </div>
+          {editOperationsError ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {editOperationsError}
+            </div>
+          ) : null}
+          <div className="mt-4 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Operation</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Summary</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {editOperations.slice(0, 8).map((operation) => (
+                  <TableRow key={operation.id}>
+                    <TableCell className="font-medium">{operation.type}</TableCell>
+                    <TableCell>{operation.status ?? "-"}</TableCell>
+                    <TableCell>{operation.userName ?? "-"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatOperationDate(operation.createdAt)}
+                    </TableCell>
+                    <TableCell className="max-w-[520px] truncate text-sm text-muted-foreground">
+                      {operation.summary}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!editOperationsLoading && editOperations.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                      No edit operations returned.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      ) : null}
+
+      <Dialog open={activeActionDialog !== null} onOpenChange={(open) => !open && setActiveActionDialog(null)}>
+        {activeActionDialog === "import" ? (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Import data from CSV or LAS file</DialogTitle>
+              <DialogDescription>
+                Load a local CSV or LAS export into the active WITS channel workflow. Full backend import remains integration-ready.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-dashed p-4">
+                <Label htmlFor="log-data-import-file">Source file</Label>
+                <Input
+                  id="log-data-import-file"
+                  type="file"
+                  accept=".csv,.las,.txt"
+                  className="mt-2"
+                  onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Supported scaffold: CSV, LAS, or text exports. Selected channel: {selectedChannel?.witsId ?? "none"}.
+                </p>
+              </div>
+              {importFileName ? (
+                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
+                  Ready to load <span className="font-medium">{importFileName}</span>
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Close</Button>
+              </DialogClose>
+              <Button
+                onClick={() => toast.message(importFileName ? `${importFileName} queued for mock import` : "Choose a CSV or LAS file first")}
+              >
+                Load File
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+
+        {activeActionDialog === "memory" ? (
+          <DialogContent className="max-h-[calc(100vh-3rem)] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>Memory Correlation Editor</DialogTitle>
+              <DialogDescription>
+                Select WITS IDs, define the working depth interval, then run local correlation-style operations.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <Card className="flex min-h-[280px] flex-col rounded-xl p-0 lg:min-h-0">
+                <div className="border-b px-3 py-2">
+                  <h3 className="font-semibold">WITS IDs</h3>
+                  <p className="text-sm text-muted-foreground">Multi-select friendly channel target list.</p>
+                </div>
+                <ScrollArea className="min-h-[220px] flex-1 lg:min-h-0">
+                  <div className="space-y-1.5 p-2">
+                    {allChannels.map((channel) => (
+                      <label key={channel.witsId} className="flex cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 hover:bg-muted/40">
+                        <Checkbox
+                          checked={selectedToolWitsIds.includes(channel.witsId)}
+                          onCheckedChange={() => toggleToolWitsId(channel.witsId)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-mono text-sm font-semibold">{channel.witsId}</span>
+                          <span className="block truncate text-sm">{channel.label}</span>
+                          <span className="block text-xs text-muted-foreground">{channel.units || "No units"} | {channel.count} records</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </Card>
+              <div className="space-y-3">
+                <Card className="rounded-xl p-3">
+                  <h3 className="font-semibold">Depth interval</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <div className="space-y-2">
+                      <Label>Start</Label>
+                      <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End</Label>
+                      <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
+                    </div>
+                  </div>
+                </Card>
+                <Card className="rounded-xl border-dashed p-3">
+                  <h3 className="font-semibold">Operation context</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {selectedToolChannels.length > 0
+                      ? `${selectedToolChannels.length} WITS ID selected. Current detail channel is ${selectedChannel?.witsId ?? "none"}.`
+                      : "Select at least one WITS ID before applying an operation."}
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    <Button variant="outline" onClick={handleDialogDeleteDepths}>Delete Depths</Button>
+                    <Button variant="outline" onClick={() => toast.message("Change Bit Spacing is a UI scaffold for backend integration")}>Change Bit Spacing</Button>
+                    <Button variant="outline" onClick={() => toast.message("Shift Times is a UI scaffold for backend integration")}>Shift Times</Button>
+                    <Button variant="outline" onClick={() => toast.message("Scale Data is available in the existing Move / Copy / Rescale tab")}>Scale Data</Button>
+                  </div>
+                </Card>
+              </div>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Close</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+
+        {activeActionDialog === "batch" ? (
+          <DialogContent className="max-h-[calc(100vh-3rem)] max-w-4xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>Batch Settings Editor</DialogTitle>
+              <DialogDescription>
+                Review channel settings in a batch-friendly editor. Configuration persistence is ready for backend wiring.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <Card className="flex min-h-[320px] flex-col rounded-xl p-0 lg:min-h-0">
+                <div className="border-b px-4 py-3">
+                  <h3 className="font-semibold">Configured WITS IDs</h3>
+                  <p className="text-sm text-muted-foreground">Select channels to target with the batch settings form.</p>
+                </div>
+                <ScrollArea className="min-h-[260px] flex-1 lg:min-h-0">
+                  <div className="space-y-2 p-3">
+                    {allChannels.map((channel) => (
+                      <label key={channel.witsId} className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 hover:bg-muted/40">
+                        <Checkbox
+                          checked={selectedToolWitsIds.includes(channel.witsId)}
+                          onCheckedChange={() => toggleToolWitsId(channel.witsId)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-mono text-sm font-semibold">{channel.witsId}</span>
+                          <span className="block truncate text-sm">{channel.label}</span>
+                          <span className="block text-xs text-muted-foreground">Scale {channel.scaleFactor} | Decimals {channel.decimalPlaces}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </Card>
+              <Card className="rounded-xl border-dashed p-4">
+                <h3 className="font-semibold">Settings</h3>
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Decimal places</Label>
+                    <Input type="number" defaultValue={selectedChannel?.decimalPlaces ?? 2} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Scale factor</Label>
+                    <Input type="number" defaultValue={selectedChannel?.scaleFactor ?? 1} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Plot name</Label>
+                    <Input defaultValue={selectedChannel?.plotName ?? ""} />
+                  </div>
+                  <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    Selected: {selectedToolChannels.length} WITS ID{selectedToolChannels.length === 1 ? "" : "s"}. Alarm and memory flags remain sourced from configured WITS IDs.
+                  </div>
+                </div>
+                <Button className="mt-4 w-full" onClick={() => toast.message("Batch Settings Editor is a placeholder action")}>
+                  Apply Settings
+                </Button>
+              </Card>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Close</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+
+        {activeActionDialog === "delete-range" ? (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Depth Range</DialogTitle>
+              <DialogDescription>
+                Delete backend log rows inside the selected depth range. This operation targets the selected WITS IDs only.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Start depth</Label>
+                  <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End depth</Label>
+                  <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+                <div className="font-medium text-destructive">Confirm backend deletion</div>
+                <p className="mt-1 text-muted-foreground">
+                  {selectedToolChannels.length > 0
+                    ? `${selectedToolChannels.length} WITS ID selected from ${selectedRange.startDepth} to ${selectedRange.endDepth}. POST /api/mwd-data/edit/delete-depth-range will be called after this confirmation.`
+                    : "No WITS ID selected. Choose a channel first from the list or detail mode."}
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Close</Button>
+              </DialogClose>
+              <Button
+                variant="destructive"
+                onClick={handleDialogDeleteDepths}
+                disabled={!canApplyEditTools || activeEditAction === "delete-depth-range"}
+              >
+                {activeEditAction === "delete-depth-range" ? "Deleting..." : "Delete Depths"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+
+        {activeActionDialog === "export" ? (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Export Data</DialogTitle>
+              <DialogDescription>
+                Prepare a local export request for log records. File generation is currently a backend integration point.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <Label>File type</Label>
+                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={exportFileType} onChange={(event) => setExportFileType(event.target.value)}>
+                  <option value="LAS">LAS</option>
+                  <option value="CSV">CSV</option>
+                  <option value="TXT">TXT</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Scope</Label>
+                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={exportScope} onChange={(event) => setExportScope(event.target.value)}>
+                  <option value="selected">Selected WITS ID</option>
+                  <option value="all">All configured WITS IDs</option>
+                  <option value="range">Selected depth range only</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
+                <Checkbox checked={exportIncludeHidden} onCheckedChange={(checked) => setExportIncludeHidden(checked === true)} />
+                Include hidden records
+              </label>
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Current channel: {selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}.
+              </div>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Close</Button>
+              </DialogClose>
+              <Button onClick={() => toast.message(`Export UI ready for ${exportFileType} (${exportScope})`)}>
+                Export
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </div>
   );
 

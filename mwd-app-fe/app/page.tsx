@@ -25,6 +25,7 @@ import AlertsPage from "./alerts/page";
 import HistoryPage from "./history/page";
 import ExportPage from "./export/page";
 import SettingsPage from "./settings/page";
+import SystemUtilitiesPage from "./system-utilities/page";
 import AdminPage from "./admin/page";
 import HelpPage from "./help/page";
 import WellPlotPage from "./trajectory/well-plot/page";
@@ -112,6 +113,8 @@ const AppContent: React.FC = () => {
         return <HistoryPage />;
       case "export":
         return <ExportPage />;
+      case "system-utilities":
+        return <SystemUtilitiesPage onNavigate={setCurrentPage} />;
       case "settings":
         return <SettingsPage onNavigate={setCurrentPage} />;
       case "admin":

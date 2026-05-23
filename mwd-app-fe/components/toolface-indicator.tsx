@@ -27,18 +27,14 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
 }) => {
   const [activeType, setActiveType] = useState<ToolfaceType>(data.type);
   const [animatedAngle, setAnimatedAngle] = useState<number>(data.angle);
-  const [ringAngles, setRingAngles] = useState<Array<number | null>>([
-    null,
-    null,
-    null,
-    null,
-  ]);
-
-  const nextRingIndexRef = useRef(0);
-  const prevOperationTimerRef = useRef<number | undefined>(undefined);
+  const currentSampleKey = `${data.type}:${data.operationTimer ?? "no-timer"}:${normalizeAngle(data.angle)}`;
+  const [ringAngles, setRingAngles] = useState<number[]>([normalizeAngle(data.angle)]);
+  const prevSampleKeyRef = useRef(currentSampleKey);
 
   useEffect(() => {
     setActiveType(data.type);
+    setRingAngles([normalizeAngle(data.angle)]);
+    prevSampleKeyRef.current = currentSampleKey;
   }, [data.type]);
 
   useEffect(() => {
@@ -69,33 +65,17 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
   }, [data.angle, animatedAngle]);
 
   useEffect(() => {
-    const normalized = normalizeAngle(data.angle);
-
-    setRingAngles([normalized, null, null, null]);
-    nextRingIndexRef.current = 1;
-    prevOperationTimerRef.current = data.operationTimer;
-  }, [data.type, data.angle, data.operationTimer]);
-
-  useEffect(() => {
-    const incomingTimer = data.operationTimer;
-
-    if (incomingTimer === prevOperationTimerRef.current) {
+    if (currentSampleKey === prevSampleKeyRef.current) {
       return;
     }
 
-    prevOperationTimerRef.current = incomingTimer;
-
-    const normalized = normalizeAngle(data.angle);
-    const targetRingIndex = nextRingIndexRef.current;
+    prevSampleKeyRef.current = currentSampleKey;
 
     setRingAngles((prev) => {
-      const next = [...prev];
-      next[targetRingIndex] = normalized;
-      return next;
+      const next = [...prev, normalizeAngle(data.angle)];
+      return next.slice(-4);
     });
-
-    nextRingIndexRef.current = (targetRingIndex + 1) % 4;
-  }, [data.operationTimer, data.angle]);
+  }, [currentSampleKey, data.angle]);
 
   const handleTypeChange = (type: ToolfaceType) => {
     setActiveType(type);
@@ -208,16 +188,16 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
   return (
     <Card
       className={cn(
-        "w-full overflow-hidden border-border/70 bg-gradient-to-br from-background via-background to-sky-50/40 shadow-sm",
+        "w-full overflow-hidden border-border/70 bg-card shadow-sm",
         config.shellPadding
       )}
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-sky-50/80 px-2.5 py-1 text-[11px] font-medium tracking-wide text-sky-900">
+          {/* <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-sky-50/80 px-2.5 py-1 text-[11px] font-medium tracking-wide text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
             <span className="size-2 rounded-full bg-sky-500" />
             {activeType === "GTF" ? "Gravity" : "Magnetic"}
-          </div>
+          </div> */}
           <div className="mt-2">
             <div className={cn("font-semibold text-foreground", config.labelSize)}>
               {activeType === "GTF" ? "Toolface Orientation" : "Magnetic Reference"}
@@ -231,7 +211,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         <Badge
           variant="outline"
           className={cn(
-            "w-fit shrink-0 rounded-full border-slate-300 bg-white/90 px-3 py-1 font-mono shadow-sm",
+            "w-fit shrink-0 rounded-full border-sky-200/80 bg-white/95 px-3 py-1 font-mono text-slate-950 shadow-sm dark:border-border dark:bg-background/80 dark:text-foreground",
             config.timerSize
           )}
         >
@@ -241,12 +221,12 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
 
       <div
         className={cn(
-          "relative flex justify-center rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white via-slate-50/70 to-slate-100/70 shadow-inner",
+          "relative flex justify-center rounded-2xl border border-border/80 bg-[hsl(var(--muted)/0.62)] shadow-inner dark:bg-[hsl(var(--muted)/0.46)]",
           size === "sm" ? "p-2" : "p-3",
           config.svgGap
         )}
       >
-        <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.9),_transparent_60%)]" />
+        <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-background/45 dark:ring-white/5" />
         <svg
           width={svgSize}
           height={svgSize}
@@ -337,7 +317,7 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
           size === "sm" ? "mt-2 grid-cols-1 min-[380px]:grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto]"
         )}
       >
-        <div className={cn("rounded-xl border border-slate-300/80 bg-white/95 shadow-sm", size === "sm" ? "px-3 py-2.5" : "px-4 py-3")}>
+        <div className={cn("rounded-xl border border-border/80 bg-background/80 shadow-sm dark:bg-background/55", size === "sm" ? "px-3 py-2.5" : "px-4 py-3")}>
           <div className={cn("uppercase tracking-[0.18em] text-muted-foreground", size === "sm" ? "text-[9px]" : "text-[10px]")}>
             Current Angle
           </div>
@@ -349,17 +329,20 @@ export const ToolfaceIndicator: React.FC<ToolfaceIndicatorProps> = ({
         {typeof data.targetAngle === "number" && (
           <div
             className={cn(
-              "min-w-0 rounded-xl border border-emerald-200/80 bg-emerald-50 font-semibold text-emerald-900 shadow-sm",
+              "min-w-0 rounded-xl border border-emerald-500/45 bg-emerald-50 font-semibold shadow-sm shadow-emerald-900/5 dark:border-emerald-400/30 dark:bg-emerald-500/10",
               size === "sm" ? "px-3 py-2.5 text-xs" : "px-4 py-3 text-sm"
             )}
           >
-            <div className={cn("uppercase tracking-[0.18em] text-emerald-700/80",
+            <div
+              className={cn(
+                "uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300/90",
                 size === "sm" ? "text-[9px]" : "text-[10px]"
-              )}>
+              )}
+            >
               Target:
-            </div> 
-            <div className={cn("mt-1 font-bold leading-none", config.valueSize)}>
-            {Math.round(data.targetAngle)}°
+            </div>
+            <div className={cn("mt-1 font-bold leading-none text-green-900 dark:text-emerald-400", config.valueSize)}>
+              {Math.round(data.targetAngle)}&deg;
             </div>
           </div>
         )}

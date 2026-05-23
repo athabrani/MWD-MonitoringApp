@@ -16,8 +16,14 @@ import {
 import { decodeWitsPacket } from "@/lib/wits-map";
 import { MonitoringMode, WitsPacketLog } from "@/types/monitoring";
 
-function buildDelimitedPacket(packet: WitsPacketLog) {
-  return ["&&", packet.rawPacket, "!!"].join("\n");
+function buildPacketStreamText(packets: WitsPacketLog[]) {
+  const rawPackets = packets.map((packet) => packet.rawPacket.trim()).filter(Boolean);
+
+  if (rawPackets.length === 0) {
+    return "!!";
+  }
+
+  return ["&&", ...rawPackets].join("\n");
 }
 
 function PacketStream({
@@ -27,7 +33,7 @@ function PacketStream({
 }) {
   return (
     <pre className="min-h-full whitespace-pre-wrap break-all bg-background px-4 py-3 font-mono text-sm leading-6 text-foreground">
-      {packets.map((packet) => buildDelimitedPacket(packet)).join("\n")}
+      {buildPacketStreamText(packets)}
     </pre>
   );
 }

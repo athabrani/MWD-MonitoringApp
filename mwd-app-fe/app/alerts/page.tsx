@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,16 +12,25 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Event } from '@/types';
-import { AlertCircle, AlertTriangle, Check, Search, FileText } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Search, FileText, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 export const AlertsPage: React.FC = () => {
-  const { events, acknowledgeAlarm } = useApp();
+  const {
+    events,
+    acknowledgeAlarm,
+    resolveAlarm,
+    witsAlarmsLoading,
+    witsAlarmsError,
+    refreshWitsAlarms,
+  } = useApp();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [note, setNote] = useState('');
+  const canResolveAlarms = user?.role === 'engineer' || user?.role === 'admin';
 
   const activeAlarms = events.filter(e => 
     e.type === 'alarm' && !e.acknowledgedBy && !e.resolved
@@ -44,6 +54,11 @@ export const AlertsPage: React.FC = () => {
     toast.success('Alarm acknowledged');
     setSelectedEvent(null);
     setNote('');
+  };
+
+  const handleResolve = (eventId: string) => {
+    resolveAlarm(eventId);
+    toast.success('Alarm resolved');
   };
 
   const AlarmCard = ({ event, showAcknowledge = true }: { event: Event; showAcknowledge?: boolean }) => (
@@ -108,57 +123,64 @@ export const AlertsPage: React.FC = () => {
           </div>
         </div>
 
-        {showAcknowledge && !event.acknowledgedBy && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={() => setSelectedEvent(event)}
-              >
-                <Check className="size-4 mr-2" />
-                Acknowledge
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Acknowledge Alarm</DialogTitle>
-                <DialogDescription>
-                  Confirm that you have reviewed this alarm and taken appropriate action.
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="space-y-4">
-                <div className="p-3 bg-muted rounded-lg">
-                  <div className="font-medium">{event.message}</div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {format(event.timestamp, 'PPpp')}
+        <div className="flex flex-wrap justify-end gap-2">
+          {showAcknowledge && !event.acknowledgedBy && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setSelectedEvent(event)}
+                >
+                  <Check className="size-4 mr-2" />
+                  Acknowledge
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Acknowledge Alarm</DialogTitle>
+                  <DialogDescription>
+                    Confirm that you have reviewed this alarm and taken appropriate action.
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-4">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="font-medium">{event.message}</div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {format(event.timestamp, 'PPpp')}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="note">Add Note (optional)</Label>
+                    <Textarea
+                      id="note"
+                      placeholder="Describe action taken or observations..."
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={3}
+                    />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="note">Add Note (optional)</Label>
-                  <Textarea
-                    id="note"
-                    placeholder="Describe action taken or observations..."
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setNote('')}>
-                  Cancel
-                </Button>
-                <Button onClick={() => handleAcknowledge(event.id, note)}>
-                  Acknowledge Alarm
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setNote('')}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => handleAcknowledge(event.id, note)}>
+                    Acknowledge Alarm
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {canResolveAlarms && !event.resolved ? (
+            <Button size="sm" variant="outline" onClick={() => handleResolve(event.id)}>
+              Resolve
+            </Button>
+          ) : null}
+        </div>
       </div>
     </Card>
   );
@@ -167,10 +189,24 @@ export const AlertsPage: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold mb-2">Alerts & Events</h1>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold">Alerts & Events</h1>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void refreshWitsAlarms()}
+            disabled={witsAlarmsLoading}
+          >
+            <RefreshCw className={cn("mr-2 size-4", witsAlarmsLoading && "animate-spin")} />
+            Refresh WITS Alarms
+          </Button>
+        </div>
         <p className="text-muted-foreground">
           Monitor and manage system alarms and notifications
         </p>
+        {witsAlarmsError ? (
+          <p className="mt-2 text-sm text-destructive">{witsAlarmsError}</p>
+        ) : null}
       </div>
 
       {/* Summary Stats */}

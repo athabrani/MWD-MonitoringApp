@@ -43,6 +43,7 @@ import { cn } from "@/lib/utils";
 
 export interface LogDataChannelSummary {
   witsId: string;
+  mappedField?: string;
   label: string;
   units: string;
   enabled: boolean;

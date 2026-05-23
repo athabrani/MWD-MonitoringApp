@@ -137,6 +137,9 @@ export interface ToolfaceData {
 // Settings
 export interface ThresholdSettings {
   parameter: string;
+  enabled?: boolean;
+  low?: number;
+  high?: number;
   warning: number;
   critical: number;
 }

@@ -135,6 +135,7 @@ export const mockPlotConfigurations: PlotConfiguration[] = [
     isDefault: true,
     general: {
       headerStyle: "Standard Directional Header",
+      headerPreset: "Standard",
       fileFormat: "PDF",
       multiPageOutput: true,
       measuredDepthStart: 3600,
@@ -149,6 +150,40 @@ export const mockPlotConfigurations: PlotConfiguration[] = [
       surveysInTrack: true,
       surveyReportAtEnd: true,
       printLabels: true,
+      page: {
+        multiPage: true,
+        widthIn: 8.5,
+        heightIn: 11,
+        noTopBottomMargins: false,
+        maxPageLengthFt: 1200,
+      },
+      depthRange: {
+        start: 3600,
+        end: 3925,
+        useTvd: false,
+      },
+      grid: {
+        depthScale: "1:500",
+        majorTick: 100,
+        minorTick: 20,
+        firstDataSpacing: 8,
+        topSpacing: 12,
+        bottomSpacing: 12,
+      },
+      azimuthal: {
+        slideDetectionNoData: 0,
+      },
+      surveys: {
+        trackIndex: 1,
+        includePtb: false,
+        printLabels: true,
+        transparentBackground: false,
+        reportAtEnd: true,
+      },
+      layout: {
+        customHeaders: false,
+        previewStyle: "standard",
+      },
     },
     pdfItems: [
       { id: "pdf-item-1", fileId: "upload-1", label: "Client cover page", placement: "before" },

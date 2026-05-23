@@ -111,6 +111,7 @@ export const EventStream: React.FC<EventStreamProps> = ({
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="alarm">Alarm</SelectItem>
               <SelectItem value="connection">Connection</SelectItem>
+              <SelectItem value="failover">Failover</SelectItem>
               <SelectItem value="system">System</SelectItem>
               <SelectItem value="user_action">User Action</SelectItem>
             </SelectContent>

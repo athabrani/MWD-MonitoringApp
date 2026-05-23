@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { Download, FileUp, Plus, RefreshCcw, Settings2 } from "lucide-react";
@@ -40,6 +40,19 @@ import {
   SurveyRecord,
   SurveyStorageConfig,
 } from "@/types/monitoring";
+import { useAuth } from "@/context/AuthContext";
+import { useApp } from "@/context/AppContext";
+import {
+  createSurvey,
+  createSurveysFromMwdData,
+  deleteSurvey,
+  getSurveyById,
+  getSurveys,
+  importSurveysCsv,
+  recalculateSurveys,
+  surveyRecordToPayload,
+  updateSurvey,
+} from "@/lib/surveys-api";
 import { cn } from "@/lib/utils";
 
 function createProjectionRecord(
@@ -91,14 +104,32 @@ const surveyColumns = [
   { key: "dls", label: "DLS" },
 ] as const;
 
+function surveyHasValidNumbers(record: SurveyRecord) {
+  return [record.md, record.inc, record.azm, record.tvd, record.ns, record.ew, record.dls, record.vs].every(
+    (value) => typeof value === "number" && Number.isFinite(value)
+  );
+}
+
+function isValidDepthRange(startDepth: number, endDepth: number) {
+  return Number.isFinite(startDepth) && Number.isFinite(endDepth) && startDepth <= endDepth;
+}
+
 export default function SurveyDataPage({
   onNavigate,
 }: {
   onNavigate?: (page: AppPage) => void;
 }) {
   const router = useRouter();
+  const { token, user } = useAuth();
+  const { activeMwdSessionId } = useApp();
+  const surveyImportInputRef = useRef<HTMLInputElement | null>(null);
   const [surveyInput, setSurveyInput] = useState<SurveyInputSummary>(mockSurveyInputSummary);
   const [surveyRecords, setSurveyRecords] = useState<SurveyRecord[]>(mockSurveyRecords);
+  const [surveysLoading, setSurveysLoading] = useState(false);
+  const [surveysSaving, setSurveysSaving] = useState(false);
+  const [surveysDeletingId, setSurveysDeletingId] = useState("");
+  const [surveysActionLoading, setSurveysActionLoading] = useState("");
+  const [surveysError, setSurveysError] = useState("");
   const [reverseSort, setReverseSort] = useState(false);
   const [selectedSurveyId, setSelectedSurveyId] = useState<string>(mockSurveyRecords[0]?.id ?? "");
   const [projectionOpen, setProjectionOpen] = useState(false);
@@ -115,6 +146,39 @@ export default function SurveyDataPage({
   const [storageConfig, setStorageConfig] = useState<SurveyStorageConfig>(mockSurveyStorageConfig);
   const [editRecord, setEditRecord] = useState<SurveyRecord | null>(null);
   const [rowsPerPage, setRowsPerPage] = useState(50);
+  const canManageSurveys = !token || user?.role === "engineer" || user?.role === "admin";
+
+  const loadSurveys = useCallback(async () => {
+    if (!token) {
+      setSurveysError("");
+      return;
+    }
+
+    setSurveysLoading(true);
+    setSurveysError("");
+
+    try {
+      const surveys = await getSurveys(token, {
+        sessionId: activeMwdSessionId || undefined,
+        stationType: "actual",
+      });
+      setSurveyRecords(surveys);
+      setSelectedSurveyId((current) => {
+        if (current && surveys.some((survey) => survey.id === current)) return current;
+        return surveys[0]?.id ?? "";
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load surveys.";
+      setSurveysError(message);
+      toast.error("Unable to load surveys", { description: message });
+    } finally {
+      setSurveysLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  useEffect(() => {
+    void loadSurveys();
+  }, [loadSurveys]);
 
   const sortedRecords = useMemo(() => {
     const copy = [...surveyRecords].sort(
@@ -140,7 +204,7 @@ export default function SurveyDataPage({
     }));
   };
 
-  const handleAddSurvey = () => {
+  const handleAddSurvey = async () => {
     const nextRecord: SurveyRecord = {
       id: `survey-${Date.now()}`,
       ...surveyInput,
@@ -148,9 +212,38 @@ export default function SurveyDataPage({
       isProjection: false,
     };
 
-    setSurveyRecords((current) => [nextRecord, ...current]);
-    setSelectedSurveyId(nextRecord.id);
-    toast.success("Data berhasil ditambahkan");
+    if (!surveyHasValidNumbers(nextRecord)) {
+      toast.error("Survey values must be valid numbers.");
+      return;
+    }
+
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can create survey data.");
+      return;
+    }
+
+    if (token && !activeMwdSessionId) {
+      toast.error("Select an active MWD session before storing survey data.");
+      return;
+    }
+
+    setSurveysSaving(true);
+    setSurveysError("");
+
+    try {
+      const savedRecord = token
+        ? await createSurvey(token, surveyRecordToPayload(nextRecord, activeMwdSessionId))
+        : nextRecord;
+      setSurveyRecords((current) => [savedRecord, ...current]);
+      setSelectedSurveyId(savedRecord.id);
+      toast.success(token ? "Survey data saved." : "Data berhasil ditambahkan");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create survey.";
+      setSurveysError(message);
+      toast.error("Unable to create survey", { description: message });
+    } finally {
+      setSurveysSaving(false);
+    }
   };
 
   const handleProjection = () => {
@@ -167,9 +260,29 @@ export default function SurveyDataPage({
     toast.success("Projection added to survey list");
   };
 
-  const handleDeleteSurvey = (record: SurveyRecord) => {
-    setSurveyRecords((current) => current.filter((item) => item.id !== record.id));
-    toast.success("Survey berhasil dihapus");
+  const handleDeleteSurvey = async (record: SurveyRecord) => {
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can delete survey data.");
+      return;
+    }
+
+    setSurveysDeletingId(record.id);
+    setSurveysError("");
+
+    try {
+      if (token) {
+        await deleteSurvey(token, record.id);
+      }
+      setSurveyRecords((current) => current.filter((item) => item.id !== record.id));
+      setSelectedSurveyId((current) => (current === record.id ? "" : current));
+      toast.success("Survey berhasil dihapus");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete survey.";
+      setSurveysError(message);
+      toast.error("Unable to delete survey", { description: message });
+    } finally {
+      setSurveysDeletingId("");
+    }
   };
 
   const handleResendLastSurvey = () => {
@@ -182,16 +295,198 @@ export default function SurveyDataPage({
     toast.success(`Resend queued for MD ${latest.md.toFixed(2)} to all ports`);
   };
 
-  const handleSaveEditedSurvey = () => {
+  const handleOpenEditSurvey = async (record: SurveyRecord) => {
+    if (!token) {
+      setEditRecord(record);
+      return;
+    }
+
+    setSurveysError("");
+
+    try {
+      const detail = await getSurveyById(token, record.id);
+      setEditRecord(detail);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load survey detail.";
+      setSurveysError(message);
+      toast.error("Unable to load survey detail", { description: message });
+      setEditRecord(record);
+    }
+  };
+
+  const handleSaveEditedSurvey = async () => {
     if (!editRecord) {
       return;
     }
 
-    setSurveyRecords((current) =>
-      current.map((item) => (item.id === editRecord.id ? editRecord : item))
+    if (!surveyHasValidNumbers(editRecord)) {
+      toast.error("Survey values must be valid numbers.");
+      return;
+    }
+
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can update survey data.");
+      return;
+    }
+
+    if (token && !activeMwdSessionId) {
+      toast.error("Select an active MWD session before updating survey data.");
+      return;
+    }
+
+    setSurveysSaving(true);
+    setSurveysError("");
+
+    try {
+      const savedRecord = token
+        ? await updateSurvey(token, editRecord.id, surveyRecordToPayload(editRecord, activeMwdSessionId))
+        : editRecord;
+      setSurveyRecords((current) =>
+        current.map((item) => (item.id === savedRecord.id ? savedRecord : item))
+      );
+      toast.success("Survey row updated");
+      setEditRecord(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update survey.";
+      setSurveysError(message);
+      toast.error("Unable to update survey", { description: message });
+    } finally {
+      setSurveysSaving(false);
+    }
+  };
+
+  const handleGenerateFromMwdData = async () => {
+    if (!token) {
+      toast.warning("Backend login is required to generate survey from MWD data.");
+      return;
+    }
+
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can generate surveys from MWD data.");
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before generating survey data.");
+      return;
+    }
+
+    if (!isValidDepthRange(plotConfig.depthFrom, plotConfig.depthTo)) {
+      toast.error("Plot depth range must be valid before generating survey data.");
+      return;
+    }
+
+    const payload = {
+      sessionId: activeMwdSessionId,
+      startDepth: plotConfig.depthFrom,
+      endDepth: plotConfig.depthTo,
+    };
+
+    setSurveysActionLoading("from-mwd");
+    setSurveysError("");
+
+    try {
+      await createSurveysFromMwdData(token, payload);
+      toast.success("Survey generated from MWD data.");
+      await loadSurveys();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to generate survey from MWD data.";
+      const clarification =
+        `NEEDS CLARIFICATION: /api/surveys/from-mwd-data rejected payload ` +
+        `{ sessionId, startDepth, endDepth }. ${message}`;
+      setSurveysError(clarification);
+      toast.error("Unable to generate survey from MWD data", { description: message });
+    } finally {
+      setSurveysActionLoading("");
+    }
+  };
+
+  const handleRecalculateSurveys = async () => {
+    if (!token) {
+      toast.warning("Backend login is required to recalculate surveys.");
+      return;
+    }
+
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can recalculate surveys.");
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before recalculating survey data.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Recalculate survey/trajectory for the active session? This may update many survey rows."
     );
-    toast.success("Survey row updated");
-    setEditRecord(null);
+    if (!confirmed) return;
+
+    const payload = { sessionId: activeMwdSessionId };
+
+    setSurveysActionLoading("recalculate");
+    setSurveysError("");
+
+    try {
+      await recalculateSurveys(token, payload);
+      toast.success("Survey trajectory recalculated.");
+      await loadSurveys();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to recalculate surveys.";
+      const clarification =
+        `NEEDS CLARIFICATION: /api/surveys/recalculate rejected payload ` +
+        `{ sessionId }. ${message}`;
+      setSurveysError(clarification);
+      toast.error("Unable to recalculate surveys", { description: message });
+    } finally {
+      setSurveysActionLoading("");
+    }
+  };
+
+  const handleImportSurveyCsv = async (file?: File) => {
+    if (!file) return;
+
+    if (!token) {
+      toast.warning("Backend login is required to import survey CSV.");
+      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      return;
+    }
+
+    if (!canManageSurveys) {
+      toast.warning("Only admin or engineer users can import survey CSV.");
+      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast.error("Survey import requires a .csv file.");
+      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      return;
+    }
+
+    setSurveysActionLoading("import-csv");
+    setSurveysError("");
+
+    try {
+      const content = await file.text();
+      await importSurveysCsv(token, {
+        content,
+        sessionId: activeMwdSessionId || undefined,
+        stationType: "plan",
+      });
+      toast.success("Survey CSV imported.");
+      await loadSurveys();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import survey CSV.";
+      const clarification =
+        `NEEDS CLARIFICATION: /api/surveys/well-plan/import-csv rejected raw CSV body ` +
+        `with query { sessionId, stationType }. ${message}`;
+      setSurveysError(clarification);
+      toast.error("Unable to import survey CSV", { description: message });
+    } finally {
+      setSurveysActionLoading("");
+      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+    }
   };
 
   const content = (
@@ -208,6 +503,12 @@ export default function SurveyDataPage({
         ) : null}
       </div>
 
+      {surveysError ? (
+        <Card className="rounded-2xl border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {surveysError}
+        </Card>
+      ) : null}
+
       <Card className="rounded-2xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
           <div>
@@ -216,12 +517,13 @@ export default function SurveyDataPage({
               Latest decoder values ready for review and storage.
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => toast.message("Checked local decoder snapshot")}
-          >
-            Check for new data
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void loadSurveys()}
+              disabled={surveysLoading || !token}
+            >
+            {surveysLoading ? "Loading surveys..." : "Refresh Surveys"}
           </Button>
         </div>
         <div className="grid gap-4 p-5 xl:grid-cols-[1fr_auto]">
@@ -245,7 +547,7 @@ export default function SurveyDataPage({
             ))}
           </div>
           <div className="flex flex-wrap items-end gap-2 xl:w-64 xl:flex-col xl:items-stretch xl:justify-end">
-            <Button onClick={handleAddSurvey}>
+            <Button onClick={() => void handleAddSurvey()} disabled={surveysSaving || !canManageSurveys}>
               Store Survey
             </Button>
             <Button variant="outline" onClick={handleResendLastSurvey}>
@@ -255,13 +557,20 @@ export default function SurveyDataPage({
         </div>
       </Card>
 
-      <Card className="rounded-2xl p-0">
+      <Card className="overflow-hidden rounded-2xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold">Survey List</h2>
             <div className="mt-1 flex flex-wrap gap-2">
               <Badge variant="outline">{surveyRecords.length} records</Badge>
               <Badge variant="secondary">{reverseSort ? "Oldest first" : "Newest first"}</Badge>
+              <Badge variant={activeMwdSessionId ? "outline" : "secondary"}>
+                {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "No active session"}
+              </Badge>
+              <Badge variant="outline">
+                Depth {plotConfig.depthFrom.toFixed(2)}-{plotConfig.depthTo.toFixed(2)}
+              </Badge>
+              {surveysLoading ? <Badge variant="outline">Loading API</Badge> : null}
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
@@ -269,9 +578,47 @@ export default function SurveyDataPage({
               <Plus className="mr-2 size-4" />
               Add Projection
             </Button>
-            <Button size="sm" variant="outline" onClick={() => toast.message("CSV/LAS import scaffold only for now")}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleGenerateFromMwdData()}
+              disabled={
+                surveysActionLoading === "from-mwd" ||
+                !canManageSurveys ||
+                !token ||
+                !activeMwdSessionId
+              }
+            >
+              {surveysActionLoading === "from-mwd" ? "Generating..." : "Generate from MWD"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleRecalculateSurveys()}
+              disabled={
+                surveysActionLoading === "recalculate" ||
+                !canManageSurveys ||
+                !token ||
+                !activeMwdSessionId
+              }
+            >
+              {surveysActionLoading === "recalculate" ? "Recalculating..." : "Recalculate"}
+            </Button>
+            <input
+              ref={surveyImportInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => void handleImportSurveyCsv(event.target.files?.[0])}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => surveyImportInputRef.current?.click()}
+              disabled={surveysActionLoading === "import-csv" || !canManageSurveys || !token}
+            >
               <FileUp className="mr-2 size-4" />
-              Import Surveys
+              {surveysActionLoading === "import-csv" ? "Importing..." : "Import Surveys"}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -359,7 +706,7 @@ export default function SurveyDataPage({
                 <th className="w-16 px-4 py-3 text-left font-semibold">Type</th>
                 <th className="w-12 px-2 py-3 text-left font-semibold">Del</th>
                 {surveyColumns.map((column) => (
-                  <th key={column.key} className="px-3 py-3 text-right font-semibold">
+                  <th key={column.key} className="px-3 py-3 text-right font-semibold border-b-0">
                     {column.label}
                   </th>
                 ))}
@@ -375,16 +722,20 @@ export default function SurveyDataPage({
               </tr>
             </thead>
             <tbody>
-              {visibleRecords.map((record, index) => (
-                <tr
-                  key={record.id}
-                  className={cn(
-                    "cursor-pointer border-b hover:bg-muted/40",
-                    selectedSurvey?.id === record.id && "bg-muted/60"
-                  )}
-                  onClick={() => setSelectedSurveyId(record.id)}
-                  onDoubleClick={() => setEditRecord(record)}
-                >
+              {visibleRecords.map((record, index) => {
+                const isLast = index === visibleRecords.length - 1;
+
+                return (
+                  <tr
+                    key={record.id}
+                    className={cn(
+                      "cursor-pointer hover:bg-muted/40",
+                      !isLast && "border-b",
+                      selectedSurvey?.id === record.id && "bg-muted/60"
+                    )}
+                    onClick={() => setSelectedSurveyId(record.id)}
+                    onDoubleClick={() => void handleOpenEditSurvey(record)}
+                  >
                   <td className="px-4 py-3">
                     <Badge variant={record.isProjection ? "secondary" : "outline"}>
                       {record.isProjection ? "Proj" : index === 0 ? "Svy" : "Tiein"}
@@ -393,9 +744,10 @@ export default function SurveyDataPage({
                   <td className="px-2 py-3">
                     <ConfirmDeleteButton
                       title="Delete survey row?"
-                      description={`Survey at MD ${record.md.toFixed(2)} will be removed from the local table.`}
+                      description={`Survey at MD ${record.md.toFixed(2)} will be deleted.`}
                       className="h-6 w-6"
-                      onConfirm={() => handleDeleteSurvey(record)}
+                      disabled={surveysDeletingId === record.id || !canManageSurveys}
+                      onConfirm={() => void handleDeleteSurvey(record)}
                     />
                   </td>
                   {surveyColumns.map((column) => (
@@ -413,7 +765,15 @@ export default function SurveyDataPage({
                   <td className="px-3 py-3 text-right text-xs">{record.isProjection ? "Projection" : "Standard"}</td>
                   <td className="px-4 py-3 text-right font-mono text-xs">{format(new Date(record.timestamp), "HH:mm:ss")}</td>
                 </tr>
-              ))}
+                );
+              })}
+              {!surveysLoading && visibleRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={18} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No survey records loaded from /api/surveys.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -445,7 +805,7 @@ export default function SurveyDataPage({
           <DialogHeader>
             <DialogTitle>Edit Survey Row</DialogTitle>
             <DialogDescription>
-              Basic row editing updates the local survey table only.
+              Update this survey station. Backend users save through PUT /api/surveys/:id.
             </DialogDescription>
           </DialogHeader>
           {editRecord ? (
@@ -491,8 +851,8 @@ export default function SurveyDataPage({
             <Button type="button" variant="outline" onClick={() => setEditRecord(null)}>
               Cancel
             </Button>
-            <Button type="button" onClick={handleSaveEditedSurvey}>
-              Save Row
+            <Button type="button" onClick={() => void handleSaveEditedSurvey()} disabled={surveysSaving || !canManageSurveys}>
+              {surveysSaving ? "Saving..." : "Save Row"}
             </Button>
           </DialogFooter>
         </DialogContent>

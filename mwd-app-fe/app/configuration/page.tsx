@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   Mail,
   Plus,
+  RefreshCw,
   Save,
   Settings2,
   Trash2,
@@ -64,8 +65,26 @@ import {
   getAppPagePath,
 } from "@/components/layouts/app-layout";
 import { PlaceholderNote, WorkspaceSection } from "@/components/layouts/workspace-section";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { WitsMemoryImportPanel } from "@/components/contents/configuration/wits-memory-import-panel";
 import { loadStoredWitsIds, saveStoredWitsIds } from "@/lib/wits-config-store";
+import { cn } from "@/lib/utils";
+import {
+  createMwdSession,
+  getMwdSessionById,
+  mwdSessionToWellJobInfo,
+  updateMwdSession,
+  wellJobInfoToMwdSessionPayload,
+} from "@/lib/mwd-sessions-api";
+import {
+  createWitsConfig,
+  deleteWitsConfig,
+  getWitsConfig,
+  getWitsConfigById,
+  updateWitsConfig,
+  witsConfigToPayload,
+} from "@/lib/api/wits";
 
 const accessLevels: PolarisAccessLevel[] = ["MWD", "Guest", "None"];
 const toolTypes: PolarisToolType[] = ["Mud Pulse", "EM", "Simulator", "Memory"];
@@ -169,9 +188,23 @@ export default function ConfigurationPage({
   onNavigate?: (page: AppPage) => void;
 }) {
   const router = useRouter();
+  const { token, user } = useAuth();
+  const {
+    mwdSessions,
+    activeMwdSessionId,
+    setActiveMwdSessionId,
+    mwdSessionsLoading,
+    mwdSessionsError,
+    refreshMwdSessions,
+  } = useApp();
   const [wellInfo, setWellInfo] = useState<PolarisWellInformation>(() =>
     normalizeWellInfo(mockPolarisWellInformation)
   );
+  const [wellInfoDirty, setWellInfoDirty] = useState(false);
+  const [wellSessionLoading, setWellSessionLoading] = useState(false);
+  const [wellSessionSaving, setWellSessionSaving] = useState(false);
+  const [wellSessionError, setWellSessionError] = useState("");
+  const [loadedWellSessionId, setLoadedWellSessionId] = useState("");
   const [contacts, setContacts] = useState<PolarisContact[]>(mockPolarisContacts);
   const [selectedContactId, setSelectedContactId] = useState<string>(
     mockPolarisContacts[0]?.id ?? ""
@@ -189,6 +222,12 @@ export default function ConfigurationPage({
   const [witsViewMode, setWitsViewMode] = useState<WitsViewMode>("list");
   const [newWitsIdInput, setNewWitsIdInput] = useState("");
   const [newWitsIdError, setNewWitsIdError] = useState("");
+  const [witsConfigLoading, setWitsConfigLoading] = useState(false);
+  const [witsConfigDetailLoading, setWitsConfigDetailLoading] = useState(false);
+  const [witsConfigSaving, setWitsConfigSaving] = useState(false);
+  const [witsConfigDeleting, setWitsConfigDeleting] = useState(false);
+  const [witsConfigError, setWitsConfigError] = useState("");
+  const canManageWitsConfig = user?.role === "engineer" || user?.role === "admin";
   const [decoderConfig, setDecoderConfig] = useState<PolarisDecoderConfiguration>(() =>
     normalizeDecoderConfig(mockPolarisDecoderConfiguration)
   );
@@ -213,6 +252,163 @@ export default function ConfigurationPage({
   useEffect(() => {
     saveStoredWitsIds(witsIds);
   }, [witsIds]);
+
+  const loadWitsConfigFromApi = React.useCallback(async () => {
+    if (!token) {
+      setWitsConfigError("");
+      return;
+    }
+
+    setWitsConfigLoading(true);
+    setWitsConfigError("");
+
+    try {
+      const records = await getWitsConfig(token);
+      setWitsIds(records);
+      setSelectedWitsId((current) =>
+        current && records.some((record) => record.id === current) ? current : records[0]?.id ?? ""
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load WITS config.";
+      setWitsConfigError(message);
+      toast.error("WITS config API unavailable", {
+        description: "Using local WITS configuration data.",
+      });
+    } finally {
+      setWitsConfigLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadWitsConfigFromApi();
+  }, [loadWitsConfigFromApi]);
+
+  useEffect(() => {
+    if (!token || !activeMwdSessionId || activeMwdSessionId === loadedWellSessionId || wellInfoDirty) {
+      return;
+    }
+
+    let cancelled = false;
+    setWellSessionLoading(true);
+    setWellSessionError("");
+
+    getMwdSessionById(token, activeMwdSessionId)
+      .then((session) => {
+        if (cancelled) return;
+        setWellInfo((current) => mwdSessionToWellJobInfo(session, normalizeWellInfo(current)));
+        setLoadedWellSessionId(session.id);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setWellSessionError(error instanceof Error ? error.message : "Unable to load MWD session detail.");
+      })
+      .finally(() => {
+        if (!cancelled) setWellSessionLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMwdSessionId, loadedWellSessionId, token, wellInfoDirty]);
+
+  const patchWellInfo = (patch: Partial<PolarisWellInformation>) => {
+    setWellInfo((prev) => ({ ...prev, ...patch }));
+    setWellInfoDirty(true);
+  };
+
+  const selectMwdSession = (sessionId: string) => {
+    if (wellInfoDirty) {
+      const discardDraft = window.confirm(
+        "Discard unsaved Well and Job Information changes and load the selected session?"
+      );
+
+      if (!discardDraft) return;
+    }
+
+    setWellInfoDirty(false);
+    setWellSessionError("");
+    setLoadedWellSessionId("");
+    setActiveMwdSessionId(sessionId);
+  };
+
+  const startNewMwdSessionDraft = () => {
+    if (wellInfoDirty) {
+      const discardDraft = window.confirm(
+        "Discard unsaved Well and Job Information changes and start a new session draft?"
+      );
+
+      if (!discardDraft) return;
+    }
+
+    setWellInfo(normalizeWellInfo({}));
+    setWellInfoDirty(true);
+    setLoadedWellSessionId("");
+    setWellSessionError("");
+    setActiveMwdSessionId("");
+  };
+
+  const validateWellSessionDraft = (draft: PolarisWellInformation) => {
+    if (!draft.wellName.trim()) return "Well Name is required before saving a session.";
+    if (!draft.jobName.trim() && !draft.jobNumber.trim()) {
+      return "Job Name or Job Number is required before saving a session.";
+    }
+    if (!Number.isFinite(draft.startDepth)) return "Start Depth must be a valid number.";
+    if (!Number.isFinite(draft.endDepth)) return "End Depth must be a valid number.";
+    if (draft.endDepth > 0 && draft.startDepth > draft.endDepth) {
+      return "Start Depth cannot be greater than End Depth.";
+    }
+    if (draft.startDate && Number.isNaN(new Date(draft.startDate).getTime())) {
+      return "Start Date must be a valid date.";
+    }
+    if (draft.endDate && Number.isNaN(new Date(draft.endDate).getTime())) {
+      return "End Date must be a valid date.";
+    }
+    if (draft.startDate && draft.endDate && new Date(draft.endDate) < new Date(draft.startDate)) {
+      return "End Date cannot be before Start Date.";
+    }
+
+    return "";
+  };
+
+  const saveWellSession = async () => {
+    if (!token) {
+      toast.error("Backend session is not available. Please sign in again.");
+      return;
+    }
+
+    const validation = validateWellSessionDraft(safeWellInfo);
+    if (validation) {
+      toast.warning(validation);
+      return;
+    }
+
+    setWellSessionSaving(true);
+    setWellSessionError("");
+
+    try {
+      const payload = wellJobInfoToMwdSessionPayload(safeWellInfo);
+      const savedSession = activeMwdSessionId
+        ? await updateMwdSession(token, activeMwdSessionId, payload)
+        : await createMwdSession(token, payload);
+
+      setActiveMwdSessionId(savedSession.id);
+      setLoadedWellSessionId(savedSession.id);
+      setWellInfo((current) => mwdSessionToWellJobInfo(savedSession, normalizeWellInfo(current)));
+      setWellInfoDirty(false);
+      await refreshMwdSessions();
+      toast.success(
+        activeMwdSessionId
+          ? "Well and Job Information updated."
+          : "MWD session created from Well and Job Information."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save MWD session.";
+      setWellSessionError(message);
+      toast.error(message);
+    } finally {
+      setWellSessionSaving(false);
+    }
+  };
 
   const saveContactDraft = () => {
     if (!draftContact.name || !draftContact.email) {
@@ -252,6 +448,54 @@ export default function ConfigurationPage({
         item.id === activeWitsRecord.id ? normalizeWitsRecord({ ...item, ...patch }) : item
       )
     );
+  };
+
+  const replaceWitsRecord = (record: PolarisWitsId) => {
+    setWitsIds((prev) => {
+      const exists = prev.some((item) => item.id === record.id);
+      return exists
+        ? prev.map((item) => (item.id === record.id ? normalizeWitsRecord(record) : item))
+        : [normalizeWitsRecord(record), ...prev];
+    });
+  };
+
+  const validateWitsRecord = (record: PolarisWitsId) => {
+    if (!Number.isInteger(record.numericId) || record.numericId < 0) {
+      return "WITS ID must be a valid positive number.";
+    }
+    if (!Number.isFinite(record.decimalPlaces) || record.decimalPlaces < 0) {
+      return "Decimal Places must be a valid non-negative number.";
+    }
+    if (!Number.isFinite(record.scaleFactor)) {
+      return "Scale Factor must be a valid number.";
+    }
+    if (!Number.isFinite(record.leftScale) || !Number.isFinite(record.rightScale)) {
+      return "Plot scale values must be valid numbers.";
+    }
+    if (!Number.isFinite(record.alarmLow) || !Number.isFinite(record.alarmHigh)) {
+      return "Alarm thresholds must be valid numbers.";
+    }
+
+    return "";
+  };
+
+  const openWitsDetail = async (recordId: string) => {
+    setSelectedWitsId(recordId);
+    setWitsViewMode("detail");
+
+    if (!token) return;
+
+    setWitsConfigDetailLoading(true);
+    setWitsConfigError("");
+
+    try {
+      const detail = await getWitsConfigById(token, recordId);
+      replaceWitsRecord(detail);
+    } catch (error) {
+      setWitsConfigError(error instanceof Error ? error.message : "Unable to load WITS config detail.");
+    } finally {
+      setWitsConfigDetailLoading(false);
+    }
   };
 
   const validateNewWitsId = (value: string) => {
@@ -306,7 +550,12 @@ export default function ConfigurationPage({
       scriptNotes: "Configure source, plotting, LAS, and alarms before field use.",
     });
 
-  const addWitsIdFromInput = () => {
+  const addWitsIdFromInput = async () => {
+    if (!canManageWitsConfig) {
+      toast.warning("Only admin or engineer users can create WITS config.");
+      return;
+    }
+
     const validation = validateNewWitsId(newWitsIdInput);
     if (validation) {
       setNewWitsIdError(validation);
@@ -315,20 +564,108 @@ export default function ConfigurationPage({
     }
 
     const nextRecord = buildDefaultWitsRecord(Number(newWitsIdInput.trim()));
-    setWitsIds((prev) => [nextRecord, ...prev]);
-    setSelectedWitsId(nextRecord.id);
-    setWitsViewMode("detail");
-    setNewWitsIdInput("");
-    setNewWitsIdError("");
-    toast.success(`WITS ID ${nextRecord.numericId} added. Editor opened.`);
+
+    setWitsConfigSaving(true);
+    setWitsConfigError("");
+
+    try {
+      const savedRecord = token
+        ? await createWitsConfig(token, witsConfigToPayload(nextRecord))
+        : nextRecord;
+      replaceWitsRecord(savedRecord);
+      setSelectedWitsId(savedRecord.id);
+      setWitsViewMode("detail");
+      setNewWitsIdInput("");
+      setNewWitsIdError("");
+      toast.success(`WITS ID ${savedRecord.numericId} added. Editor opened.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create WITS config.";
+      setWitsConfigError(message);
+      toast.error("Unable to create WITS config", {
+        description: message,
+      });
+    } finally {
+      setWitsConfigSaving(false);
+    }
   };
 
-  const saveActiveWits = () => {
+  const saveActiveWits = async () => {
     if (!activeWitsRecord) return;
-    toast.success(`WITS ID ${activeWitsRecord.numericId} changes saved locally`);
+    if (!canManageWitsConfig) {
+      toast.warning("Only admin or engineer users can update WITS config.");
+      return;
+    }
+
+    const validation = validateWitsRecord(activeWitsRecord);
+    if (validation) {
+      toast.warning(validation);
+      return;
+    }
+
+    setWitsConfigSaving(true);
+    setWitsConfigError("");
+
+    try {
+      const savedRecord = token
+        ? await updateWitsConfig(token, activeWitsRecord.id, witsConfigToPayload(activeWitsRecord))
+        : activeWitsRecord;
+      replaceWitsRecord(savedRecord);
+      toast.success(
+        token
+          ? `WITS ID ${savedRecord.numericId} changes saved.`
+          : `WITS ID ${savedRecord.numericId} changes saved locally.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save WITS config.";
+      setWitsConfigError(message);
+      toast.error("Unable to save WITS config", {
+        description: message,
+      });
+    } finally {
+      setWitsConfigSaving(false);
+    }
   };
 
-  const addMemoryStorageWitsId = () => {
+  const deleteActiveWits = async () => {
+    if (!activeWitsRecord) return;
+    if (!canManageWitsConfig) {
+      toast.warning("Only admin or engineer users can delete WITS config.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete WITS ID ${activeWitsRecord.numericId}? This removes the selected WITS configuration.`
+    );
+    if (!confirmed) return;
+
+    setWitsConfigDeleting(true);
+    setWitsConfigError("");
+
+    try {
+      if (token) {
+        await deleteWitsConfig(token, activeWitsRecord.id);
+      }
+      setWitsIds((prev) => prev.filter((item) => item.id !== activeWitsRecord.id));
+      setSelectedWitsId("");
+      setWitsViewMode("list");
+      toast.success(`WITS ID ${activeWitsRecord.numericId} deleted.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete WITS config.";
+      setWitsConfigError(message);
+      toast.error("Unable to delete WITS config", {
+        description: message,
+      });
+    } finally {
+      setWitsConfigDeleting(false);
+    }
+  };
+
+  const addMemoryStorageWitsId = async () => {
+    if (!canManageWitsConfig) {
+      toast.warning("Only admin or engineer users can create WITS config.");
+      return;
+    }
+
     const preferredIds = [7001, 2055, 8023];
     const nextNumericId =
       preferredIds.find((id) => !witsIds.some((item) => item.numericId === id)) ??
@@ -368,10 +705,30 @@ export default function ConfigurationPage({
         "Local memory import storage target. Import CSV, scan segment, correlate to hole depth, then stage gap fill if needed.",
     });
 
-    setWitsIds((prev) => [nextRecord, ...prev]);
-    setSelectedWitsId(nextRecord.id);
-    setWitsViewMode("detail");
-    toast.success(`Memory storage WITS ID ${nextRecord.numericId} created locally`);
+    setWitsConfigSaving(true);
+    setWitsConfigError("");
+
+    try {
+      const savedRecord = token
+        ? await createWitsConfig(token, witsConfigToPayload(nextRecord))
+        : nextRecord;
+      replaceWitsRecord(savedRecord);
+      setSelectedWitsId(savedRecord.id);
+      setWitsViewMode("detail");
+      toast.success(
+        token
+          ? `Memory storage WITS ID ${savedRecord.numericId} created.`
+          : `Memory storage WITS ID ${savedRecord.numericId} created locally.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create memory storage WITS config.";
+      setWitsConfigError(message);
+      toast.error("Unable to create memory storage WITS config", {
+        description: message,
+      });
+    } finally {
+      setWitsConfigSaving(false);
+    }
   };
 
   const content = (
@@ -415,8 +772,83 @@ export default function ConfigurationPage({
           <WorkspaceSection
             title="Well and Job Information"
             description="Primary job identity, naming convention, drilling status, and dashboard contact placeholders."
-            badge="Live local draft"
+            badge={activeMwdSessionId ? "Backend session" : "New session draft"}
           >
+            <Card className="mb-4 border-dashed p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+                <div className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,360px)_auto]">
+                  <FormField label="MWD Session">
+                    <Select
+                      value={activeMwdSessionId}
+                      onValueChange={selectMwdSession}
+                      disabled={mwdSessionsLoading || mwdSessions.length === 0 || wellSessionSaving}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={mwdSessionsLoading ? "Loading sessions..." : "No backend sessions"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {mwdSessions.map((session) => (
+                          <SelectItem key={session.id} value={session.id}>
+                            {session.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void refreshMwdSessions()}
+                      disabled={mwdSessionsLoading || wellSessionSaving}
+                    >
+                      <RefreshCw className={cn("mr-2 size-4", mwdSessionsLoading && "animate-spin")} />
+                      Refresh
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={startNewMwdSessionDraft}
+                      disabled={wellSessionSaving}
+                    >
+                      <Plus className="mr-2 size-4" />
+                      New Session
+                    </Button>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => void saveWellSession()}
+                  disabled={wellSessionSaving || wellSessionLoading}
+                >
+                  <Save className="mr-2 size-4" />
+                  {wellSessionSaving
+                    ? "Saving..."
+                    : activeMwdSessionId
+                      ? "Update Session"
+                      : "Create Session"}
+                </Button>
+              </div>
+
+              {mwdSessionsError || wellSessionError ? (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{wellSessionError || mwdSessionsError}</span>
+                </div>
+              ) : null}
+              {wellSessionLoading ? (
+                <p className="mt-3 text-sm text-muted-foreground">Loading selected session detail...</p>
+              ) : null}
+              {wellInfoDirty ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Unsaved Well and Job Information changes will be sent to the MWD Sessions API when you save.
+                </p>
+              ) : null}
+            </Card>
+
             <div className="grid gap-4 xl:grid-cols-2">
               <Card className="border-dashed p-4">
                 <h4 className="font-medium">Well Identification</h4>
@@ -425,7 +857,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.companyName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, companyName: e.target.value }))
+                        patchWellInfo({ companyName: e.target.value })
                       }
                     />
                   </FormField>
@@ -433,7 +865,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.surveyCompany}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, surveyCompany: e.target.value }))
+                        patchWellInfo({ surveyCompany: e.target.value })
                       }
                     />
                   </FormField>
@@ -441,7 +873,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.wellName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, wellName: e.target.value }))
+                        patchWellInfo({ wellName: e.target.value })
                       }
                     />
                   </FormField>
@@ -449,7 +881,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.jobName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, jobName: e.target.value }))
+                        patchWellInfo({ jobName: e.target.value })
                       }
                     />
                   </FormField>
@@ -457,7 +889,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.rigId}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, rigId: e.target.value }))
+                        patchWellInfo({ rigId: e.target.value })
                       }
                     />
                   </FormField>
@@ -465,7 +897,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.rigName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, rigName: e.target.value }))
+                        patchWellInfo({ rigName: e.target.value })
                       }
                     />
                   </FormField>
@@ -473,7 +905,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.apiOrUwi}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, apiOrUwi: e.target.value }))
+                        patchWellInfo({ apiOrUwi: e.target.value })
                       }
                     />
                   </FormField>
@@ -481,7 +913,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.afe}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, afe: e.target.value }))
+                        patchWellInfo({ afe: e.target.value })
                       }
                     />
                   </FormField>
@@ -489,7 +921,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.fieldName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, fieldName: e.target.value }))
+                        patchWellInfo({ fieldName: e.target.value })
                       }
                     />
                   </FormField>
@@ -497,7 +929,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.location}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, location: e.target.value }))
+                        patchWellInfo({ location: e.target.value })
                       }
                     />
                   </FormField>
@@ -505,10 +937,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.stateOrProvince}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          stateOrProvince: e.target.value,
-                        }))
+                        patchWellInfo({ stateOrProvince: e.target.value })
                       }
                     />
                   </FormField>
@@ -516,10 +945,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.countyOrParish}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          countyOrParish: e.target.value,
-                        }))
+                        patchWellInfo({ countyOrParish: e.target.value })
                       }
                     />
                   </FormField>
@@ -527,7 +953,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.country}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, country: e.target.value }))
+                        patchWellInfo({ country: e.target.value })
                       }
                     />
                   </FormField>
@@ -535,7 +961,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.siteName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, siteName: e.target.value }))
+                        patchWellInfo({ siteName: e.target.value })
                       }
                     />
                   </FormField>
@@ -543,7 +969,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.operator}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, operator: e.target.value }))
+                        patchWellInfo({ operator: e.target.value })
                       }
                     />
                   </FormField>
@@ -557,7 +983,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.jobNumber}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, jobNumber: e.target.value }))
+                        patchWellInfo({ jobNumber: e.target.value })
                       }
                     />
                   </FormField>
@@ -566,7 +992,7 @@ export default function ConfigurationPage({
                       type="date"
                       value={safeWellInfo.startDate}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, startDate: e.target.value }))
+                        patchWellInfo({ startDate: e.target.value })
                       }
                     />
                   </FormField>
@@ -575,7 +1001,7 @@ export default function ConfigurationPage({
                       type="date"
                       value={safeWellInfo.endDate}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, endDate: e.target.value }))
+                        patchWellInfo({ endDate: e.target.value })
                       }
                     />
                   </FormField>
@@ -584,10 +1010,7 @@ export default function ConfigurationPage({
                       type="number"
                       value={safeWellInfo.startDepth}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          startDepth: Number(e.target.value),
-                        }))
+                        patchWellInfo({ startDepth: Number(e.target.value) })
                       }
                     />
                   </FormField>
@@ -596,10 +1019,7 @@ export default function ConfigurationPage({
                       type="number"
                       value={safeWellInfo.endDepth}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          endDepth: Number(e.target.value),
-                        }))
+                        patchWellInfo({ endDepth: Number(e.target.value) })
                       }
                     />
                   </FormField>
@@ -607,7 +1027,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.filePrefix}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, filePrefix: e.target.value }))
+                        patchWellInfo({ filePrefix: e.target.value })
                       }
                     />
                   </FormField>
@@ -615,7 +1035,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.fileSuffix}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, fileSuffix: e.target.value }))
+                        patchWellInfo({ fileSuffix: e.target.value })
                       }
                     />
                   </FormField>
@@ -623,7 +1043,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.fileSequence}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({ ...prev, fileSequence: e.target.value }))
+                        patchWellInfo({ fileSequence: e.target.value })
                       }
                     />
                   </FormField>
@@ -643,10 +1063,9 @@ export default function ConfigurationPage({
                     <Select
                       value={safeWellInfo.drillingStatus}
                       onValueChange={(value) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
+                        patchWellInfo({
                           drillingStatus: value as PolarisWellInformation["drillingStatus"],
-                        }))
+                        })
                       }
                     >
                       <SelectTrigger>
@@ -673,10 +1092,7 @@ export default function ConfigurationPage({
                     <Switch
                       checked={safeWellInfo.backupDatabaseToDashboard}
                       onCheckedChange={(value) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          backupDatabaseToDashboard: value,
-                        }))
+                        patchWellInfo({ backupDatabaseToDashboard: value })
                       }
                     />
                   </div>
@@ -698,10 +1114,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.dashboardContactName}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          dashboardContactName: e.target.value,
-                        }))
+                        patchWellInfo({ dashboardContactName: e.target.value })
                       }
                     />
                   </FormField>
@@ -709,10 +1122,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.dashboardContactSecondary}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          dashboardContactSecondary: e.target.value,
-                        }))
+                        patchWellInfo({ dashboardContactSecondary: e.target.value })
                       }
                     />
                   </FormField>
@@ -720,10 +1130,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.dashboardContactEmail}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          dashboardContactEmail: e.target.value,
-                        }))
+                        patchWellInfo({ dashboardContactEmail: e.target.value })
                       }
                     />
                   </FormField>
@@ -731,10 +1138,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.dashboardContactPhone}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          dashboardContactPhone: e.target.value,
-                        }))
+                        patchWellInfo({ dashboardContactPhone: e.target.value })
                       }
                     />
                   </FormField>
@@ -742,10 +1146,7 @@ export default function ConfigurationPage({
                     <Input
                       value={safeWellInfo.dashboardCoordinator}
                       onChange={(e) =>
-                        setWellInfo((prev) => ({
-                          ...prev,
-                          dashboardCoordinator: e.target.value,
-                        }))
+                        patchWellInfo({ dashboardCoordinator: e.target.value })
                       }
                     />
                   </FormField>
@@ -759,7 +1160,7 @@ export default function ConfigurationPage({
                   rows={4}
                   value={safeWellInfo.notes}
                   onChange={(e) =>
-                    setWellInfo((prev) => ({ ...prev, notes: e.target.value }))
+                    patchWellInfo({ notes: e.target.value })
                   }
                 />
               </FormField>
@@ -1310,10 +1711,34 @@ export default function ConfigurationPage({
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                   Memory module import follows the Polaris flow: create a unique storage WITS ID, mark it for memory import storage, open that WITS ID editor, scan CSV segments, import the selected field, then correlate to hole depth. Good examples: 7001, 2055, 8023. Bad examples: 0126, 0166, 0855.
                 </div>
-                <Button variant="outline" onClick={addMemoryStorageWitsId}>
-                  <Plus className="mr-2 size-4" />
-                  Add Memory Storage WITS ID
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void loadWitsConfigFromApi()}
+                    disabled={witsConfigLoading}
+                  >
+                    <RefreshCw className={cn("mr-2 size-4", witsConfigLoading && "animate-spin")} />
+                    Refresh API
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => void addMemoryStorageWitsId()}
+                    disabled={witsConfigSaving || !canManageWitsConfig}
+                  >
+                    <Plus className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
+                    Add Memory Storage WITS ID
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {!canManageWitsConfig ? (
+              <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                WITS config create, update, and delete actions are available only for admin or engineer users.
+              </div>
+            ) : null}
+            {witsConfigError ? (
+              <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {witsConfigError}
               </div>
             ) : null}
 
@@ -1327,19 +1752,23 @@ export default function ConfigurationPage({
                         inputMode="numeric"
                         placeholder="e.g. 1234"
                         value={newWitsIdInput}
+                        disabled={!canManageWitsConfig}
                         onChange={(e) => {
                           setNewWitsIdInput(e.target.value);
                           setNewWitsIdError("");
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
-                            addWitsIdFromInput();
+                            void addWitsIdFromInput();
                           }
                         }}
                       />
                     </FormField>
-                    <Button onClick={addWitsIdFromInput}>
-                      <Plus className="mr-2 size-4" />
+                    <Button
+                      onClick={() => void addWitsIdFromInput()}
+                      disabled={witsConfigSaving || !canManageWitsConfig}
+                    >
+                      <Plus className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
                       Add
                     </Button>
                   </div>
@@ -1365,10 +1794,7 @@ export default function ConfigurationPage({
                       <TableRow
                         key={item.id}
                         className={selectedWitsId === item.id ? "bg-muted/60" : ""}
-                        onClick={() => {
-                          setSelectedWitsId(item.id);
-                          setWitsViewMode("detail");
-                        }}
+                        onClick={() => void openWitsDetail(item.id)}
                       >
                         <TableCell>
                           <div className="font-medium">{item.numericId}</div>
@@ -1401,10 +1827,22 @@ export default function ConfigurationPage({
                       <p className="text-sm text-muted-foreground">
                         WITS ID {activeWitsRecord.numericId} configuration editor
                       </p>
+                      {witsConfigDetailLoading ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Loading backend detail...</p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button variant="outline" onClick={() => setWitsViewMode("list")}>
                         Back to WITS ID list
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="border-red-400/40 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => void deleteActiveWits()}
+                        disabled={witsConfigDeleting || !canManageWitsConfig}
+                      >
+                        <Trash2 className={cn("mr-2 size-4", witsConfigDeleting && "animate-spin")} />
+                        Delete
                       </Button>
                       <Switch
                         checked={activeWitsRecord.enabled}
@@ -1649,7 +2087,17 @@ export default function ConfigurationPage({
                                 <SelectContent>
                                   <SelectItem value="serial">Serial Port WITS</SelectItem>
                                   <SelectItem value="constant">Constant Value</SelectItem>
-                                  <SelectItem value="script">Script-based Source</SelectItem>
+                                  <SelectItem value="1DivX.sh">1DivX.sh</SelectItem>
+                                  <SelectItem value="1kDivDenom.sh">1kDivDenom.sh</SelectItem>
+                                  <SelectItem value="add.sh">add.sh</SelectItem>
+                                  <SelectItem value="azinc.sh">azinc.sh</SelectItem>
+                                  <SelectItem value="degC2degF.sh">degC2degF.sh</SelectItem>
+                                  <SelectItem value="degF2degC.sh">degF2degC.sh</SelectItem>
+                                  <SelectItem value="divide.sh">divide.sh</SelectItem>
+                                  <SelectItem value="duplicate.sh">duplicate.sh</SelectItem>
+                                  <SelectItem value="ecd.sh">ecd.sh</SelectItem>
+                                  <SelectItem value="ftPerHour2minPerFt.sh">ftPerHour2minPerFt.sh</SelectItem>
+                                  <SelectItem value="subtract.sh">subtract.sh</SelectItem>
                                 </SelectContent>
                               </Select>
                             </FormField>
@@ -1699,8 +2147,11 @@ export default function ConfigurationPage({
                         <Button variant="outline" onClick={() => toast.message("Current editor values are already held in local state.")}>
                           Reset / Cancel
                         </Button>
-                        <Button onClick={saveActiveWits}>
-                          <Save className="mr-2 size-4" />
+                        <Button
+                          onClick={() => void saveActiveWits()}
+                          disabled={witsConfigSaving || !canManageWitsConfig}
+                        >
+                          <Save className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
                           Save Changes
                         </Button>
                       </div>

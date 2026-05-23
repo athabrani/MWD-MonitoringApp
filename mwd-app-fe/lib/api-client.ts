@@ -44,8 +44,9 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const requestHeaders = new Headers(headers);
+  const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
 
-  if (!requestHeaders.has("Content-Type")) {
+  if (!requestHeaders.has("Content-Type") && !isFormDataBody) {
     requestHeaders.set("Content-Type", "application/json");
   }
 
@@ -67,4 +68,42 @@ export async function apiRequest<T>(
   }
 
   return payload as T;
+}
+
+export async function apiFetch(
+  path: string,
+  { token, headers, body, ...options }: ApiRequestOptions = {}
+): Promise<Response> {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const requestHeaders = new Headers(headers);
+  const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
+
+  if (!requestHeaders.has("Content-Type") && !isFormDataBody) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+
+  if (token) {
+    requestHeaders.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
+    ...options,
+    body,
+    headers: requestHeaders,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let payload: unknown = null;
+
+    try {
+      payload = text ? (JSON.parse(text) as unknown) : null;
+    } catch {
+      payload = { message: text || "Backend request failed." };
+    }
+
+    throw new ApiClientError(getErrorMessage(payload), response.status);
+  }
+
+  return response;
 }

@@ -63,6 +63,9 @@ export interface SurveyStorageConfig {
 export interface LogDataRecord {
   id: string;
   witsId: string;
+  witsConfigId?: string;
+  mwdDataId?: string;
+  sessionId?: string;
   label: string;
   depth: number;
   value: number;

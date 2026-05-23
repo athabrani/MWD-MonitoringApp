@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ComponentType, useMemo, useState } from "react";
+import { ChangeEvent, ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownUp,
   Check,
@@ -11,8 +11,10 @@ import {
   GitCompare,
   Loader2,
   Plus,
+  RefreshCw,
   RotateCcw,
   Scale,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { WorkspaceSection, PlaceholderNote } from "@/components/layouts/workspace-section";
@@ -25,6 +27,30 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import {
+  deleteMemoryFile,
+  getMemoryFile,
+  getMemoryFilePoints,
+  getMemoryFiles,
+  importMemoryFile,
+  correlateMemoryFile,
+  MemoryFileCorrelation,
+  MemoryFilePoint,
+  MemoryFileRecord,
+} from "@/lib/memory-files-api";
 import {
   applyCorrelationSettings,
   buildCompareRows,
@@ -83,6 +109,57 @@ function formatDateTime(value: string): string {
 
 function formatNumber(value: number, decimals = 2): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+}
+
+function formatOptionalDateTime(value?: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : formatDateTime(value);
+}
+
+function formatOptionalNumber(value?: number, decimals = 2): string {
+  return typeof value === "number" && Number.isFinite(value) ? formatNumber(value, decimals) : "-";
+}
+
+function toBackendSessionId(sessionId?: string | null) {
+  if (!sessionId) return undefined;
+  const numeric = Number(sessionId);
+  return Number.isFinite(numeric) ? numeric : sessionId;
+}
+
+function isDepthLikeField(field: string) {
+  return ["depth", "md", "measureddepth", "holedepth"].includes(field.trim().toLowerCase().replace(/[\s_-]+/g, ""));
+}
+
+function isTimeLikeField(field: string) {
+  return ["time", "timestamp", "datetime", "date", "measuredat"].includes(field.trim().toLowerCase().replace(/[\s_-]+/g, ""));
+}
+
+function buildDefaultFieldMappings(fields: string[], depthField = "depth") {
+  return fields.reduce<Record<string, string>>((mappings, field) => {
+    if (field === depthField || isDepthLikeField(field) || isTimeLikeField(field)) return mappings;
+    mappings[field] = field;
+    return mappings;
+  }, {});
+}
+
+function getDatasetSourceField(dataset: ImportedMemoryDataset | null) {
+  if (!dataset) return "";
+  return dataset.segmentName.split("/").at(-1)?.trim() ?? "";
+}
+
+function getCorrelationMetric(correlation: MemoryFileCorrelation | null, keys: string[]) {
+  if (!correlation) return undefined;
+  for (const key of keys) {
+    const value = correlation.raw[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return undefined;
 }
 
 function stepStatus(step: WizardStep, activeStep: WizardStep, completedSteps: Set<WizardStep>) {
@@ -158,6 +235,8 @@ function Stepper({
 }
 
 export function MemoryImportWizard() {
+  const { token, user } = useAuth();
+  const { activeMwdSessionId } = useApp();
   const [activeStep, setActiveStep] = useState<WizardStep>("storage");
   const [storageChannels, setStorageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
   const [selectedStorageId, setSelectedStorageId] = useState(initialChannels[0].id);
@@ -183,6 +262,24 @@ export function MemoryImportWizard() {
   const [gapMode, setGapMode] = useState<GapFillRequest["mode"]>("fill-gaps-only");
   const [gapFillRequests, setGapFillRequests] = useState<GapFillRequest[]>([]);
   const [isParsing, setIsParsing] = useState(false);
+  const [backendMemoryFiles, setBackendMemoryFiles] = useState<MemoryFileRecord[]>([]);
+  const [selectedBackendFileId, setSelectedBackendFileId] = useState("");
+  const [backendFileDetail, setBackendFileDetail] = useState<MemoryFileRecord | null>(null);
+  const [backendFilePoints, setBackendFilePoints] = useState<MemoryFilePoint[]>([]);
+  const [memoryFilesLoading, setMemoryFilesLoading] = useState(false);
+  const [memoryFileDetailLoading, setMemoryFileDetailLoading] = useState(false);
+  const [memoryFileImporting, setMemoryFileImporting] = useState(false);
+  const [memoryFileDeletingId, setMemoryFileDeletingId] = useState("");
+  const [memoryFilesError, setMemoryFilesError] = useState("");
+  const [correlationMode, setCorrelationMode] = useState<"depth" | "time">("depth");
+  const [correlationTargetField, setCorrelationTargetField] = useState("mwdPressure");
+  const [maxDepthDifference, setMaxDepthDifference] = useState(10);
+  const [maxTimeDifferenceMs, setMaxTimeDifferenceMs] = useState(60000);
+  const [measuredAtOffsetMs, setMeasuredAtOffsetMs] = useState(0);
+  const [correlationPreview, setCorrelationPreview] = useState<MemoryFileCorrelation | null>(null);
+  const [correlationLoading, setCorrelationLoading] = useState(false);
+  const [correlationError, setCorrelationError] = useState("");
+  const canManageMemoryFiles = user?.role === "engineer" || user?.role === "admin";
 
   const selectedStorage = storageChannels.find((channel) => channel.id === selectedStorageId) ?? null;
   const selectedSegment = importFile?.segments.find((segment) => segment.id === selectedSegmentId) ?? null;
@@ -203,6 +300,66 @@ export function MemoryImportWizard() {
     () => buildCompareRows(activeDataset, mockLogDataRecords.filter((record) => record.witsId === gapTargetWitsId && !record.hidden)),
     [activeDataset, gapTargetWitsId]
   );
+  const activeSourceField = getDatasetSourceField(activeDataset);
+  const selectedBackendFile = backendMemoryFiles.find((file) => file.id === selectedBackendFileId) ?? backendFileDetail;
+
+  const loadBackendMemoryFiles = useCallback(async () => {
+    if (!token) {
+      setBackendMemoryFiles([]);
+      setMemoryFilesError("");
+      return;
+    }
+
+    setMemoryFilesLoading(true);
+    setMemoryFilesError("");
+
+    try {
+      const files = await getMemoryFiles(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {});
+      setBackendMemoryFiles(files);
+      setSelectedBackendFileId((current) => current || files[0]?.id || "");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load memory files.";
+      setMemoryFilesError(message);
+    } finally {
+      setMemoryFilesLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  const loadBackendMemoryFileDetail = useCallback(
+    async (fileId: string) => {
+      if (!token || !fileId) {
+        setBackendFileDetail(null);
+        setBackendFilePoints([]);
+        return;
+      }
+
+      setMemoryFileDetailLoading(true);
+      setMemoryFilesError("");
+
+      try {
+        const [detail, points] = await Promise.all([
+          getMemoryFile(token, fileId),
+          getMemoryFilePoints(token, fileId),
+        ]);
+        setBackendFileDetail(detail);
+        setBackendFilePoints(points);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load memory file detail.";
+        setMemoryFilesError(message);
+      } finally {
+        setMemoryFileDetailLoading(false);
+      }
+    },
+    [token]
+  );
+
+  useEffect(() => {
+    void loadBackendMemoryFiles();
+  }, [loadBackendMemoryFiles]);
+
+  useEffect(() => {
+    void loadBackendMemoryFileDetail(selectedBackendFileId);
+  }, [loadBackendMemoryFileDetail, selectedBackendFileId]);
 
   const progressValue = (completedSteps.size / steps.length) * 100;
 
@@ -234,17 +391,43 @@ export function MemoryImportWizard() {
     if (!file) return;
 
     setIsParsing(true);
+    setMemoryFileImporting(true);
+    setMemoryFilesError("");
     try {
       const text = await file.text();
       const parsedFile = parseMemoryCsv(file.name, text);
       setImportFile(parsedFile);
       setSelectedSegmentId(parsedFile.segments[0]?.id ?? "");
       setActiveStep("scan");
-      toast.success(`${parsedFile.fileName} scanned with ${parsedFile.segments.length} detected segment(s)`);
-    } catch {
-      toast.error("Unable to read memory CSV file");
+
+      if (!token || !canManageMemoryFiles) {
+        toast.warning("Memory file scanned locally. Backend import requires admin or engineer access.");
+        return;
+      }
+
+      const depthField =
+        parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
+        "depth";
+      const imported = await importMemoryFile(token, {
+        sessionId: toBackendSessionId(activeMwdSessionId),
+        fileName: file.name,
+        source: "memory_file",
+        content: text,
+        delimiter: ",",
+        hasHeader: true,
+        depthField,
+        fieldMappings: buildDefaultFieldMappings(parsedFile.detectedFields, depthField),
+      });
+      setSelectedBackendFileId(imported.id);
+      await loadBackendMemoryFiles();
+      toast.success(`${parsedFile.fileName} imported and scanned with ${parsedFile.segments.length} detected segment(s)`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import memory CSV file.";
+      setMemoryFilesError(message);
+      toast.error("Unable to import memory CSV file", { description: message });
     } finally {
       setIsParsing(false);
+      setMemoryFileImporting(false);
       event.target.value = "";
     }
   };
@@ -284,6 +467,93 @@ export function MemoryImportWizard() {
     toast.success("Correlation settings applied locally");
   };
 
+  const buildCorrelationPayload = (dryRun: boolean) => {
+    const sessionId = toBackendSessionId(activeMwdSessionId);
+    const source = activeSourceField;
+    const target = correlationTargetField.trim();
+
+    if (!selectedBackendFileId) {
+      throw new Error("Select a backend memory file before correlation.");
+    }
+    if (!sessionId) {
+      throw new Error("Select an active MWD session before correlation.");
+    }
+    if (!source || !target) {
+      throw new Error("Source memory field and target MWD field are required.");
+    }
+
+    return correlationMode === "depth"
+      ? {
+          sessionId,
+          mode: "depth" as const,
+          dryRun,
+          depthOffset: correlationSettings.depthShift,
+          maxDepthDifference,
+          fieldMappings: [{ source, target }],
+        }
+      : {
+          sessionId,
+          mode: "time" as const,
+          dryRun,
+          measuredAtOffsetMs,
+          maxTimeDifferenceMs,
+          fieldMappings: [{ source, target }],
+        };
+  };
+
+  const handlePreviewBackendCorrelation = async () => {
+    if (!token) {
+      toast.error("Sign in before previewing memory correlation.");
+      return;
+    }
+
+    setCorrelationLoading(true);
+    setCorrelationError("");
+
+    try {
+      const result = await correlateMemoryFile(token, selectedBackendFileId, buildCorrelationPayload(true));
+      setCorrelationPreview(result);
+      toast.success("Correlation preview loaded.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to preview memory correlation.";
+      setCorrelationError(message);
+      toast.error("Unable to preview memory correlation", { description: message });
+    } finally {
+      setCorrelationLoading(false);
+    }
+  };
+
+  const handleApplyBackendCorrelation = async () => {
+    if (!token) {
+      toast.error("Sign in before applying memory correlation.");
+      return;
+    }
+    if (!canManageMemoryFiles) {
+      toast.warning("Only admin or engineer users can apply memory correlation.");
+      return;
+    }
+    if (!correlationPreview) {
+      toast.error("Run dry-run preview before applying correlation.");
+      return;
+    }
+
+    setCorrelationLoading(true);
+    setCorrelationError("");
+
+    try {
+      const result = await correlateMemoryFile(token, selectedBackendFileId, buildCorrelationPayload(false));
+      setCorrelationPreview(result);
+      await loadBackendMemoryFileDetail(selectedBackendFileId);
+      toast.success(result.summary || "Memory correlation applied.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply memory correlation.";
+      setCorrelationError(message);
+      toast.error("Unable to apply memory correlation", { description: message });
+    } finally {
+      setCorrelationLoading(false);
+    }
+  };
+
   const handleGapFill = () => {
     if (!activeDataset || activeDataset.samples.length === 0) {
       toast.error("No imported dataset available for gap fill");
@@ -306,12 +576,43 @@ export function MemoryImportWizard() {
     toast.success(`${request.affectedSamples} imported samples staged for local gap fill`);
   };
 
+  const handleDeleteBackendMemoryFile = async (fileId: string) => {
+    if (!token) {
+      toast.error("Sign in before deleting memory files.");
+      return;
+    }
+    if (!canManageMemoryFiles) {
+      toast.warning("Only admin or engineer users can delete memory files.");
+      return;
+    }
+
+    setMemoryFileDeletingId(fileId);
+    setMemoryFilesError("");
+
+    try {
+      await deleteMemoryFile(token, fileId);
+      if (selectedBackendFileId === fileId) {
+        setSelectedBackendFileId("");
+        setBackendFileDetail(null);
+        setBackendFilePoints([]);
+      }
+      await loadBackendMemoryFiles();
+      toast.success("Memory file deleted.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete memory file.";
+      setMemoryFilesError(message);
+      toast.error("Unable to delete memory file", { description: message });
+    } finally {
+      setMemoryFileDeletingId("");
+    }
+  };
+
   return (
     <div className="space-y-5">
       <WorkspaceSection
         title="Memory File Import"
         description="Operational wizard for vendor CSV memory exports. Storage, parsing, import, correlation, and gap fill are local demo workflows until a backend store is connected."
-        badge="Mock local storage"
+        badge="Backend memory files + local scan"
       >
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[1.5fr_1fr]">
@@ -352,6 +653,164 @@ export function MemoryImportWizard() {
           </div>
           <Progress value={progressValue} />
           <Stepper activeStep={activeStep} completedSteps={completedSteps} onStepSelect={setActiveStep} />
+        </div>
+      </WorkspaceSection>
+
+      <WorkspaceSection
+        title="Memory Files"
+        description="Backend memory files from GET /api/memory-files. Selecting a file loads metadata and points for review."
+        badge={activeMwdSessionId ? `Session ${activeMwdSessionId}` : "All sessions"}
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-muted-foreground">
+              {memoryFilesLoading ? "Loading memory files..." : `${backendMemoryFiles.length} backend file(s) loaded`}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadBackendMemoryFiles()}
+              disabled={!token || memoryFilesLoading}
+            >
+              <RefreshCw className={cn("mr-2 size-4", memoryFilesLoading && "animate-spin")} />
+              Refresh Files
+            </Button>
+          </div>
+
+          {memoryFilesError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {memoryFilesError}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <Card className="p-0">
+              <div className="border-b px-4 py-3">
+                <h3 className="font-semibold">File list</h3>
+                <p className="text-sm text-muted-foreground">Use the upload step to import a new memory file.</p>
+              </div>
+              <div className="max-h-[320px] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>File</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Points</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {backendMemoryFiles.map((file) => (
+                      <TableRow
+                        key={file.id}
+                        className={selectedBackendFileId === file.id ? "bg-muted/60" : ""}
+                        onClick={() => setSelectedBackendFileId(file.id)}
+                      >
+                        <TableCell>
+                          <div className="font-medium">{file.fileName}</div>
+                          <div className="text-xs text-muted-foreground">{formatOptionalDateTime(file.uploadedAt)}</div>
+                        </TableCell>
+                        <TableCell>{file.status ?? "-"}</TableCell>
+                        <TableCell>{file.pointCount ?? "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="text-destructive"
+                                disabled={!canManageMemoryFiles || memoryFileDeletingId === file.id}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete memory file?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {file.fileName} will be deleted through DELETE /api/memory-files/{file.id}. This cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  onClick={() => void handleDeleteBackendMemoryFile(file.id)}
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!memoryFilesLoading && backendMemoryFiles.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                          No memory files returned from /api/memory-files.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
+
+            <Card className="p-0">
+              <div className="border-b px-4 py-3">
+                <h3 className="font-semibold">File detail and points</h3>
+                <p className="text-sm text-muted-foreground">
+                  Detail uses GET /api/memory-files/:id and points use GET /api/memory-files/:id/points.
+                </p>
+              </div>
+              {memoryFileDetailLoading ? (
+                <div className="p-4 text-sm text-muted-foreground">Loading file detail...</div>
+              ) : backendFileDetail ? (
+                <div className="space-y-4 p-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <SummaryTile label="File" value={backendFileDetail.fileName} />
+                    <SummaryTile label="Status" value={backendFileDetail.status ?? "-"} />
+                    <SummaryTile label="Uploaded" value={formatOptionalDateTime(backendFileDetail.uploadedAt)} />
+                    <SummaryTile label="Field" value={backendFileDetail.fieldName ?? "-"} />
+                  </div>
+                  <div className="max-h-[220px] overflow-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Depth</TableHead>
+                          <TableHead>Value</TableHead>
+                          <TableHead>Field</TableHead>
+                          <TableHead>Time</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {backendFilePoints.slice(0, 12).map((point) => (
+                          <TableRow key={point.id}>
+                            <TableCell>{formatOptionalNumber(point.depth)}</TableCell>
+                            <TableCell>{formatOptionalNumber(point.value, 3)}</TableCell>
+                            <TableCell>{point.fieldName ?? "-"}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{formatOptionalDateTime(point.timestamp)}</TableCell>
+                          </TableRow>
+                        ))}
+                        {backendFilePoints.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                              No points returned for this memory file.
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 text-sm text-muted-foreground">Select a memory file to load detail and points.</div>
+              )}
+            </Card>
+          </div>
         </div>
       </WorkspaceSection>
 
@@ -435,13 +894,18 @@ export function MemoryImportWizard() {
                 Select vendor CSV
               </div>
               <div className="mt-4 space-y-3">
-                <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} disabled={isParsing} />
-                <Button variant="outline" onClick={handleLoadMockFile} disabled={isParsing}>
-                  {isParsing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RotateCcw className="mr-2 size-4" />}
+                <Input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleFileChange}
+                  disabled={isParsing || memoryFileImporting || !canManageMemoryFiles}
+                />
+                <Button variant="outline" onClick={handleLoadMockFile} disabled={isParsing || memoryFileImporting}>
+                  {isParsing || memoryFileImporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RotateCcw className="mr-2 size-4" />}
                   Load mock vendor CSV
                 </Button>
                 <PlaceholderNote>
-                  Real backend import is not wired. This page reads CSV in the browser and stores imported datasets in React local state.
+                  Upload reads CSV/text in the browser and sends JSON content through POST /api/memory-files/import. Mock CSV remains local only for workflow testing.
                 </PlaceholderNote>
               </div>
             </Card>
@@ -577,14 +1041,130 @@ export function MemoryImportWizard() {
                   </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>Backend correlation mode</Label>
+                    <Select value={correlationMode} onValueChange={(value) => setCorrelationMode(value as "depth" | "time")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="depth">Depth</SelectItem>
+                        <SelectItem value="time">Time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Source memory field</Label>
+                    <Input value={activeSourceField || "-"} readOnly />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target MWD field</Label>
+                    <Input value={correlationTargetField} onChange={(event) => setCorrelationTargetField(event.target.value)} placeholder="mwdPressure" />
+                  </div>
+                </div>
+                {correlationMode === "depth" ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Depth offset</Label>
+                      <Input type="number" step="0.1" value={correlationSettings.depthShift} onChange={(event) => setCorrelationSettings((current) => ({ ...current, depthShift: Number(event.target.value) }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max depth difference</Label>
+                      <Input type="number" step="0.1" value={maxDepthDifference} onChange={(event) => setMaxDepthDifference(Number(event.target.value))} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Measured at offset ms</Label>
+                      <Input type="number" value={measuredAtOffsetMs} onChange={(event) => setMeasuredAtOffsetMs(Number(event.target.value))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max time difference ms</Label>
+                      <Input type="number" value={maxTimeDifferenceMs} onChange={(event) => setMaxTimeDifferenceMs(Number(event.target.value))} />
+                    </div>
+                  </div>
+                )}
+                <div className="grid gap-4 md:grid-cols-3">
                   <SummaryCard icon={ArrowDownUp} label="Depth range" value={`${formatNumber(Math.min(...activeDataset.samples.map((sample) => sample.depth)))} - ${formatNumber(Math.max(...activeDataset.samples.map((sample) => sample.depth)))}`} />
                   <SummaryCard icon={Scale} label="Value preview" value={`${formatNumber(activeDataset.samples[0]?.value ?? 0, 3)} first sample`} />
-                  <SummaryCard icon={GitCompare} label="Dataset" value={`${activeDataset.storageWitsId} ${activeDataset.segmentName}`} />
+                  <SummaryCard icon={GitCompare} label="Backend file" value={selectedBackendFile ? selectedBackendFile.fileName : "Select a backend file"} />
                 </div>
-                <Button onClick={handleApplyCorrelation}>
-                  <Scale className="mr-2 size-4" />
-                  Apply correlation locally
-                </Button>
+                {correlationError ? (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {correlationError}
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => void handlePreviewBackendCorrelation()}
+                    disabled={!token || !selectedBackendFileId || !activeSourceField || !correlationTargetField.trim() || correlationLoading}
+                  >
+                    {correlationLoading ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Scale className="mr-2 size-4" />}
+                    Preview Backend Correlation
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        disabled={!canManageMemoryFiles || !correlationPreview || correlationLoading}
+                      >
+                        Apply Backend Correlation
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Apply memory correlation?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will call POST /api/memory-files/{selectedBackendFileId}/correlate with dryRun=false using the last reviewed mapping.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => void handleApplyBackendCorrelation()}>
+                          Apply Correlation
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <Button variant="ghost" onClick={handleApplyCorrelation}>
+                    Apply local-only correlation
+                  </Button>
+                </div>
+                {correlationPreview ? (
+                  <Card className="p-4">
+                    <h3 className="font-semibold">Backend correlation preview/result</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{correlationPreview.summary}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                      <SummaryTile label="Matched" value={String(correlationPreview.matchedCount ?? getCorrelationMetric(correlationPreview, ["matchedCount", "matched_count"]) ?? "-")} />
+                      <SummaryTile label="Unmatched" value={String(correlationPreview.unmatchedCount ?? getCorrelationMetric(correlationPreview, ["unmatchedCount", "unmatched_count"]) ?? "-")} />
+                      <SummaryTile label="Updated" value={String(correlationPreview.updatedCount ?? getCorrelationMetric(correlationPreview, ["updatedCount", "updated_count"]) ?? "-")} />
+                      <SummaryTile label="Affected" value={String(correlationPreview.affectedRows ?? getCorrelationMetric(correlationPreview, ["affectedRows", "affected_rows"]) ?? "-")} />
+                    </div>
+                    {correlationPreview.previewRows.length > 0 ? (
+                      <Table className="mt-4">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Source</TableHead>
+                            <TableHead>Target</TableHead>
+                            <TableHead>Depth</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {correlationPreview.previewRows.slice(0, 8).map((row, index) => (
+                            <TableRow key={`correlation-preview-${index}`}>
+                              <TableCell>{String(row.source ?? row.sourceField ?? row.memoryField ?? "-")}</TableCell>
+                              <TableCell>{String(row.target ?? row.targetField ?? row.mwdField ?? "-")}</TableCell>
+                              <TableCell>{String(row.depth ?? row.md ?? row.measuredDepth ?? "-")}</TableCell>
+                              <TableCell>{String(row.status ?? row.message ?? row.action ?? "-")}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : null}
+                  </Card>
+                ) : null}
               </TabsContent>
 
               <TabsContent value="compare" className="space-y-4">
