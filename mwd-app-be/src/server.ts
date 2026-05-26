@@ -1,33 +1,34 @@
-import "dotenv/config";
-import { createServer } from "http";
-import app from "./app.js";
-import { initializeSocketIO } from "./services/socket-io.service.js";
-import { startEspWebSocketGateway } from "./services/esp-websocket.service.js";
-import { startSerialGateway } from "./services/serial-gateway.service.js";
-import { syncSystemRoles } from "./services/role.service.js";
+import 'dotenv/config'
+import { createServer } from 'http'
+import app from './app.js'
+import { initializeWebSocket } from "./services/websocket.service.js";
+import { startEspWebSocketGateway } from './services/esp-websocket.service.js'
+import { startSerialGateway } from './services/serial-gateway.service.js'
+import { syncSystemRoles } from './services/role.service.js'
 
-const portFromEnv = Number(process.env.PORT);
-const PORT = Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 5001;
+const portFromEnv = Number(process.env.PORT)
+const PORT =
+  Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 5001
 
 const startServer = async () => {
-  await syncSystemRoles();
+  await syncSystemRoles()
 
   // Create HTTP server for both Express and Socket.IO
-  const httpServer = createServer(app);
+  const httpServer = createServer(app)
 
-  // Initialize Socket.IO
-  initializeSocketIO(httpServer);
+  // Initialize WebSocket
+  initializeWebSocket(httpServer)
 
   httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    startEspWebSocketGateway();
-    void startSerialGateway();
-  });
-};
+    console.log(`Server running on port ${PORT}`)
+    startEspWebSocketGateway()
+    void startSerialGateway()
+  })
+}
 
 startServer().catch((error: unknown) => {
   const message =
-    error instanceof Error ? error.message : "Unknown server startup error";
-  console.error(`Failed to start server: ${message}`);
-  process.exit(1);
-});
+    error instanceof Error ? error.message : 'Unknown server startup error'
+  console.error(`Failed to start server: ${message}`)
+  process.exit(1)
+})
