@@ -3,12 +3,15 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as historicalDataService from "../services/historical-data.service.js";
 import * as sessionService from "../services/mwd-session.service.js";
 import * as exportRecordService from "../services/export-record.service.js";
+import * as surveyService from "../services/survey.service.js";
 import { buildLasExport } from "../services/las-export.service.js";
 import { buildPdfPlot } from "../services/pdf-plot.service.js";
 import {
   buildExportFileName,
+  buildSurveyExportFileName,
   serializeHistoricalDataAsCsv,
   serializeHistoricalDataAsJson,
+  serializeSurveyStationsAsCsv,
 } from "../services/export.service.js";
 
 const parsePositiveInt = (value: unknown) => {
@@ -435,6 +438,65 @@ export const exportLasData = async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${lasExport.fileName}"`);
     res.status(200).send(lasExport.content);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
+    res.status(500).json({ message });
+  }
+};
+
+export const exportSurveyData = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as AuthenticatedRequest).user;
+
+    if (!authUser) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const sessionId = parsePositiveInt(req.body?.sessionId);
+    const format = req.body?.format ?? "csv";
+    const stationType =
+      typeof req.body?.stationType === "string" && req.body.stationType.trim()
+        ? req.body.stationType.trim()
+        : "actual";
+
+    if (sessionId === null) {
+      return res.status(400).json({ message: "Valid sessionId is required" });
+    }
+
+    if (format !== "csv") {
+      return res.status(400).json({ message: "Format must be csv" });
+    }
+
+    const session = await sessionService.getSessionById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    const stations = await surveyService.getSurveyStations({
+      sessionId,
+      stationType,
+    });
+    const fileName = buildSurveyExportFileName(
+      session.sessionCode,
+      stationType,
+    );
+    const body = serializeSurveyStationsAsCsv(
+      stations as Parameters<typeof serializeSurveyStationsAsCsv>[0],
+    );
+
+    await exportRecordService.createExportRecord({
+      sessionId,
+      exportedById: authUser.userId,
+      fileName,
+      fileType: "survey_csv",
+      rowCount: stations.length,
+    });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.status(200).send(body);
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Internal server error";

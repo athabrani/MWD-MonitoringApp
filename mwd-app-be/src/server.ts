@@ -1,5 +1,7 @@
 import "dotenv/config";
+import { createServer } from "http";
 import app from "./app.js";
+import { initializeSocketIO } from "./services/socket-io.service.js";
 import { startEspWebSocketGateway } from "./services/esp-websocket.service.js";
 import { startSerialGateway } from "./services/serial-gateway.service.js";
 import { syncSystemRoles } from "./services/role.service.js";
@@ -10,7 +12,13 @@ const PORT = Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 500
 const startServer = async () => {
   await syncSystemRoles();
 
-  app.listen(PORT, () => {
+  // Create HTTP server for both Express and Socket.IO
+  const httpServer = createServer(app);
+
+  // Initialize Socket.IO
+  initializeSocketIO(httpServer);
+
+  httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startEspWebSocketGateway();
     void startSerialGateway();

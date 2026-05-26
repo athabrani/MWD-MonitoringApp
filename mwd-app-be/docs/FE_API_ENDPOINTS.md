@@ -37,6 +37,1369 @@ engineer  : create/update monitoring data, configs, exports
 operator  : mostly view/read access
 ```
 
+## Penjelasan Konsep Untuk FE
+
+Bagian ini penting supaya istilah backend tidak tertukar dengan istilah di UI/operator.
+
+### Session / Job
+
+`sessionId` adalah ID internal backend untuk satu job/sesi monitoring MWD.
+
+Di UI sebaiknya jangan minta user mengetik `sessionId`. User cukup pilih job berdasarkan:
+
+```txt
+sessionCode
+wellName
+rigName
+company
+jobNumber
+```
+
+Setelah user memilih job, FE simpan `id` dari session itu dan kirim sebagai `sessionId` di request berikutnya.
+
+Contoh:
+
+```txt
+User pilih: MWD-FE-TEST-001 / Well FE Test / Rig Test
+Backend id: 5
+FE kirim: sessionId = 5
+```
+
+Satu akun user bisa punya banyak session/job. Relasinya:
+
+```txt
+User -> banyak MWDSession
+MWDSession -> banyak MWDData, WITS values, Survey, Depth Tracking, Memory File, Export
+```
+
+### MWD Data
+
+`MWD Data` adalah data utama monitoring/realtime. Ini tempat data sensor/log masuk dan disimpan.
+
+Sumber data bisa dari:
+
+```txt
+- input manual FE/Postman
+- raw Serial WITS
+- gateway hardware
+- serial ESP/LoRa
+- memory/correlation update
+```
+
+Dipakai untuk:
+
+```txt
+- dashboard realtime
+- card latest value
+- plot/log curve
+- historical data
+- LAS/PDF export
+- sumber untuk generate survey
+```
+
+Contoh field:
+
+```txt
+depthMd, hole_depth, inclination, azimuth, gammaRay,
+pressure, rop, hookLoad, batteryVoltage, temperature,
+shock, vibration, mudWeight, ecd
+```
+
+### Survey Data
+
+`Survey` bukan data realtime mentah. Survey adalah data station/trajectory yang dipakai untuk menghitung posisi lubang sumur.
+
+Input dasar survey:
+
+```txt
+measuredDepth
+inclination
+azimuth
+```
+
+Hasil olahan survey:
+
+```txt
+tvd
+northing
+easting
+verticalSection
+doglegSeverity
+buildRate
+turnRate
+closureDistance
+closureAzimuth
+```
+
+Jadi pembagiannya:
+
+```txt
+MWD Data = data sensor/log monitoring
+Survey   = data trajectory/posisi sumur
+```
+
+`POST /api/surveys/from-mwd-data` tidak menerima value manual. Endpoint itu mengambil data yang sudah ada di `MWD_Data`, lalu membuat `Survey_Station` dari field `depthMd + inclination + azimuth`.
+
+Kalau FE ingin user input survey manual, pakai `POST /api/surveys`.
+
+### WITS Config vs WITS Data Values
+
+`WITS Config` adalah kamus/setting WITS ID.
+
+Contoh:
+
+```txt
+0824 = Gamma API, unit API, mappedField gammaRay, alarm max 150, warna plot biru
+0715 = Azimuth, unit deg, mappedField azimuth
+0108 = Bit Depth, mappedField depthMd
+```
+
+Dipakai FE untuk:
+
+```txt
+- label parameter
+- unit
+- dropdown curve/parameter
+- warna plot
+- scale factor dan bias offset
+- alarm min/max
+- mapping WITS ID ke field MWD
+```
+
+`WITS Data Values` adalah nilai aktual/history yang masuk per WITS ID.
+
+Contoh:
+
+```txt
+WITS ID 0824 pada depth 1000.5 nilainya 82.4
+WITS ID 0715 pada depth 1000.5 nilainya 240.1
+```
+
+Jadi:
+
+```txt
+GET /api/wits-config      = ambil kamus/setting WITS ID
+GET /api/wits-data-values = ambil nilai aktual/history WITS ID
+```
+
+`/api/wits-data-values` tidak dipakai untuk input raw packet. Raw WITS masuk lewat:
+
+```txt
+POST /api/mwd-data
+POST /api/gateway/mwd-data
+Serial gateway lokal
+```
+
+### Recalculate vs Rescale
+
+
+`POST /api/surveys/recalculate` dipakai untuk menghitung ulang hasil olahan survey/trajectory.
+
+Yang dihitung ulang:
+
+```txt
+tvd, northing, easting, verticalSection,
+doglegSeverity, buildRate, turnRate
+```
+
+Dipakai setelah survey diedit, data survey digenerate ulang, atau `verticalSectionAzimuth` berubah.
+
+`POST /api/mwd-data/edit/rescale` dipakai untuk koreksi nilai sensor/log di `MWD_Data`.
+
+Rumus:
+
+```txt
+newValue = oldValue * scaleFactor + biasOffset
+```
+
+Contoh:
+
+```txt
+gammaRay 80 dengan scaleFactor 1.1 menjadi 88
+pressure 3200 dengan biasOffset -50 menjadi 3150
+```
+
+### Backup / Restore Data
+
+Backup data bukan disimpan ke tabel backup di database. Backend hanya membuat object JSON backup di response.
+
+Flow FE:
+
+```txt
+1. FE call POST /api/system-utilities/backup-session
+2. Backend return response.backup
+3. FE download response.backup sebagai file .json lokal
+4. Saat restore, user pilih file .json lokal
+5. FE baca isi file lalu kirim ke POST /api/system-utilities/restore-session
+```
+
+Jadi label UI yang disarankan:
+
+```txt
+Download Backup
+Restore From Backup File
+```
+
+## Alur Utama FE
+
+Bagian ini menjelaskan urutan kerja yang disarankan untuk frontend. Tujuannya supaya FE tahu endpoint mana yang dipanggil dulu, data apa yang disimpan di state, dan data mana yang dipakai untuk dashboard, plot, survey, export, dan konfigurasi.
+
+### 1. Login dan Simpan Token
+
+Alur pertama selalu login.
+
+```txt
+POST /api/auth/login
+```
+
+Body:
+
+```json
+{
+  "identifier": "engineer",
+  "password": "engineer12345"
+}
+```
+
+Response login berisi token JWT. FE simpan token ini, misalnya di memory state atau localStorage sesuai kebutuhan aplikasi.
+
+Setelah login, semua endpoint protected wajib memakai header:
+
+```http
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+Untuk cek user aktif:
+
+```txt
+GET /api/auth/me
+```
+
+Data dari `/api/auth/me` dipakai FE untuk menentukan role user, misalnya:
+
+```txt
+admin    -> tampilkan semua menu
+engineer -> tampilkan menu input/edit/config
+operator -> tampilkan menu monitoring/view
+```
+
+### 2. Ambil Daftar Job / Session
+
+Setelah login, FE ambil daftar job/session:
+
+```txt
+GET /api/mwd-sessions
+```
+
+Session adalah container utama data. Semua data monitoring, survey, WITS value, plot, export, depth tracking, dan memory file akan terkait ke `sessionId`.
+
+Di UI, user sebaiknya memilih job berdasarkan informasi yang manusiawi:
+
+```txt
+sessionCode
+wellName
+rigName
+company
+jobNumber
+```
+
+Contoh response session:
+
+```json
+{
+  "id": 5,
+  "sessionCode": "MWD-FE-TEST-001",
+  "wellName": "Well FE Test",
+  "rigName": "Rig Test"
+}
+```
+
+FE simpan:
+
+```txt
+selectedSessionId = 5
+```
+
+Setelah itu semua request data memakai `sessionId=5`.
+
+Penting:
+
+```txt
+User tidak perlu melihat atau mengetik sessionId.
+sessionId cukup jadi state internal FE.
+```
+
+### 3. Ambil Konfigurasi WITS
+
+Setelah session dipilih, FE sebaiknya ambil WITS config:
+
+```txt
+GET /api/wits-config
+```
+
+Data ini bukan data sensor realtime. Ini adalah master/kamus konfigurasi WITS ID.
+
+Dipakai FE untuk:
+
+```txt
+- nama parameter
+- unit parameter
+- mapping witsId ke field MWD
+- warna line plot
+- scale kiri/kanan plot
+- alarm min/max
+- pilihan field untuk dashboard atau plot
+```
+
+Contoh:
+
+```txt
+0824 -> Gamma API -> mappedField gammaRay -> unit API
+0715 -> Azimuth   -> mappedField azimuth  -> unit deg
+0108 -> Bit Depth -> mappedField depthMd  -> unit m
+0110 -> Hole Depth -> mappedField hole_depth -> unit m
+```
+
+Jadi kalau FE ingin menampilkan label yang rapi, jangan hardcode semua label di frontend. Ambil dari `GET /api/wits-config` jika memungkinkan.
+
+### 4. Ambil Data MWD untuk Dashboard
+
+Untuk dashboard utama, card latest value, table monitoring, dan plot realtime, sumber utamanya adalah:
+
+```txt
+GET /api/mwd-data?sessionId=<selectedSessionId>
+```
+
+Contoh:
+
+```txt
+GET /api/mwd-data?sessionId=5
+```
+
+Data ini berasal dari tabel `MWD_Data`.
+
+`MWD_Data` bisa terisi dari:
+
+```txt
+- input manual via POST /api/mwd-data
+- raw Serial WITS via POST /api/mwd-data
+- hardware gateway via POST /api/gateway/mwd-data
+- serial gateway lokal dari COM port
+- memory file correlation
+```
+
+Untuk dashboard card seperti gambar mobile, FE cukup ambil row terbaru dari response `GET /api/mwd-data`.
+
+Contoh mapping card:
+
+```txt
+Inclination      -> mwdData.inclination
+Azimuth          -> mwdData.azimuth
+Dip Angle        -> mwdData.dipAngle
+G Total          -> mwdData.totalGravity
+Magnetic Field   -> mwdData.magneticField
+Gamma            -> mwdData.gammaRay
+Confidence       -> mwdData.confidence
+WOB              -> mwdData.weightOnBit / hookLoad, sesuai field yang dipakai UI
+Gamma Depth      -> mwdData.depthMd atau custom depth, tergantung desain FE
+Bit Depth        -> mwdData.depthMd
+Hole Depth       -> mwdData.hole_depth
+Decoder Pressure -> mwdData.decoderPressure
+Pump Pressure    -> mwdData.standpipePressure
+```
+
+Catatan:
+
+```txt
+depthMd = Bit Depth, biasanya WITS ID 0108
+hole_depth = Hole Depth, biasanya WITS ID 0110
+```
+
+Kalau butuh data berdasarkan range depth:
+
+```txt
+GET /api/mwd-data?sessionId=5&depthMin=1000&depthMax=1100
+```
+
+Kalau butuh data terbaru saja, FE bisa:
+
+```txt
+GET /api/mwd-data?sessionId=5&limit=1
+```
+
+Jika backend mengurutkan data ascending di tampilan tertentu, FE boleh ambil item terakhir sebagai latest. Jika endpoint memakai `limit=1` dan response sudah latest, pakai item pertama.
+
+### 5. Alur Input Data MWD Manual / Raw WITS
+
+Untuk testing FE tanpa hardware, FE atau Postman bisa input data manual:
+
+```txt
+POST /api/mwd-data
+```
+
+Body manual:
+
+```json
+{
+  "sessionId": 5,
+  "measuredAt": "2026-05-18T01:00:00.000Z",
+  "depthMd": 1000.5,
+  "hole_depth": 1001.2,
+  "inclination": 7.48,
+  "azimuth": 234.89,
+  "dipAngle": 13.3,
+  "totalGravity": 1.0566,
+  "magneticField": 58.2349,
+  "gammaRay": 78,
+  "confidence": 94,
+  "standpipePressure": 3195.9,
+  "decoderPressure": 2940.2
+}
+```
+
+Untuk raw WITS:
+
+```json
+{
+  "sessionId": 5,
+  "raw": "&&\n01089545.00\n0110945.00\n0715234.89\n071607.48\n082478\n08362940.2\n!!"
+}
+```
+
+Alur backend saat menerima raw WITS:
+
+```txt
+1. Backend baca raw text.
+2. Parser cari blok dari && sampai !!.
+3. Setiap line dipotong:
+   - 4 digit pertama = witsId
+   - sisa string = value
+4. Backend cek WITS Config.
+5. Kalau witsId punya mappedField, value masuk ke field MWD_Data.
+6. Backend simpan raw line/raw block untuk audit/debug WITS.
+7. FE ambil hasilnya lagi lewat GET /api/mwd-data.
+```
+
+Jadi FE tidak perlu parse WITS sendiri kecuali hanya untuk preview/debug UI. Parsing utama sudah di backend.
+
+### 6. Alur WITS Data Values
+
+Selain masuk ke `MWD_Data`, raw WITS juga bisa tersimpan sebagai history per WITS ID di `WITS_Data_Value`.
+
+Untuk baca history WITS value:
+
+```txt
+GET /api/wits-data-values?sessionId=5
+```
+
+Untuk filter satu WITS ID:
+
+```txt
+GET /api/wits-data-values?sessionId=5&witsId=0715&limit=20
+```
+
+Gunanya untuk:
+
+```txt
+- debug apakah WITS ID tertentu masuk atau tidak
+- menampilkan history raw/configured WITS
+- alarm berdasarkan WITS ID
+- validasi mapping WITS ID ke MWD field
+```
+
+Bedanya dengan `GET /api/mwd-data`:
+
+```txt
+GET /api/mwd-data
+-> data sudah dalam bentuk field aplikasi: azimuth, gammaRay, pressure, depthMd
+
+GET /api/wits-data-values
+-> data masih berbasis WITS ID: 0715, 0824, 0108
+```
+
+Untuk dashboard utama, biasanya FE pakai `GET /api/mwd-data`.
+Untuk halaman raw/debug WITS, FE pakai `GET /api/wits-data-values`.
+
+### 7. Alur Survey
+
+Survey dipakai untuk trajectory/posisi sumur, bukan untuk semua card dashboard.
+
+Ada dua cara membuat survey:
+
+```txt
+1. Manual input survey
+2. Generate dari MWD data
+```
+
+Manual input:
+
+```txt
+POST /api/surveys
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "stationType": "actual",
+  "measuredDepth": 1000.5,
+  "inclination": 7.48,
+  "azimuth": 234.89,
+  "verticalSectionAzimuth": 90
+}
+```
+
+Generate dari MWD data:
+
+```txt
+POST /api/surveys/from-mwd-data
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "stationType": "actual",
+  "verticalSectionAzimuth": 90
+}
+```
+
+Alur `from-mwd-data`:
+
+```txt
+1. Backend ambil data dari MWD_Data.
+2. Backend cari row yang punya depthMd, inclination, azimuth.
+3. Backend buat Survey_Station.
+4. Backend hitung TVD, northing, easting, dogleg, build rate, turn rate.
+5. FE ambil hasilnya lewat GET /api/surveys.
+```
+
+Ambil survey:
+
+```txt
+GET /api/surveys?sessionId=5&stationType=actual
+```
+
+Import well plan CSV:
+
+```txt
+POST /api/surveys/well-plan/import-csv?sessionId=5&stationType=plan&verticalSectionAzimuth=90
+```
+
+Body raw text:
+
+```txt
+1000,12.3,240.1
+1010,13.1,241.2
+1020,14.0,242.0
+```
+
+Recalculate:
+
+```txt
+POST /api/surveys/recalculate
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "stationType": "actual",
+  "verticalSectionAzimuth": 90
+}
+```
+
+Recalculate dipakai kalau survey sudah ada, lalu FE/user mengubah inc/azimuth/MD atau vertical section azimuth, sehingga hasil TVD/dogleg perlu dihitung ulang.
+
+### 8. Alur Plot Template dan PDF Plot
+
+Plot template adalah layout/konfigurasi tampilan plot. Data template berasal dari tabel `Plot_Template`, bukan dari `MWD_Data`.
+
+Ambil template default:
+
+```txt
+GET /api/plot-templates/default
+```
+
+Ambil semua template:
+
+```txt
+GET /api/plot-templates
+```
+
+Template dipakai untuk menentukan:
+
+```txt
+- jumlah track/kolom plot
+- curve apa saja di setiap track
+- warna line
+- scale kiri/kanan
+- header dan metadata
+- opsi survey/projection
+- logo/company metadata
+```
+
+Data kurva plot tetap diambil dari `MWD_Data` berdasarkan `sessionId` dan range depth.
+
+Alur FE untuk preview plot:
+
+```txt
+1. FE ambil selected session.
+2. FE ambil template default atau template pilihan user.
+3. FE ambil MWD data sesuai depth range.
+4. FE render preview di browser.
+```
+
+Alur FE untuk export PDF plot:
+
+```txt
+1. FE ambil/siapkan template config.
+2. FE kirim request ke POST /api/exports/pdf-plot.
+3. Backend ambil MWD_Data sesuai sessionId dan depth range.
+4. Backend render PDF memakai template.
+5. FE download file PDF.
+```
+
+Contoh body:
+
+```json
+{
+  "sessionId": 5,
+  "templateId": 1,
+  "depthMin": 0,
+  "depthMax": 99999,
+  "scale": "1:500"
+}
+```
+
+### 9. Alur Export LAS dan Survey CSV
+
+Export LAS dipakai untuk mengirim data log ke software lain.
+
+```txt
+POST /api/exports/las
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "depthMin": 0,
+  "depthMax": 99999
+}
+```
+
+Export survey CSV dipakai untuk download data trajectory/station.
+
+```txt
+POST /api/exports/surveys
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "stationType": "actual",
+  "format": "csv"
+}
+```
+
+Alur export:
+
+```txt
+1. FE kirim request export.
+2. Backend ambil data dari database.
+3. Backend return file.
+4. FE trigger download.
+```
+
+### 10. Alur Data Edit Tools
+
+Data edit tools dipakai untuk memperbaiki data log yang sudah tersimpan.
+
+Fitur:
+
+```txt
+- hide depth range
+- unhide depth range
+- delete depth range
+- move depth
+- copy depth
+- rescale
+```
+
+Saran alur FE:
+
+```txt
+1. User pilih session.
+2. User pilih depth range.
+3. User pilih operasi edit.
+4. FE panggil endpoint preview GET terlebih dahulu jika tersedia.
+5. FE tampilkan affectedCount dan sample data.
+6. User confirm.
+7. FE panggil POST untuk apply.
+8. FE reload GET /api/mwd-data.
+9. FE tampilkan edit history.
+```
+
+Contoh preview move depth:
+
+```txt
+GET /api/mwd-data/edit/move-depth?sessionId=5&depthMin=1000&depthMax=1100&targetStartDepth=1200
+```
+
+Contoh apply rescale:
+
+```txt
+POST /api/mwd-data/edit/rescale
+```
+
+Body:
+
+```json
+{
+  "sessionId": 5,
+  "depthMin": 1000,
+  "depthMax": 1100,
+  "field": "gammaRay",
+  "scaleFactor": 1.1,
+  "biasOffset": 0,
+  "note": "gamma calibration"
+}
+```
+
+Setelah edit, FE bisa ambil history:
+
+```txt
+GET /api/mwd-data/edit/history?sessionId=5
+```
+
+### 11. Alur Memory File Import dan Correlation
+
+Memory file adalah data tambahan dari memory tool yang bisa dicocokkan dengan data MWD berdasarkan depth atau time.
+
+Alur FE:
+
+```txt
+1. User upload/import memory file.
+2. Backend simpan memory file dan points.
+3. FE tampilkan preview points.
+4. User pilih field mapping.
+5. FE jalankan correlation preview dengan dryRun=true.
+6. FE tampilkan matchedCount, skippedCount, sample.
+7. User confirm.
+8. FE jalankan correlation apply dengan dryRun=false.
+9. Backend update field tertentu di MWD_Data.
+10. FE reload MWD data.
+```
+
+Endpoint penting:
+
+```txt
+POST /api/memory-files/import
+GET  /api/memory-files/:id/points
+POST /api/memory-files/:id/correlate
+```
+
+### 12. Alur Hardware Lokal: Serial / ESP / LoRa
+
+Untuk local deployment, backend berjalan di PC yang terhubung ke ESP/LoRa via COM port.
+
+PC lain di network lokal bisa akses FE/backend lewat IP PC server, tetapi serial port tetap dibaca oleh PC yang menjalankan backend.
+
+Alur FE untuk serial lokal:
+
+```txt
+1. FE panggil GET /api/serial/ports
+2. User pilih COM port, misalnya COM9
+3. FE panggil POST /api/serial/connect
+4. Backend buka COM port dan baca raw WITS stream
+5. Backend parse raw WITS
+6. Backend simpan ke MWD_Data dan WITS_Data_Value
+7. FE poll GET /api/mwd-data dan GET /api/serial/status
+```
+
+Catatan penting:
+
+```txt
+/api/serial/ports hanya valid untuk local backend.
+Endpoint ini tidak cocok dites di Vercel karena Vercel tidak punya akses COM port.
+```
+
+Untuk WebSocket ESP:
+
+```txt
+GET /api/esp-ws/status
+```
+
+Jika WebSocket dan serial aktif bersamaan, backend perlu menghindari duplicate berdasarkan transmitter/sequence. Untuk UI, FE cukup tampilkan status masing-masing source:
+
+```txt
+- Serial status
+- ESP WebSocket status
+- last packet
+- RSSI/SNR untuk monitoring komunikasi
+```
+
+RSSI/SNR tidak wajib disimpan sebagai data log utama. Nilainya lebih cocok ditampilkan sebagai monitoring kualitas komunikasi.
+
+### 13. Alur Backup, Clear, dan Restore Session
+
+Backup tidak otomatis disimpan ke database. Backend membuat JSON backup dan FE menyimpannya sebagai file lokal.
+
+Backup:
+
+```txt
+POST /api/system-utilities/backup-session
+```
+
+Alur backup:
+
+```txt
+1. FE kirim request backup.
+2. Backend return response.backup.
+3. FE download response.backup sebagai file .json.
+4. File disimpan lokal oleh user.
+```
+
+Clear session data:
+
+```txt
+POST /api/system-utilities/clear-session-data
+```
+
+Alur clear:
+
+```txt
+1. FE minta user confirm.
+2. FE panggil backup dulu jika ingin aman.
+3. FE panggil clear-session-data dengan confirm text.
+4. Backend menghapus target data di session tersebut.
+5. FE reload dashboard/table.
+```
+
+Restore:
+
+```txt
+POST /api/system-utilities/restore-session
+```
+
+Alur restore:
+
+```txt
+1. User pilih file backup .json lokal.
+2. FE baca isi file.
+3. FE kirim object backup asli ke backend.
+4. Backend restore data ke session.
+5. FE reload data.
+```
+
+Jangan kirim:
+
+```json
+{
+  "backup": {}
+}
+```
+
+Karena itu akan menghasilkan:
+
+```txt
+Invalid backup format
+```
+
+Yang harus dikirim adalah object `backup` asli dari response `backup-session`.
+
+### 14. Ringkasan Alur Data End-to-End
+
+Alur normal tanpa hardware:
+
+```txt
+Login
+-> GET sessions
+-> pilih session
+-> POST /api/mwd-data untuk input test
+-> GET /api/mwd-data untuk dashboard
+-> GET /api/wits-config untuk label/unit/config
+-> POST /api/surveys/from-mwd-data jika butuh survey
+-> GET /api/surveys untuk table trajectory
+-> GET /api/plot-templates/default untuk layout plot
+-> POST /api/exports/pdf-plot atau /api/exports/las jika butuh export
+```
+
+Alur normal dengan hardware lokal:
+
+```txt
+Login
+-> GET sessions
+-> pilih session
+-> GET /api/serial/ports
+-> POST /api/serial/connect
+-> backend baca COM port
+-> backend parse raw WITS
+-> backend simpan MWD_Data dan WITS_Data_Value
+-> FE poll GET /api/mwd-data untuk dashboard
+-> FE poll GET /api/wits-data-values untuk debug/history WITS
+-> FE poll serial/ESP status untuk komunikasi
+```
+
+Alur plot:
+
+```txt
+GET /api/plot-templates/default
+-> GET /api/mwd-data?sessionId=...&depthMin=...&depthMax=...
+-> render preview di FE
+-> POST /api/exports/pdf-plot untuk download PDF
+```
+
+Alur survey:
+
+```txt
+POST /api/surveys/from-mwd-data
+-> GET /api/surveys
+-> POST /api/surveys/recalculate kalau ada perubahan survey
+-> POST /api/exports/surveys untuk export CSV
+```
+
+## Ringkasan Fungsi Semua Endpoint
+
+Bagian ini menjelaskan fungsi setiap folder endpoint dari sudut pandang FE.
+
+### Auth
+
+Endpoint auth dipakai untuk login dan mengecek user yang sedang aktif.
+
+```txt
+POST /api/auth/login = login, menghasilkan JWT token
+GET  /api/auth/me    = cek user aktif dari token
+```
+
+FE wajib menyimpan token dari login, lalu mengirim:
+
+```http
+Authorization: Bearer <token>
+```
+
+ke endpoint protected.
+
+### Roles
+
+Roles adalah master hak akses.
+
+```txt
+admin    = akses penuh
+engineer = bisa input/edit data monitoring
+operator = mayoritas view/read
+```
+
+Endpoint ini dipakai untuk halaman admin/user management.
+
+```txt
+GET    /api/roles     = list role
+POST   /api/roles     = tambah role
+GET    /api/roles/:id = detail role
+PUT    /api/roles/:id = update role
+DELETE /api/roles/:id = hapus role
+```
+
+Untuk FE umum, role biasanya hanya dipakai untuk menentukan menu mana yang boleh tampil.
+
+### Users
+
+Users adalah akun aplikasi.
+
+```txt
+GET    /api/users     = list user
+POST   /api/users     = buat user baru
+GET    /api/users/:id = detail user
+PUT    /api/users/:id = update user
+DELETE /api/users/:id = hapus user
+```
+
+Dipakai di halaman admin untuk mengelola akun engineer/operator.
+
+### MWD Sessions / Jobs
+
+Session adalah job/sesi monitoring. Di UI sebaiknya dilabeli sebagai `Job`, bukan `Session ID`.
+
+```txt
+GET    /api/mwd-sessions     = list job/session
+POST   /api/mwd-sessions     = buat job baru
+GET    /api/mwd-sessions/:id = detail job
+PUT    /api/mwd-sessions/:id = update metadata job
+DELETE /api/mwd-sessions/:id = hapus job
+```
+
+FE flow yang disarankan:
+
+```txt
+1. User login
+2. FE load /api/mwd-sessions
+3. User pilih job/well
+4. FE simpan selected session.id sebagai sessionId aktif
+5. Semua endpoint data memakai sessionId aktif itu
+```
+
+### MWD Data
+
+MWD Data adalah data utama monitoring/realtime.
+
+```txt
+GET    /api/mwd-data          = list data monitoring per session
+POST   /api/mwd-data          = input data monitoring/manual/raw WITS
+GET    /api/mwd-data/:id      = detail satu data
+PUT    /api/mwd-data/:id      = edit satu data
+DELETE /api/mwd-data/:id      = hapus satu data
+GET    /api/historical-data   = ambil data historical dengan filter waktu/depth
+```
+
+Dipakai untuk:
+
+```txt
+- dashboard latest value
+- realtime plot
+- historical trend
+- source export LAS/PDF
+- source generate survey
+```
+
+Jika FE ingin card dashboard seperti `Inclination`, `Azimuth`, `Gamma`, `Pump Pressure`, `Bit Depth`, ambil dari row terakhir `GET /api/mwd-data?sessionId=...`.
+
+### WITS Config
+
+WITS Config adalah kamus/setting WITS ID.
+
+```txt
+GET    /api/wits-config     = list semua konfigurasi WITS ID
+POST   /api/wits-config     = tambah WITS ID/config baru
+GET    /api/wits-config/:id = detail config
+PUT    /api/wits-config/:id = update config
+DELETE /api/wits-config/:id = hapus config
+```
+
+Dipakai FE untuk:
+
+```txt
+- label parameter
+- unit
+- dropdown curve
+- mapping witsId ke field MWD
+- scale factor
+- bias offset
+- sensor-to-bit spacing
+- alarm min/max
+- warna plot
+- LAS tag
+```
+
+Contoh: FE menerima data WITS `0824`, lalu melihat config bahwa `0824 = Gamma API`, unit `API`, mappedField `gammaRay`.
+
+### WITS Data Values
+
+WITS Data Values adalah history nilai aktual per WITS ID.
+
+```txt
+GET /api/wits-data-values = baca history WITS value
+```
+
+Endpoint ini tidak untuk input data. Data WITS masuk dari `POST /api/mwd-data`, `POST /api/gateway/mwd-data`, atau serial gateway.
+
+Dipakai untuk:
+
+```txt
+- plot per WITS ID
+- debug raw WITS line/block
+- melihat rawValue vs scaled value
+- history parameter tertentu
+```
+
+Contoh:
+
+```txt
+GET /api/wits-data-values?sessionId=5&witsId=0715&limit=100
+```
+
+Artinya ambil history Azimuth WITS `0715`.
+
+### WITS Alarms
+
+WITS Alarm adalah event alarm saat value melewati batas di WITS Config.
+
+```txt
+GET /api/wits-alarms = list alarm
+PUT /api/wits-alarms/:id/acknowledge = tandai alarm sudah dibaca
+PUT /api/wits-alarms/:id/resolve = tandai alarm selesai
+```
+
+Flow FE:
+
+```txt
+1. Backend menerima WITS value
+2. Backend cek alarm min/max dari WITS Config
+3. Jika melewati batas, backend membuat alarm
+4. FE tampilkan alarm
+5. User klik acknowledge atau resolve
+```
+
+### Surveys
+
+Survey dipakai untuk station/trajectory, bukan dashboard realtime.
+
+```txt
+GET    /api/surveys                       = list survey station
+POST   /api/surveys                       = input survey manual
+POST   /api/surveys/from-mwd-data         = generate survey dari MWD_Data
+POST   /api/surveys/recalculate           = hitung ulang trajectory/projection
+POST   /api/surveys/well-plan/import-csv  = import well plan CSV
+GET    /api/surveys/:id                   = detail survey
+PUT    /api/surveys/:id                   = edit survey
+DELETE /api/surveys/:id                   = hapus survey
+```
+
+Perbedaan penting:
+
+```txt
+POST /api/surveys
+= input survey manual
+
+POST /api/surveys/from-mwd-data
+= ambil depth/inc/azimuth dari MWD_Data lalu generate Survey_Station
+
+POST /api/surveys/recalculate
+= hitung ulang TVD, northing, easting, dogleg, build rate, turn rate
+```
+
+Halaman FE yang memakai survey:
+
+```txt
+- well trajectory
+- plan vs actual
+- survey table
+- directional report
+```
+
+### Plot Templates
+
+Plot Templates menyimpan konfigurasi layout PDF plot/log.
+
+```txt
+GET    /api/plot-templates         = list template
+GET    /api/plot-templates/default = template default
+POST   /api/plot-templates         = buat template baru
+GET    /api/plot-templates/:id     = detail template
+PUT    /api/plot-templates/:id     = update template
+DELETE /api/plot-templates/:id     = hapus template
+```
+
+Dipakai untuk menentukan:
+
+```txt
+- judul plot
+- logo company
+- track/kolom plot
+- curve apa saja yang ditampilkan
+- min/max scale
+- warna line
+```
+
+FE bisa menyediakan editor template, atau minimal memakai default template untuk export PDF plot.
+
+### Exports
+
+Exports dipakai untuk download file.
+
+```txt
+POST /api/exports/historical = export data historical ke JSON/CSV
+POST /api/exports/surveys    = export survey station ke CSV
+POST /api/exports/las        = export LAS file
+POST /api/exports/pdf-plot   = export PDF plot/log
+GET  /api/exports/records    = history export
+```
+
+FE harus menangani response sebagai file/blob untuk LAS, CSV, dan PDF.
+
+### MWD Data Edit Tools
+
+Edit tools dipakai untuk operasi massal pada data MWD berdasarkan range depth.
+
+```txt
+GET  /api/mwd-data/edit/operations          = history operasi edit
+POST /api/mwd-data/edit/hide-range          = sembunyikan interval depth
+POST /api/mwd-data/edit/unhide-range        = tampilkan kembali interval depth
+POST /api/mwd-data/edit/delete-depth-range  = hapus data dalam interval depth
+GET  /api/mwd-data/edit/move-depth          = preview move depth
+POST /api/mwd-data/edit/move-depth          = geser depth data
+GET  /api/mwd-data/edit/copy-depth          = preview copy depth
+POST /api/mwd-data/edit/copy-depth          = copy data ke depth baru
+GET  /api/mwd-data/edit/rescale             = preview rescale field
+POST /api/mwd-data/edit/rescale             = kalibrasi field sensor/log
+```
+
+Kegunaan:
+
+```txt
+hide-range   = data buruk tidak ditampilkan tapi tidak dihapus
+delete-range = hapus interval data
+move-depth   = koreksi posisi depth
+copy-depth   = duplikasi interval data
+rescale      = koreksi nilai sensor, misalnya gamma/pressure
+```
+
+FE sebaiknya memanggil endpoint preview `GET` dulu sebelum apply `POST`.
+
+### Memory Files
+
+Memory file adalah data offline/memory dari alat yang diimport lalu dikorelasikan ke MWD data.
+
+```txt
+GET    /api/memory-files                 = list memory file
+POST   /api/memory-files/import          = import CSV/text/rows memory file
+GET    /api/memory-files/:id             = detail memory file
+GET    /api/memory-files/:id/points      = data points dari memory file
+POST   /api/memory-files/:id/correlate   = preview/apply correlation
+GET    /api/memory-files/correlations    = history correlation
+DELETE /api/memory-files/:id             = hapus memory file
+```
+
+Dipakai saat ada data memory/offline seperti APWD/ECD memory yang harus dicocokkan ke MWD data berdasarkan depth atau time.
+
+### Depth Tracking / DTS
+
+Depth tracking menyimpan state kedalaman aktif.
+
+```txt
+GET  /api/depth-tracking/state       = state depth terbaru
+GET  /api/depth-tracking/samples     = history sample depth tracking
+POST /api/depth-tracking/update      = update manual/current depth state
+POST /api/depth-tracking/recalculate = hitung ulang depth state dari MWD data
+```
+
+Dipakai untuk:
+
+```txt
+- bit depth
+- hole depth
+- block depth
+- ROP
+- status drilling
+```
+
+### WITS Output Queue
+
+WITS output adalah antrean data yang akan dikirim ke Rig WITS port. Saat ini backend baru membuat queue, belum menulis fisik ke serial rig port.
+
+```txt
+GET  /api/wits-output/queue                = list queue output
+POST /api/wits-output/generate-from-latest = generate output dari MWD data terbaru
+PUT  /api/wits-output/:id/status           = update status queue
+```
+
+Status:
+
+```txt
+queued, sent, failed, skipped
+```
+
+### Serial Port Manager
+
+Serial endpoint hanya untuk backend lokal yang jalan di PC rig dan punya akses ke COM port.
+
+```txt
+GET  /api/serial/ports      = list COM port lokal
+POST /api/serial/connect    = connect COM port dan mulai ingest WITS
+GET  /api/serial/status     = status koneksi serial dan sinyal
+POST /api/serial/disconnect = disconnect serial
+```
+
+Jangan test endpoint ini di Vercel karena Vercel tidak punya akses ke COM port lokal.
+
+### ESP WebSocket Monitor
+
+Endpoint ini untuk monitoring koneksi backend ke ESP WebSocket gateway.
+
+```txt
+GET /api/esp-ws/status = status koneksi websocket ESP
+```
+
+Dipakai kalau hardware juga mengirim data via WebSocket selain serial.
+
+### System Utilities
+
+System utilities dipakai untuk operasi admin seperti clear data, backup, restore, dan backup konfigurasi.
+
+```txt
+GET  /api/system-utilities/clear-data/targets   = list target clear data
+POST /api/system-utilities/clear-data/preview   = preview jumlah data yang akan dihapus
+POST /api/system-utilities/backup-session       = generate backup JSON session
+POST /api/system-utilities/clear-data           = hapus data session sesuai target
+POST /api/system-utilities/restore-session      = restore dari file backup JSON
+GET  /api/system-utilities/config-backup/targets = list target config backup
+POST /api/system-utilities/config-backup        = backup konfigurasi
+POST /api/system-utilities/config-restore       = restore konfigurasi
+```
+
+Backup session/config tidak otomatis tersimpan ke DB. FE harus download `backup` sebagai file `.json`.
+
+### Connection Status
+
+Connection status menyimpan log status koneksi sistem.
+
+```txt
+GET    /api/connection-status     = list status koneksi
+POST   /api/connection-status     = buat log status koneksi
+GET    /api/connection-status/:id = detail status
+PUT    /api/connection-status/:id = update status
+DELETE /api/connection-status/:id = hapus status
+```
+
+Dipakai untuk monitoring koneksi serial/websocket/backend.
+
+### Failover Events
+
+Failover event menyimpan log perpindahan/masalah koneksi.
+
+```txt
+GET    /api/failover-events     = list failover event
+POST   /api/failover-events     = buat failover event
+GET    /api/failover-events/:id = detail event
+PUT    /api/failover-events/:id = update event
+DELETE /api/failover-events/:id = hapus event
+```
+
+Dipakai jika ada koneksi utama gagal dan pindah ke jalur lain, misalnya serial ke websocket.
+
+### Gateway Ingest
+
+Gateway ingest adalah endpoint khusus hardware/backend gateway, bukan endpoint user FE biasa.
+
+```txt
+POST /api/gateway/mwd-data = ingest payload MWD/raw WITS dari hardware service
+```
+
+Endpoint ini tidak pakai JWT user, tapi pakai:
+
+```http
+x-gateway-key: <GATEWAY_API_KEY>
+```
+
+### Email Reports
+
+Email reports adalah fitur laporan via SMTP. Saat ini disabled by default.
+
+```txt
+POST /api/reports/email/test = test SMTP/email
+POST /api/reports/email/send = kirim report email
+GET  /api/reports/email/logs = history email report
+```
+
+Jika `EMAIL_REPORTS_ENABLED` belum `true`, endpoint ini akan return `503`.
+
 ## Auth
 
 ### POST /api/auth/login
@@ -99,6 +1462,8 @@ List users.
 
 ## MWD Sessions
 
+Session adalah representasi backend untuk job/sesi monitoring. FE boleh menampilkan ini sebagai `Job`.
+
 ### GET /api/mwd-sessions
 
 List sessions.
@@ -112,7 +1477,7 @@ List sessions.
   "wellName": "Well Test",
   "wellId": "WELL-001",
   "rigName": "Rig Test",
-  "field": "Field Name",
+    "fieldName": "Field Name",
   "jobNumber": "JOB-001",
   "province": "Province",
   "countyParish": "County/Parish",
@@ -135,7 +1500,7 @@ MWD session is the backend name for a field job. UI can label it as `Job`.
 
 ## MWD Data
 
-Main monitoring data table. This is what FE usually plots.
+Main monitoring data table. This is what FE usually plots. Untuk dashboard card seperti inclination, azimuth, gamma, pressure, bit depth, hole depth, battery, dan temperature, sumber utama biasanya `MWD Data`.
 
 ### GET /api/mwd-data
 
@@ -269,11 +1634,11 @@ GET /api/historical-data?sessionId=11&depthMin=1000&depthMax=1200
 
 ## WITS Config
 
-Configuration editor for WITS IDs.
+Configuration editor for WITS IDs. Ini adalah master/kamus WITS ID, bukan history value.
 
 ### GET /api/wits-config
 
-List all WITS IDs and config.
+List all WITS IDs and config. FE memakai endpoint ini untuk label, unit, dropdown parameter, warna plot, scale factor, bias offset, sensor spacing, alarm min/max, dan mapping `witsId -> mappedField`.
 
 ### POST /api/wits-config
 
@@ -314,7 +1679,16 @@ List all WITS IDs and config.
 
 ## WITS Data Values
 
-Raw/configured WITS values stored by WITS ID.
+Raw/configured WITS values stored by WITS ID. Ini adalah history nilai aktual per WITS ID, bukan endpoint input raw packet.
+
+Untuk grafik:
+
+```txt
+time series  : x = measuredAt, y = value
+depth series : x = value, y = depthMd
+```
+
+Untuk dashboard latest value, FE lebih praktis mengambil row terakhir dari `GET /api/mwd-data?sessionId=...`. `wits-data-values` lebih cocok untuk history/debug per WITS ID.
 
 ### GET /api/wits-data-values
 
@@ -361,6 +1735,8 @@ Response shape:
 
 ## WITS Alarms
 
+Alarm dibuat otomatis ketika value WITS melewati min/max di WITS Config.
+
 ### GET /api/wits-alarms
 
 Query:
@@ -375,7 +1751,11 @@ limit=50
 ### PUT /api/wits-alarms/:id/acknowledge
 ### PUT /api/wits-alarms/:id/resolve
 
+`acknowledge` berarti alarm sudah dibaca operator/engineer. `resolve` berarti alarm dianggap selesai/normal kembali.
+
 ## Surveys
+
+Survey adalah data station/trajectory. Survey bukan sumber dashboard realtime, tapi hasil input/perhitungan untuk posisi sumur.
 
 ### GET /api/surveys
 
@@ -409,7 +1789,7 @@ tvd, northing, easting, verticalSectionAzimuth, source, notes
 
 ### POST /api/surveys/from-mwd-data
 
-Generate survey stations from MWD data rows with depth, inc, azimuth.
+Generate survey stations from MWD data rows with depth, inc, azimuth. Endpoint ini tidak menerima value survey satu-satu. Backend mengambil data dari `MWD_Data`, lalu membuat `Survey_Station`.
 
 ```json
 {
@@ -422,7 +1802,7 @@ Generate survey stations from MWD data rows with depth, inc, azimuth.
 
 ### POST /api/surveys/recalculate
 
-Recalculate projection values.
+Recalculate projection values. Endpoint ini menghitung ulang field olahan seperti `tvd`, `northing`, `easting`, `verticalSection`, `doglegSeverity`, `buildRate`, dan `turnRate`. Nilai dasar `measuredDepth`, `inclination`, dan `azimuth` tidak diubah.
 
 ```json
 {
@@ -432,17 +1812,19 @@ Recalculate projection values.
 }
 ```
 
-### POST /api/surveys/import-csv
+### POST /api/surveys/well-plan/import-csv
 
-Import well plan survey CSV.
+Import well plan survey CSV. Body endpoint ini berupa raw text CSV, sedangkan `sessionId` dikirim lewat query params.
 
-```json
-{
-  "sessionId": 11,
-  "stationType": "plan",
-  "verticalSectionAzimuth": 90,
-  "csv": "1000,12.3,240.1\n1001.2,13.4,241.5"
-}
+```http
+POST /api/surveys/well-plan/import-csv?sessionId=11&stationType=plan&verticalSectionAzimuth=90
+```
+
+Body raw text:
+
+```txt
+1000,12.3,240.1
+1001.2,13.4,241.5
 ```
 
 ### GET /api/surveys/:id
@@ -508,6 +1890,38 @@ All export endpoints return downloadable file responses.
   "depthMin": 1000,
   "depthMax": 1200
 }
+```
+
+### POST /api/exports/surveys
+
+Export survey station ke CSV. Dipakai untuk download tabel survey actual atau well plan.
+
+```json
+{
+  "sessionId": 11,
+  "stationType": "actual",
+  "format": "csv"
+}
+```
+
+Untuk well plan:
+
+```json
+{
+  "sessionId": 11,
+  "stationType": "plan",
+  "format": "csv"
+}
+```
+
+Kolom CSV:
+
+```txt
+id, sessionId, stationType, measuredDepth, inclination, azimuth,
+tvd, northing, easting, verticalSection,
+doglegSeverity, buildRate, turnRate,
+closureDistance, closureAzimuth, courseLength,
+verticalSectionAzimuth, source, notes, createdAt, updatedAt
 ```
 
 ### POST /api/exports/las
@@ -670,6 +2084,8 @@ Preview only.
 
 ### POST /api/mwd-data/edit/rescale
 
+Rescale dipakai untuk kalibrasi/koreksi nilai sensor/log di `MWD_Data`, misalnya gamma dikali 1.1 atau pressure dikurangi offset tertentu. Ini berbeda dari survey recalculation.
+
 ```json
 {
   "sessionId": 11,
@@ -786,6 +2202,8 @@ Time mode:
 
 ## Depth Tracking / DTS
 
+Depth tracking menyimpan state kedalaman aktif seperti bit depth, hole depth, block depth, dan ROP. Ini dipakai untuk tracking posisi drilling saat data realtime masuk.
+
 ### GET /api/depth-tracking/state
 
 ```http
@@ -846,7 +2264,7 @@ witsId=0824
 limit=50
 ```
 
-### POST /api/wits-output/queue-latest
+### POST /api/wits-output/generate-from-latest
 
 Queue output messages from latest MWD row based on WITS config flags.
 
@@ -874,6 +2292,8 @@ queued, sent, failed, skipped
 ## Serial Port Manager
 
 Use this only when backend runs on the local rig/server PC that has the ESP/LoRa plugged in. This will not work on Vercel because Vercel cannot see local COM ports.
+
+Jika endpoint ini dipanggil di Vercel, scanning serial port bisa error karena Vercel tidak punya akses ke COM port lokal. Gunakan endpoint ini hanya di backend lokal, misalnya `http://localhost:5001`.
 
 ### GET /api/serial/ports
 
@@ -1101,6 +2521,8 @@ Response includes `requiredConfirm`, for example:
 
 Generate JSON backup before clearing data. FE can download/save the `backup` object as a `.json` file.
 
+Backend tidak menyimpan backup ini ke database. FE harus mengambil `response.backup`, lalu menyimpannya sebagai file lokal `.json`.
+
 ```json
 {
   "sessionId": 11,
@@ -1128,6 +2550,8 @@ Deletes selected data for one session/job. This also returns a `backup` object i
 
 Restore from backup JSON generated by `backup-session` or `clear-data`.
 
+`backup` tidak boleh `{}` kosong. Isinya harus object backup asli dari response `backup-session` atau file `.json` backup lokal yang dibaca FE.
+
 ```json
 {
   "sessionId": 11,
@@ -1149,9 +2573,9 @@ Recommended flow:
 
 ```txt
 1. Preview clear data
-2. Backup session and let user download JSON
+2. Backup session and let user download JSON to local file
 3. Clear data with confirmation
-4. Restore later from the saved backup JSON if needed
+4. Restore later from the saved local backup JSON if needed
 ```
 
 ## System Utilities / Configuration Backup

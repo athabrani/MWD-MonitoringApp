@@ -4,6 +4,7 @@ import {
   ingestGatewayPayloads,
 } from "./gateway-ingest.service.js";
 import { parseSerialWitsBlock } from "../utils/serial-wits-parser.js";
+import { broadcastMWDData, broadcastESPGatewayStatus } from "./socket-io.service.js";
 
 type EspMessage = {
   type?: unknown;
@@ -535,6 +536,17 @@ export const startEspWebSocketGateway = () => {
       console.log(
         `[ESP WS] Ingested ${createdItems.length} MWD row(s) from ${messageType}.`,
       );
+
+      // Broadcast ingested MWD data to frontend via Socket.IO
+      for (const item of createdItems) {
+        broadcastMWDData({
+          source: source,
+          ...item,
+        });
+      }
+
+      // Broadcast updated gateway status
+      broadcastESPGatewayStatus(getEspWebSocketGatewayStatus());
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {
         runtimeStatus.lastError = error.message;
@@ -582,6 +594,8 @@ export const startEspWebSocketGateway = () => {
         `Connected to ${url}`,
         responseMs,
       );
+      // Broadcast updated gateway status to frontend
+      broadcastESPGatewayStatus(getEspWebSocketGatewayStatus());
     });
 
     socket.addEventListener("message", (event) => {
@@ -596,6 +610,8 @@ export const startEspWebSocketGateway = () => {
         "degraded",
         `WebSocket error from ${url}`,
       );
+      // Broadcast updated gateway status to frontend
+      broadcastESPGatewayStatus(getEspWebSocketGatewayStatus());
     });
 
     socket.addEventListener("close", (event) => {
@@ -609,6 +625,8 @@ export const startEspWebSocketGateway = () => {
         `WebSocket closed (${event.code}${reason})`,
       );
       socket = null;
+      // Broadcast updated gateway status to frontend
+      broadcastESPGatewayStatus(getEspWebSocketGatewayStatus());
       scheduleReconnect();
     });
   };
