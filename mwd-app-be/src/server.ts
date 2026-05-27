@@ -13,10 +13,10 @@ const PORT =
 const startServer = async () => {
   await syncSystemRoles()
 
-  // Create HTTP server for both Express and Socket.IO
+  // Create HTTP server for Express and native WebSocket
   const httpServer = createServer(app)
 
-  // Initialize WebSocket
+  // Initialize native WebSocket
   initializeWebSocket(httpServer)
 
   httpServer.listen(PORT, () => {

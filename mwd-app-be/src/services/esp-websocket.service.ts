@@ -543,7 +543,7 @@ export const startEspWebSocketGateway = () => {
         `[ESP WS] Ingested ${createdItems.length} MWD row(s) from ${messageType}.`,
       )
 
-      // Broadcast ingested MWD data to frontend via Socket.IO
+      // Broadcast ingested MWD data to frontend via native WebSocket
       for (const item of createdItems) {
         broadcastMWDData({
           source: source,
