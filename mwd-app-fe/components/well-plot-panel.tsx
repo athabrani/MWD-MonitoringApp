@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,7 +15,9 @@ import {
   WrappedTrackValue,
 } from "@/lib/plot-track-config";
 import { cn } from "@/lib/utils";
+import { ChartDataPoint } from "@/types";
 import { TrackScaleType } from "@/types/plotting";
+import type { PlotConfiguration } from "@/types/plotting";
 
 type DepthRow = {
   depth: number;
@@ -51,19 +53,6 @@ function formatMetricValue(value: number) {
 
   return value.toFixed(2);
 }
-
-const fallbackDepthRows: DepthRow[] = [
-  { depth: 1900, time: "08:10:12" },
-  { depth: 2000, time: "08:14:36" },
-  { depth: 2100, time: "08:19:10" },
-  { depth: 2200, time: "08:24:28" },
-  { depth: 2300, time: "08:29:44" },
-  { depth: 2400, time: "08:35:12" },
-  { depth: 2500, time: "08:40:20" },
-  { depth: 2600, time: "08:45:56" },
-  { depth: 2700, time: "08:51:14" },
-  { depth: 2800, time: "08:56:42" },
-].map((row) => ({ ...row, metrics: {} }));
 
 function normalizeMetricLookupKey(value: string) {
   return value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -195,51 +184,6 @@ function mapCurveToMetric(curve: RenderablePlotCurve): MetricConfig {
     max: curve.max,
     dataSource: curve.dataSource,
   };
-}
-
-function hashMetricId(metricId: string) {
-  return Array.from(metricId).reduce((total, char) => total + char.charCodeAt(0), 0);
-}
-
-function getFallbackMetricValue(metricId: string, depth: number, index: number) {
-  switch (metricId) {
-    case "pressure_annular":
-      return 1100 + index * 40 + (index % 2 === 0 ? 120 : -80);
-    case "pressure_bore":
-      return 1800 + index * 25 + (index % 3 === 0 ? 70 : -40);
-    case "pump_press":
-      return 700 + index * 90;
-    case "an_diff_res":
-      return 300 + index * 35 + (index % 2 === 0 ? 60 : -20);
-    case "mud_weight":
-      return 9.6 + index * 0.08;
-    case "ecd_calc":
-      return 8.9 + index * 0.12;
-    case "shock_ax_lat":
-      return 8 + index * 2.2;
-    case "vib_ax_lat":
-      return 6 + index * 1.5;
-    case "ssi":
-      return 1 + index * 0.25;
-    case "rpm_downhole":
-      return 110 + index * 8;
-    case "temp":
-      return 45 + index * 3.2;
-    case "inclination":
-      return 12 + index * 1.8;
-    case "azimuth":
-      return (190 + index * 7.5) % 360;
-    case "gamma":
-      return 70 + index * 8 + (index % 2 === 0 ? 18 : -10);
-    case "bit_depth":
-      return depth - 40;
-    case "hook_pos":
-      return 95 - index * 2.3;
-    case "hole_depth":
-      return depth + 120;
-    default:
-      return (hashMetricId(metricId) % 80) + index * (4 + (hashMetricId(metricId) % 7));
-  }
 }
 
 const PLOT_X_MIN = 12;
@@ -430,8 +374,8 @@ function buildWrappedSegments(points: PlotPoint[], bounds: TrackValueRange) {
   return segments;
 }
 
-function buildMetricSegments(metric: MetricConfig, rows: DepthRow[], plotHeightPx: number, useFallbackValues: boolean) {
-  const values = rows.map((row, index) => getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined));
+function buildMetricSegments(metric: MetricConfig, rows: DepthRow[], plotHeightPx: number) {
+  const values = rows.map((row) => getMetricValueFromRow(metric, row));
   const configuredBounds = getValidTrackValueRange(metric.min, metric.max);
   const finiteValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const fallbackBounds = finiteValues.length
@@ -478,11 +422,11 @@ function buildMetricSegments(metric: MetricConfig, rows: DepthRow[], plotHeightP
   return buildWrappedSegments(points, bounds);
 }
 
-function metricHasWrappedValues(metric: MetricConfig, rows: DepthRow[], useFallbackValues: boolean) {
+function metricHasWrappedValues(metric: MetricConfig, rows: DepthRow[]) {
   if (!getValidTrackValueRange(metric.min, metric.max)) return false;
 
-  return rows.some((row, index) => {
-    const value = getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined);
+  return rows.some((row) => {
+    const value = getMetricValueFromRow(metric, row);
     const wrappedValue = getWrappedTrackValue({
       value,
       min: metric.min,
@@ -624,7 +568,6 @@ function WellPlotTrack({
   compact = false,
   fullWidth = false,
   dense = false,
-  useFallbackValues = false,
 }: {
   track: PlotTrack;
   rows: DepthRow[];
@@ -633,7 +576,6 @@ function WellPlotTrack({
   compact?: boolean;
   fullWidth?: boolean;
   dense?: boolean;
-  useFallbackValues?: boolean;
 }) {
   const headerHeightClass = compact
     ? "h-[56px]"
@@ -646,7 +588,7 @@ function WellPlotTrack({
     : dense
       ? "left-[46px] sm:left-[48px] lg:left-[52px]"
       : "left-[64px] sm:left-[72px] lg:left-[84px]";
-  const hasWrappedData = track.metrics.some((metric) => metricHasWrappedValues(metric, rows, useFallbackValues));
+  const hasWrappedData = track.metrics.some((metric) => metricHasWrappedValues(metric, rows));
 
   return (
     <div
@@ -691,7 +633,7 @@ function WellPlotTrack({
               className="absolute inset-0 h-full w-full"
               style={{ zIndex: idx + 2 }}
             >
-              {buildMetricSegments(metric, rows, plotHeightPx, useFallbackValues).map((segment, segmentIndex) => (
+              {buildMetricSegments(metric, rows, plotHeightPx).map((segment, segmentIndex) => (
                 <path
                   key={`${metric.id}-segment-${segmentIndex}`}
                   d={segment.d}
@@ -730,14 +672,10 @@ function WellPlotTrack({
           )}
         >
           {track.metrics.map((metric, metricIndex) => {
-            const lastRow = rows[rows.length - 1];
             const lastValue =
               [...rows]
                 .reverse()
-                .map((row, reversedIndex) => {
-                  const index = rows.length - 1 - reversedIndex;
-                  return getMetricValueFromRow(metric, row) ?? (useFallbackValues ? getFallbackMetricValue(metric.id, row.depth, index) : undefined);
-                })
+                .map((row) => getMetricValueFromRow(metric, row))
                 .find((value) => Number.isFinite(value)) ?? NaN;
 
             return (
@@ -798,6 +736,17 @@ function PlotTabs({
       ))}
     </div>
   );
+}
+
+function getResponsiveTracksPerView(containerWidth: number | null, maxTracks: number) {
+  const cappedMax = Math.max(1, maxTracks);
+
+  if (!containerWidth) return cappedMax;
+  if (containerWidth >= 1100) return Math.min(cappedMax, 4);
+  if (containerWidth >= 840) return Math.min(cappedMax, 3);
+  if (containerWidth >= 560) return Math.min(cappedMax, 2);
+
+  return 1;
 }
 
 function TrackWindowControls({
@@ -869,6 +818,11 @@ export function WellPlotPanel({
   compactDashboardHeightCss,
   allTracksMinWidth,
   maxVisibleTracks,
+  responsiveTrackWindow = false,
+  plotConfig,
+  chartDataOverride,
+  mwdDataLoading = false,
+  mwdDataError,
 }: {
   compact?: boolean;
   showHeader?: boolean;
@@ -878,47 +832,38 @@ export function WellPlotPanel({
   compactDashboardHeightCss?: string;
   allTracksMinWidth?: number;
   maxVisibleTracks?: number;
+  responsiveTrackWindow?: boolean;
+  plotConfig?: PlotConfiguration | null;
+  chartDataOverride?: ChartDataPoint[];
+  mwdDataLoading?: boolean;
+  mwdDataError?: string;
 }) {
   const { activePlotConfig, activeMwdSession, chartData } = useApp();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const selectedPlotConfig = plotConfig !== undefined ? plotConfig : activePlotConfig;
+  const selectedChartData = chartDataOverride ?? chartData;
   const tracks = useMemo<PlotTrack[]>(() => {
-    return getRenderableTracksFromPlotConfig(activePlotConfig).map((track) => ({
+    return getRenderableTracksFromPlotConfig(selectedPlotConfig).map((track) => ({
       id: track.id,
       title: track.label,
       scaleType: track.scaleType,
       densityTicMarks: track.densityTicMarks,
       metrics: track.curves.map(mapCurveToMetric),
     }));
-  }, [activePlotConfig]);
+  }, [selectedPlotConfig]);
   const backendDepthRows = useMemo<DepthRow[]>(() => {
-    return chartData
+    return selectedChartData
       .map((point) => chartPointToDepthRow(point as Record<string, unknown>))
       .filter((row): row is DepthRow => Boolean(row))
       .sort((left, right) => left.depth - right.depth);
-  }, [chartData]);
-  const plotDepthRows = useMemo<DepthRow[]>(() => {
-    if (backendDepthRows.length > 0) {
-      return backendDepthRows;
-    }
-
-    const general = activePlotConfig?.general;
-    const start = general?.depthRange?.start ?? general?.measuredDepthStart ?? fallbackDepthRows[0].depth;
-    const end = general?.depthRange?.end ?? general?.measuredDepthEnd ?? fallbackDepthRows[fallbackDepthRows.length - 1].depth;
-    const safeStart = Number.isFinite(start) ? start : fallbackDepthRows[0].depth;
-    const safeEnd = Number.isFinite(end) && end > safeStart ? end : safeStart + 900;
-    const step = (safeEnd - safeStart) / Math.max(fallbackDepthRows.length - 1, 1);
-
-    return fallbackDepthRows.map((row, index) => ({
-      time: row.time,
-      depth: Math.round((safeStart + step * index) * 100) / 100,
-      metrics: row.metrics,
-    }));
-  }, [activePlotConfig, backendDepthRows]);
-  const useFallbackValues = backendDepthRows.length === 0;
-  const activeGeneral = activePlotConfig?.general;
+  }, [selectedChartData]);
+  const plotDepthRows = backendDepthRows;
+  const activeGeneral = selectedPlotConfig?.general;
   const activeDepthCorrection = activeGeneral?.depthCorrection ?? "MD";
   const activeDepthScale = activeGeneral?.grid?.depthScale ?? activeGeneral?.depthScale ?? "1:500";
   const [activePlotId, setActivePlotId] = useState<string>(tracks[0]?.id ?? "");
   const [trackWindowStart, setTrackWindowStart] = useState(0);
+  const [panelWidth, setPanelWidth] = useState<number | null>(null);
 
   const compactDashboardMode = compact && !showHeader;
   const plotHeightPx = compact
@@ -941,25 +886,68 @@ export function WellPlotPanel({
     [activePlotId, tracks]
   );
   const dashboardDense = dashboardStretch && showAllTracks;
-  const multiTrackLimit = Math.max(1, maxVisibleTracks ?? (dashboardStretch ? 3 : 4));
+  const configuredMultiTrackLimit = Math.max(1, maxVisibleTracks ?? (dashboardStretch ? 3 : 4));
+  const multiTrackLimit = responsiveTrackWindow
+    ? getResponsiveTracksPerView(panelWidth, configuredMultiTrackLimit)
+    : configuredMultiTrackLimit;
   const visibleTrackWindow = getTrackWindow(tracks, trackWindowStart, multiTrackLimit);
 
   useEffect(() => {
-    if (!tracks.length) {
-      setActivePlotId("");
-      return;
+    if (!responsiveTrackWindow) return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const updateWidth = () => setPanelWidth(panel.clientWidth);
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
     }
 
-    if (!tracks.some((track) => track.id === activePlotId)) {
-      setActivePlotId(tracks[0].id);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      setPanelWidth(entry?.contentRect.width ?? panel.clientWidth);
+    });
+    observer.observe(panel);
+
+    return () => observer.disconnect();
+  }, [responsiveTrackWindow]);
+
+  useEffect(() => {
+    let nextActivePlotId = activePlotId;
+
+    if (!tracks.length) {
+      nextActivePlotId = "";
+    } else if (!tracks.some((track) => track.id === activePlotId)) {
+      nextActivePlotId = tracks[0].id;
     }
+
+    if (nextActivePlotId === activePlotId) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setActivePlotId(nextActivePlotId);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activePlotId, tracks]);
 
   useEffect(() => {
     const nextWindow = getTrackWindow(tracks, trackWindowStart, multiTrackLimit);
-    if (nextWindow.startIndex !== trackWindowStart) {
-      setTrackWindowStart(nextWindow.startIndex);
-    }
+    if (nextWindow.startIndex === trackWindowStart) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setTrackWindowStart(nextWindow.startIndex);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [multiTrackLimit, trackWindowStart, tracks]);
 
   if (!tracks.length || !activeTrack) {
@@ -982,14 +970,39 @@ export function WellPlotPanel({
           </div>
         ) : null}
         <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
-          No enabled tracks in the active Plotting configuration. Add a curve or choose a non-None data source in Data Management &gt; Plotting.
+          Belum ada plot template.
+        </Card>
+      </div>
+    );
+  }
+
+  if (mwdDataLoading || !plotDepthRows.length || mwdDataError) {
+    return (
+      <div className={compact ? "space-y-3" : "space-y-4 sm:space-y-5"}>
+        {showHeader ? (
+          <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <Badge variant="outline">Trajectory / Well Plot</Badge>
+                <Badge variant="secondary">{activeDepthCorrection}</Badge>
+                <Badge variant="outline">{activeDepthScale}</Badge>
+                {activeMwdSession ? (
+                  <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
+                ) : null}
+              </div>
+              <h1 className="mt-3 text-xl font-bold sm:text-3xl">Well Plot Viewer</h1>
+            </div>
+          </div>
+        ) : null}
+        <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
+          {mwdDataLoading ? "Memuat data MWD untuk plot..." : mwdDataError || "Belum ada data MWD untuk session ini."}
         </Card>
       </div>
     );
   }
 
   return (
-    <div className={compact ? "space-y-3" : "space-y-4 sm:space-y-5"}>
+    <div ref={panelRef} className={compact ? "space-y-3" : "space-y-4 sm:space-y-5"}>
       {showHeader ? (
         <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
           <div>
@@ -1002,9 +1015,6 @@ export function WellPlotPanel({
               ) : null}
             </div>
             <h1 className="mt-3 text-xl font-bold sm:text-3xl">Well Plot Viewer</h1>
-            <p className="text-[11px] text-muted-foreground sm:text-base">
-              Full-height grouped plots using the active Plotting depth range, scale, and correction mode.
-            </p>
           </div>
         </div>
       ) : null}
@@ -1047,7 +1057,6 @@ export function WellPlotPanel({
             plotHeightCss={plotHeightCss}
             compact
             fullWidth
-            useFallbackValues={useFallbackValues}
           />
         </Card>
       ) : showAllTracks ? (
@@ -1075,7 +1084,6 @@ export function WellPlotPanel({
                   plotHeightCss={plotHeightCss}
                   fullWidth
                   dense={dashboardDense}
-                  useFallbackValues={useFallbackValues}
                 />
               ))}
             </div>
@@ -1091,7 +1099,6 @@ export function WellPlotPanel({
                 plotHeightPx={plotHeightPx}
                 plotHeightCss={plotHeightCss}
                 fullWidth
-                useFallbackValues={useFallbackValues}
               />
             </Card>
           </div>
@@ -1118,7 +1125,6 @@ export function WellPlotPanel({
                     plotHeightPx={plotHeightPx}
                     plotHeightCss={plotHeightCss}
                     fullWidth
-                    useFallbackValues={useFallbackValues}
                   />
                 ))}
               </div>

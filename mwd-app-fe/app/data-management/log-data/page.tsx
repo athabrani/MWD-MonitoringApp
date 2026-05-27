@@ -64,8 +64,6 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { mockLogDataRecords } from "@/data/monitoring-data";
-import { mockPolarisWitsIds } from "@/data/polaris-config";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
@@ -88,7 +86,7 @@ import {
   unhideMwdDepthRange,
 } from "@/lib/mwd-edit-tools-api";
 import { getWitsConfig, getWitsDataValues, WitsDataValue } from "@/lib/api/wits";
-import { formatConfiguredWitsId, loadStoredWitsIds } from "@/lib/wits-config-store";
+import { formatConfiguredWitsId } from "@/lib/wits-config-store";
 import { getWitsDescription } from "@/lib/wits-map";
 import { DepthRange, LogDataRecord, RescaleMode, RescalePreview, RescaleRequest, RescaleResultSummary } from "@/types/monitoring";
 import { PolarisWitsId } from "@/types/polaris";
@@ -240,6 +238,35 @@ function summarizePreviewRows(result: MwdEditPreviewResult) {
   return [];
 }
 
+function readPreviewNumber(value: unknown, keys: string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string" && raw.trim()) {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function getPreviewAffectedCount(result: MwdEditPreviewResult) {
+  return (
+    readPreviewNumber(result.raw, [
+      "affectedCount",
+      "affected_count",
+      "affectedRows",
+      "affected_rows",
+      "count",
+      "total",
+    ]) ?? result.rows.length
+  );
+}
+
 function witsDataValueToLogRecord(value: WitsDataValue, config?: PolarisWitsId): LogDataRecord {
   const witsId = value.witsId.padStart(4, "0");
   const timestamp = formatOptionalTimestamp(value.timestamp);
@@ -273,11 +300,9 @@ export default function LogDataPage({
 }) {
   const router = useRouter();
   const { token, user } = useAuth();
-  const { activeMwdSessionId } = useApp();
-  const [records, setRecords] = useState<LogDataRecord[]>(mockLogDataRecords);
-  const [configuredWitsIds, setConfiguredWitsIds] = useState<PolarisWitsId[]>(() =>
-    loadStoredWitsIds(mockPolarisWitsIds)
-  );
+  const { activeMwdSessionId, refreshMwdData, refreshWitsDataValues } = useApp();
+  const [records, setRecords] = useState<LogDataRecord[]>([]);
+  const [configuredWitsIds, setConfiguredWitsIds] = useState<PolarisWitsId[]>([]);
   const [mwdDataRecords, setMwdDataRecords] = useState<MwdDataRecord[]>([]);
   const [witsDataValues, setWitsDataValues] = useState<WitsDataValue[]>([]);
   const [witsConfigLoading, setWitsConfigLoading] = useState(false);
@@ -293,11 +318,10 @@ export default function LogDataPage({
   const [activeEditAction, setActiveEditAction] = useState<EditActionKind | null>(null);
   const [activeEditPreview, setActiveEditPreview] = useState<ActiveEditPreview | null>(null);
   const [mwdDeletingId, setMwdDeletingId] = useState("");
-  const [usingBackendData, setUsingBackendData] = useState(false);
   const [search, setSearch] = useState("");
   const [logDataViewMode, setLogDataViewMode] = useState<LogDataViewMode>("list");
   const [activeActionDialog, setActiveActionDialog] = useState<LogDataActionDialog | null>(null);
-  const [selectedWitsId, setSelectedWitsId] = useState<string>(mockLogDataRecords[0]?.witsId ?? "");
+  const [selectedWitsId, setSelectedWitsId] = useState<string>("");
   const [selectedToolWitsIds, setSelectedToolWitsIds] = useState<string[]>([]);
   const [activeLogTab, setActiveLogTab] = useState<LogEditorTool>("edit");
   const [selectedRange, setSelectedRange] = useState<DepthRange>({ startDepth: 3810, endDepth: 3840 });
@@ -335,17 +359,18 @@ export default function LogDataPage({
       getWitsDataValues(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}),
     ]);
 
-    let nextConfigs = configuredWitsIds;
+    let nextConfigs: PolarisWitsId[] = [];
 
     if (configResult.status === "fulfilled") {
       nextConfigs = configResult.value;
       setConfiguredWitsIds(configResult.value);
     } else {
-      setWitsConfigError(
-        configResult.reason instanceof Error
-          ? configResult.reason.message
-          : "Unable to load WITS config."
-      );
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load WITS config.", configResult.reason);
+      }
+      setConfiguredWitsIds([]);
+      setSelectedWitsId("");
+      setWitsConfigError("Gagal memuat data dari backend.");
     }
     setWitsConfigLoading(false);
 
@@ -353,9 +378,10 @@ export default function LogDataPage({
       const scopedMwdData = filterMwdDataForSession(mwdResult.value, activeMwdSessionId);
       setMwdDataRecords(scopedMwdData);
     } else {
-      setMwdDataError(
-        mwdResult.reason instanceof Error ? mwdResult.reason.message : "Unable to load MWD data."
-      );
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load MWD data.", mwdResult.reason);
+      }
+      setMwdDataError("Gagal memuat data dari backend.");
     }
     setMwdDataLoading(false);
 
@@ -369,17 +395,15 @@ export default function LogDataPage({
 
       setWitsDataValues(scopedValues);
       setRecords(scopedValues.map((value) => witsDataValueToLogRecord(value, configByWitsId.get(value.witsId))));
-      setUsingBackendData(true);
       setSelectedWitsId((current) => {
         if (current && scopedValues.some((value) => value.witsId === current)) return current;
         return scopedValues[0]?.witsId ?? (nextConfigs[0] ? formatConfiguredWitsId(nextConfigs[0].numericId) : "");
       });
     } else {
-      setWitsValuesError(
-        valuesResult.reason instanceof Error
-          ? valuesResult.reason.message
-          : "Unable to load WITS data values."
-      );
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load WITS data values.", valuesResult.reason);
+      }
+      setWitsValuesError("Gagal memuat data dari backend.");
     }
     setWitsValuesLoading(false);
   }, [activeMwdSessionId, token]);
@@ -397,9 +421,10 @@ export default function LogDataPage({
     try {
       setEditOperations(await getMwdEditOperations(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to load MWD edit operations.";
-      setEditOperationsError(message);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load MWD edit operations.", error);
+      }
+      setEditOperationsError("Gagal memuat data dari backend.");
     } finally {
       setEditOperationsLoading(false);
     }
@@ -551,12 +576,15 @@ export default function LogDataPage({
   const activeTool = LOG_EDITOR_TOOLS.find((tool) => tool.value === activeLogTab) ?? LOG_EDITOR_TOOLS[0];
   const rangeValidationError = getRangeValidationError(selectedRange);
   const hasActiveEditSession = Boolean(activeMwdSessionId);
-  const canPreviewEditTools = Boolean(token) && hasActiveEditSession && !rangeValidationError && Boolean(selectedChannel);
+  const canPreviewEditTools = Boolean(token) && hasActiveEditSession && !rangeValidationError;
+  const canPreviewRescaleTools = canPreviewEditTools && Boolean(selectedChannel);
   const canApplyEditTools = canPreviewEditTools && canManageMwdData;
+  const canApplyRescaleTools = canPreviewRescaleTools && canManageMwdData;
   const editToolValidationMessage = !hasActiveEditSession
     ? "Select an active MWD session before using edit tools."
     : rangeValidationError || editToolError;
   const activePreviewRows = activeEditPreview ? summarizePreviewRows(activeEditPreview.result) : [];
+  const activePreviewAffectedCount = activeEditPreview ? getPreviewAffectedCount(activeEditPreview.result) : 0;
 
   const latestMwdRecord = useMemo(
     () =>
@@ -659,24 +687,7 @@ export default function LogDataPage({
     );
   };
 
-  const runForSelectedChannel = (updater: (record: LogDataRecord) => LogDataRecord | null) => {
-    if (!selectedChannel) {
-      toast.error("Select a WITS ID first");
-      return;
-    }
-
-    setRecords((current) =>
-      current.flatMap((record) => {
-        if (record.witsId !== selectedChannel.witsId) {
-          return [record];
-        }
-        const result = updater(record);
-        return result ? [result] : [];
-      })
-    );
-  };
-
-  const requireEditToolPreviewAccess = () => {
+  const requireEditToolPreviewAccess = (options: { requireChannel?: boolean } = {}) => {
     if (!token) {
       const message = "Sign in before using MWD edit tools.";
       setEditToolError(message);
@@ -689,7 +700,7 @@ export default function LogDataPage({
       toast.error(message);
       return false;
     }
-    if (!selectedChannel) {
+    if (options.requireChannel && !selectedChannel) {
       const message = "Select a WITS ID first.";
       setEditToolError(message);
       toast.error(message);
@@ -704,8 +715,8 @@ export default function LogDataPage({
     return true;
   };
 
-  const requireEditToolApplyAccess = () => {
-    if (!requireEditToolPreviewAccess()) return false;
+  const requireEditToolApplyAccess = (options: { requireChannel?: boolean } = {}) => {
+    if (!requireEditToolPreviewAccess(options)) return false;
     if (!canManageMwdData) {
       const message = "Only admin or engineer users can apply MWD edit tools.";
       setEditToolError(message);
@@ -803,7 +814,12 @@ export default function LogDataPage({
   };
 
   const refreshAfterEditApply = async () => {
-    await Promise.all([loadBackendLogData(), loadEditOperations()]);
+    await Promise.all([
+      loadBackendLogData(),
+      loadEditOperations(),
+      refreshMwdData(),
+      refreshWitsDataValues(),
+    ]);
   };
 
   const handleHideRange = async () => {
@@ -964,7 +980,7 @@ export default function LogDataPage({
   };
 
   const handlePreviewRescale = async () => {
-    if (!requireEditToolPreviewAccess()) return;
+    if (!requireEditToolPreviewAccess({ requireChannel: true })) return;
     const payload = buildRescalePayload();
     if (!payload || !token) return;
 
@@ -985,7 +1001,7 @@ export default function LogDataPage({
   };
 
   const handleRescale = async () => {
-    if (!requireEditToolApplyAccess() || activeEditPreview?.kind !== "rescale" || !token) {
+    if (!requireEditToolApplyAccess({ requireChannel: true }) || activeEditPreview?.kind !== "rescale" || !token) {
       toast.error("Load a backend preview before applying rescale.");
       return;
     }
@@ -1079,7 +1095,7 @@ export default function LogDataPage({
                 ? "Loading /api/mwd-data..."
                 : latestMwdRecord
                   ? `Latest depth ${formatOptionalDepth(latestMwdRecord.depth)}`
-                  : "No backend MWD rows loaded"}
+                  : "Belum ada data MWD untuk session ini."}
             </div>
           </Card>
           <Card className="rounded-2xl p-4">
@@ -1155,7 +1171,7 @@ export default function LogDataPage({
               {!mwdDataLoading && recentMwdRecords.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
-                    No MWD data loaded from /api/mwd-data.
+                    Belum ada data MWD untuk session ini.
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -1174,7 +1190,7 @@ export default function LogDataPage({
             ? "Browse configured WITS IDs by category, then select one channel to open its log data workflow."
             : "Inspect and manipulate stored values for the selected WITS channel."
         }
-        badge={usingBackendData ? "Backend API" : "Mock fallback"}
+        badge="Backend API"
       >
         {logDataViewMode === "list" ? (
           <div className="space-y-4">
@@ -1250,9 +1266,9 @@ export default function LogDataPage({
               </div>
             ) : (
               <Card className="rounded-2xl border-dashed p-8 text-center">
-                <h2 className="text-lg font-semibold">No WITS IDs found</h2>
+                <h2 className="text-lg font-semibold">Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Adjust the search query or add configured WITS IDs from Configuration.
+                  Tambahkan WITS ID dari Configuration atau reload /api/wits-config.
                 </p>
               </Card>
             )}
@@ -1312,7 +1328,7 @@ export default function LogDataPage({
                     <p className="mt-3 text-sm text-muted-foreground">{activeTool.description}</p>
                     {channelRecords.length === 0 ? (
                       <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                        No values are currently available for the selected WITS ID. Editor tools remain visible and values will appear when MWD data is received.
+                        Belum ada WITS value untuk filter ini.
                       </p>
                     ) : null}
                   </div>
@@ -1377,7 +1393,7 @@ export default function LogDataPage({
                         {!witsValuesLoading && channelRecords.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
-                              No WITS data values loaded for this WITS ID.
+                              Belum ada WITS value untuk filter ini.
                             </TableCell>
                           </TableRow>
                         ) : null}
@@ -1437,7 +1453,7 @@ export default function LogDataPage({
                         <AlertDialogHeader>
                           <AlertDialogTitle>Hide selected depth range?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            WITS {selectedChannel?.witsId ?? "-"} rows from {selectedRange.startDepth} to {selectedRange.endDepth} will be hidden through POST /api/mwd-data/edit/hide-range.
+                            Rows from {selectedRange.startDepth} to {selectedRange.endDepth} will be hidden through POST /api/mwd-data/edit/hide-range, then MWD data and edit history will refresh.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -1446,17 +1462,32 @@ export default function LogDataPage({
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    <Button
-                      variant="outline"
-                      onClick={() => void handleUnhideRange()}
-                      disabled={!canApplyEditTools || activeEditAction === "unhide-range"}
-                    >
-                      <Eye className="mr-2 size-4" />
-                      {activeEditAction === "unhide-range" ? "Unhiding..." : "Unhide Depth Range"}
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          disabled={!canApplyEditTools || activeEditAction === "unhide-range"}
+                        >
+                          <Eye className="mr-2 size-4" />
+                          {activeEditAction === "unhide-range" ? "Unhiding..." : "Unhide Depth Range"}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Unhide selected depth range?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Rows from {selectedRange.startDepth} to {selectedRange.endDepth} will be restored through POST /api/mwd-data/edit/unhide-range, then MWD data and edit history will refresh.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void handleUnhideRange()}>Unhide Range</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                     <ConfirmDeleteButton
                       title="Delete selected depth range?"
-                      description={`Rows from ${selectedRange.startDepth} to ${selectedRange.endDepth} for WITS ${selectedChannel?.witsId ?? "-"} will be deleted through POST /api/mwd-data/edit/delete-depth-range.`}
+                      description={`Rows from ${selectedRange.startDepth} to ${selectedRange.endDepth} will be deleted through POST /api/mwd-data/edit/delete-depth-range, then MWD data and edit history will refresh.`}
                       triggerLabel="Delete Depths"
                       size="sm"
                       variant="outline"
@@ -1499,7 +1530,7 @@ export default function LogDataPage({
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "move-depths" || activeEditAction === "move-depths"}>
+                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "move-depths" || activePreviewAffectedCount <= 0 || activeEditAction === "move-depths"}>
                           Apply Move
                         </Button>
                       </AlertDialogTrigger>
@@ -1507,7 +1538,7 @@ export default function LogDataPage({
                         <AlertDialogHeader>
                           <AlertDialogTitle>Apply move depth?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This applies the last successful move preview through POST /api/mwd-data/edit/move-depth, then refreshes MWD and WITS data.
+                            This applies the last successful move preview affecting {activePreviewAffectedCount} rows through POST /api/mwd-data/edit/move-depth, then refreshes MWD data and edit history.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -1524,6 +1555,10 @@ export default function LogDataPage({
                         <p className="text-sm text-muted-foreground">
                           Preview from GET /api/mwd-data/edit/move-depth. Apply is disabled until this preview succeeds.
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant="secondary">Affected: {activePreviewAffectedCount}</Badge>
+                          <Badge variant="outline">Sample: {activePreviewRows.length}</Badge>
+                        </div>
                       </div>
                       <ScrollArea className="h-[220px]">
                         <Table>
@@ -1544,6 +1579,13 @@ export default function LogDataPage({
                                 <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
                               </TableRow>
                             ))}
+                            {activePreviewRows.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                                  Preview returned no sample rows.
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
                           </TableBody>
                         </Table>
                       </ScrollArea>
@@ -1579,7 +1621,7 @@ export default function LogDataPage({
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "copy-depths" || activeEditAction === "copy-depths"}>
+                        <Button disabled={!canApplyEditTools || activeEditPreview?.kind !== "copy-depths" || activePreviewAffectedCount <= 0 || activeEditAction === "copy-depths"}>
                           Apply Copy
                         </Button>
                       </AlertDialogTrigger>
@@ -1587,7 +1629,7 @@ export default function LogDataPage({
                         <AlertDialogHeader>
                           <AlertDialogTitle>Apply copy depth?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This applies the last successful copy preview through POST /api/mwd-data/edit/copy-depth, then refreshes MWD and WITS data.
+                            This applies the last successful copy preview affecting {activePreviewAffectedCount} rows through POST /api/mwd-data/edit/copy-depth, then refreshes MWD data and edit history.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -1604,6 +1646,10 @@ export default function LogDataPage({
                         <p className="text-sm text-muted-foreground">
                           Preview from GET /api/mwd-data/edit/copy-depth. Apply is disabled until this preview succeeds.
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant="secondary">Affected: {activePreviewAffectedCount}</Badge>
+                          <Badge variant="outline">Sample: {activePreviewRows.length}</Badge>
+                        </div>
                       </div>
                       <ScrollArea className="h-[220px]">
                         <Table>
@@ -1624,6 +1670,13 @@ export default function LogDataPage({
                                 <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
                               </TableRow>
                             ))}
+                            {activePreviewRows.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                                  Preview returned no sample rows.
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
                           </TableBody>
                         </Table>
                       </ScrollArea>
@@ -1751,6 +1804,10 @@ export default function LogDataPage({
                             <p className="text-sm text-muted-foreground">
                               Preview from GET /api/mwd-data/edit/rescale. Apply is disabled until this preview succeeds.
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Badge variant="secondary">Affected: {activePreviewAffectedCount}</Badge>
+                              <Badge variant="outline">Sample: {activePreviewRows.length}</Badge>
+                            </div>
                           </div>
                           <ScrollArea className="h-[220px]">
                             <Table>
@@ -1771,6 +1828,13 @@ export default function LogDataPage({
                                     <TableCell>{formatPreviewValue(row.status ?? row.action ?? row.message)}</TableCell>
                                   </TableRow>
                                 ))}
+                                {activePreviewRows.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                                      Preview returned no sample rows.
+                                    </TableCell>
+                                  </TableRow>
+                                ) : null}
                               </TableBody>
                             </Table>
                           </ScrollArea>
@@ -1810,7 +1874,7 @@ export default function LogDataPage({
                       <Button
                         className="mt-4 w-full"
                         variant="outline"
-                        disabled={!canPreviewEditTools || !canApplyRescale || activeEditAction === "rescale"}
+                        disabled={!canPreviewRescaleTools || !canApplyRescale || activeEditAction === "rescale"}
                         onClick={() => void handlePreviewRescale()}
                       >
                         <Scale className="mr-2 size-4" />
@@ -1819,7 +1883,7 @@ export default function LogDataPage({
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button className="mt-2 w-full" disabled={!canApplyEditTools || activeEditPreview?.kind !== "rescale" || activeEditAction === "rescale"}>
+                          <Button className="mt-2 w-full" disabled={!canApplyRescaleTools || activeEditPreview?.kind !== "rescale" || activePreviewAffectedCount <= 0 || activeEditAction === "rescale"}>
                             <Scale className="mr-2 size-4" />
                             Apply Rescale
                           </Button>
@@ -1829,7 +1893,7 @@ export default function LogDataPage({
                             <AlertDialogTitle>Apply rescale to logged data?</AlertDialogTitle>
                             <AlertDialogDescription>
                               {rescaleSummary
-                                ? `${rescaleSummary.affectedRows} rows in ${rescaleSummary.channelWitsId} from ${rescaleSummary.startDepth} to ${rescaleSummary.endDepth} will be multiplied by ${rescaleSummary.scaleFactor.toFixed(6)}.`
+                                ? `${activePreviewAffectedCount} backend-previewed rows in ${rescaleSummary.channelWitsId} from ${rescaleSummary.startDepth} to ${rescaleSummary.endDepth} will be multiplied by ${rescaleSummary.scaleFactor.toFixed(6)}.`
                                 : "Review the rescale settings before applying."}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
@@ -1978,7 +2042,7 @@ export default function LogDataPage({
                 <Button variant="outline">Close</Button>
               </DialogClose>
               <Button
-                onClick={() => toast.message(importFileName ? `${importFileName} queued for mock import` : "Choose a CSV or LAS file first")}
+                onClick={() => toast.message(importFileName ? "Endpoint backend untuk fitur ini belum tersedia." : "Choose a CSV or LAS file first")}
               >
                 Load File
               </Button>

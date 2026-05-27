@@ -12,7 +12,8 @@ interface KPICardProps {
 
 export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) => {
   const { name, value, unit, status, trend, change1min } = parameter;
-  const formattedValue = value.toFixed(1);
+  const hasValue = typeof value === 'number' && Number.isFinite(value);
+  const formattedValue = hasValue ? value.toFixed(1) : '-';
   const valueLength = formattedValue.length;
 
   const getTrendIcon = () => {
@@ -30,6 +31,8 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
         return 'border-yellow-500/50 bg-yellow-500/5';
       case 'critical':
         return 'border-red-500/50 bg-red-500/5';
+      default:
+        return 'border-border bg-muted/20';
     }
   };
 
@@ -40,7 +43,7 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
       case 'critical':
         return <AlertCircle className="size-4 text-red-500" />;
       default:
-        return null;
+        return hasValue ? null : <Minus className="size-4 text-muted-foreground" />;
     }
   };
 

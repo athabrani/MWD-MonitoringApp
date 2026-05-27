@@ -60,6 +60,7 @@ import {
   restoreSession,
   type ClearDataPreviewResponse,
 } from "@/lib/api/system-utilities";
+import { getSurveys } from "@/lib/surveys-api";
 import { cn } from "@/lib/utils";
 
 type ProcessStatus = "running" | "stopped" | "degraded" | "unknown";
@@ -155,8 +156,8 @@ const configTargetLabels: Record<string, string> = {
   plot_templates: "Plot Templates",
 };
 
-function runMockAction(label: string) {
-  toast.message(`${label} is a UI scaffold. Backend endpoint is not connected yet.`);
+function runUnavailableAction(label: string) {
+  toast.message("Endpoint backend untuk fitur ini belum tersedia.");
 }
 
 function targetLabel(target: string, labels: Record<string, string>) {
@@ -170,6 +171,15 @@ function timestampForFileName() {
 function isBackupObject(value: unknown): value is BackupJson {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return Object.keys(value).length > 0;
+}
+
+function unwrapBackupJson(value: BackupJson): BackupJson {
+  const nestedBackup = value.backup;
+  if (isBackupObject(nestedBackup)) {
+    return nestedBackup;
+  }
+
+  return value;
 }
 
 function downloadJsonFile(data: unknown, filename: string) {
@@ -199,7 +209,7 @@ function readJsonFile(file: File): Promise<BackupJson> {
           reject(new Error("Backup JSON must be a non-empty object."));
           return;
         }
-        resolve(parsed);
+        resolve(unwrapBackupJson(parsed));
       } catch {
         reject(new Error("Backup file contains invalid JSON."));
       }
@@ -300,7 +310,7 @@ function TargetCheckboxList({
   toggleTarget: (target: string) => void;
 }) {
   if (targets.length === 0) {
-    return <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">No targets loaded from backend.</div>;
+    return <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">Endpoint backend untuk fitur ini belum tersedia.</div>;
   }
 
   return (
@@ -766,7 +776,7 @@ function DatabaseTab({
               title="Time logging database backup"
               description="Create a backup of time-indexed logging storage."
             >
-              <Button onClick={() => runMockAction("Time logging database backup")}>Backup</Button>
+              <Button onClick={() => runUnavailableAction("Time logging database backup")}>Backup</Button>
             </UtilityActionCard>
             <UtilityActionCard
               icon={Upload}
@@ -774,7 +784,7 @@ function DatabaseTab({
               description="Choose a time-data backup file and stage it for restore."
             >
               <Input type="file" accept=".bak,.zip,.db" className="w-full sm:w-56" onChange={(event) => setTimeBackupFile(event.target.files?.[0]?.name ?? "")} />
-              <Button variant="outline" onClick={() => runMockAction(timeBackupFile ? `Restore ${timeBackupFile}` : "Restore time data backup")}>
+              <Button variant="outline" onClick={() => runUnavailableAction(timeBackupFile ? `Restore ${timeBackupFile}` : "Restore time data backup")}>
                 Restore File
               </Button>
             </UtilityActionCard>
@@ -805,10 +815,10 @@ function SystemInfoTab() {
             <div>
               <h2 className="text-lg font-semibold">System Information Summary</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Scaffolded diagnostics values for troubleshooting and support handoff.
+                Endpoint backend untuk fitur ini belum tersedia.
               </p>
             </div>
-            <Badge variant="outline">Mock diagnostics</Badge>
+            <Badge variant="outline">Endpoint backend untuk fitur ini belum tersedia.</Badge>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {systemInfoRows.map(([label, value]) => (
@@ -838,11 +848,11 @@ function SystemInfoTab() {
             ))}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => toast.message("System diagnostics refreshed from mock data")}>
+            <Button variant="outline" onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}>
               <RefreshCw className="mr-2 size-4" />
               Refresh
             </Button>
-            <Button variant="outline" onClick={() => runMockAction("System Exit")}>
+            <Button variant="outline" onClick={() => runUnavailableAction("System Exit")}>
               <LogOut className="mr-2 size-4" />
               System Exit
             </Button>
@@ -1099,6 +1109,11 @@ function ClearDataTab({
               </span>
             </label>
           ))}
+          {!clearTargetsLoading && !clearTargetsError && clearTargets.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground md:col-span-2">
+              Endpoint backend untuk fitur ini belum tersedia.
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -1243,7 +1258,10 @@ export default function SystemUtilitiesPage({
       const targets = await getClearDataTargets(token);
       setClearTargets(targets);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load clear-data targets.";
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load clear-data targets.", error);
+      }
+      const message = "Gagal memuat data dari backend.";
       setClearTargets([]);
       setClearTargetsError(message);
     } finally {
@@ -1264,7 +1282,10 @@ export default function SystemUtilitiesPage({
       const targets = await getConfigBackupTargets(token);
       setConfigTargets(targets);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load configuration backup targets.";
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load configuration backup targets.", error);
+      }
+      const message = "Gagal memuat data dari backend.";
       setConfigTargets([]);
       setConfigTargetsError(message);
     } finally {
@@ -1283,8 +1304,14 @@ export default function SystemUtilitiesPage({
       refreshMwdSessions(),
       refreshWitsAlarms(),
       refreshWitsDataValues(),
+      ...(token && activeMwdSessionId
+        ? [
+            getSurveys(token, { sessionId: activeMwdSessionId, stationType: "actual" }),
+            getSurveys(token, { sessionId: activeMwdSessionId, stationType: "plan" }),
+          ]
+        : []),
     ]);
-  }, [refreshMwdData, refreshMwdSessions, refreshWitsAlarms, refreshWitsDataValues]);
+  }, [activeMwdSessionId, refreshMwdData, refreshMwdSessions, refreshWitsAlarms, refreshWitsDataValues, token]);
 
   const refreshAfterConfigRestore = useCallback(async () => {
     await Promise.allSettled([

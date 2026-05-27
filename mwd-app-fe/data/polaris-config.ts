@@ -193,7 +193,7 @@ export const mockPolarisWitsIds: PolarisWitsId[] = [
     alarmHigh: 25,
     dataSourceType: "constant",
     dataSourceValue: 0,
-    dataSourceMode: "simulated",
+    dataSourceMode: "manual",
     scriptNotes: "Awaiting field validation before enabling live output.",
   },
   {

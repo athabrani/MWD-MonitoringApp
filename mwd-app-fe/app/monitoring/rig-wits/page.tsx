@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { RefreshCw, Send } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { MonitoringModeToggle } from "@/components/contents/monitoring/monitoring-mode-toggle";
@@ -12,16 +12,6 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -31,14 +21,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  mockRigWitsReceivedPackets,
-  mockRigWitsTransmittedPackets,
-} from "@/data/monitoring-data";
 import {
   generateWitsOutputFromLatest,
   getWitsOutputQueue,
+  updateWitsOutputStatus,
   WitsOutputQueueItem,
   WitsOutputQueueStatus,
 } from "@/lib/wits-output-api";
@@ -121,21 +107,16 @@ export default function RigWitsPage({
   const { token, user } = useAuth();
   const { activeMwdSessionId } = useApp();
   const [mode, setMode] = useState<MonitoringMode>("raw");
-  const [receivedPackets] = useState<WitsPacketLog[]>(mockRigWitsReceivedPackets);
-  const [transmittedPackets, setTransmittedPackets] = useState<WitsPacketLog[]>(
-    mockRigWitsTransmittedPackets
-  );
+  const [receivedPackets] = useState<WitsPacketLog[]>([]);
   const [outputQueue, setOutputQueue] = useState<WitsOutputQueueItem[]>([]);
   const [outputQueueLoading, setOutputQueueLoading] = useState(false);
   const [outputQueueError, setOutputQueueError] = useState("");
   const [outputQueueStatusFilter, setOutputQueueStatusFilter] = useState<WitsOutputQueueStatus | "all">("all");
   const [generatingLatestOutput, setGeneratingLatestOutput] = useState(false);
-  const [sendDialogOpen, setSendDialogOpen] = useState(false);
-  const [draftPacket, setDraftPacket] = useState("0824,26.45");
-  const [draftSource, setDraftSource] = useState("Manual operator send");
+  const [updatingQueueItemId, setUpdatingQueueItemId] = useState("");
   const transmittedDisplayPackets = useMemo(
-    () => (outputQueue.length ? outputQueue.map(queueItemToPacketLog) : transmittedPackets),
-    [outputQueue, transmittedPackets]
+    () => outputQueue.map(queueItemToPacketLog),
+    [outputQueue]
   );
   const outputQueueStatusCounts = useMemo(() => {
     return outputQueue.reduce<Record<string, number>>((accumulator, item) => {
@@ -147,7 +128,7 @@ export default function RigWitsPage({
   const canGenerateLatestOutput = user?.role === "admin" || user?.role === "engineer";
 
   const loadOutputQueue = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
       setOutputQueue([]);
       setOutputQueueError("");
       return;
@@ -158,14 +139,17 @@ export default function RigWitsPage({
 
     try {
       const items = await getWitsOutputQueue(token, {
-        sessionId: activeMwdSessionId || undefined,
+        sessionId: activeMwdSessionId,
         status: outputQueueStatusFilter === "all" ? undefined : outputQueueStatusFilter,
         limit: 50,
       });
       setOutputQueue(items);
     } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load WITS output queue.", error);
+      }
       setOutputQueue([]);
-      setOutputQueueError(error instanceof Error ? error.message : "Unable to load WITS output queue.");
+      setOutputQueueError("Gagal memuat data dari backend.");
     } finally {
       setOutputQueueLoading(false);
     }
@@ -206,25 +190,25 @@ export default function RigWitsPage({
     }
   };
 
-  const handleSendPacket = () => {
-    const decoded = decodeWitsPacket(draftPacket);
-    const timestamp = new Date().toISOString();
-    const nextPacket: WitsPacketLog = {
-      id: `manual-${Date.now()}`,
-      timestamp,
-      source: draftSource || "Manual operator send",
-      port: "TCP 10.20.0.14",
-      rawPacket: draftPacket,
-      witsId: decoded?.witsId ?? "----",
-      rawValue: decoded?.rawValue ?? draftPacket,
-      parsedValue: decoded?.parsedValue ?? "Manual packet stored without decode",
-      label: decoded?.label ?? "Unknown WITS ID",
-      description: decoded?.description ?? "Packet stored locally for UI validation",
-    };
+  const handleUpdateQueueStatus = async (item: WitsOutputQueueItem, status: WitsOutputQueueStatus) => {
+    if (!token) {
+      toast.error("Please sign in before updating WITS output status.");
+      return;
+    }
 
-    setTransmittedPackets((current) => [nextPacket, ...current]);
-    setSendDialogOpen(false);
-    toast.success("WITS packet added to transmitted queue");
+    setUpdatingQueueItemId(item.id);
+
+    try {
+      await updateWitsOutputStatus(token, item.id, { status });
+      toast.success(`Output queue marked ${status}.`);
+      await loadOutputQueue();
+    } catch (error) {
+      toast.error("Unable to update WITS output status", {
+        description: error instanceof Error ? error.message : "Backend request failed.",
+      });
+    } finally {
+      setUpdatingQueueItemId("");
+    }
   };
 
   const content = (
@@ -246,22 +230,24 @@ export default function RigWitsPage({
               Generate Latest Output
             </Button>
           ) : null}
-          <Button variant="outline" onClick={() => setSendDialogOpen(true)}>
-            <Send className="mr-2 size-4" />
-            Send WITS Data
-          </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <PacketPanel
-          title="Data Received"
+          title="Received Data"
           count={receivedPackets.length}
           latestTimestamp={receivedPackets[0]?.timestamp}
         >
           <ScrollArea className="h-[360px]">
             {mode === "raw" ? (
-              <PacketStream packets={receivedPackets} />
+              receivedPackets.length > 0 ? (
+                <PacketStream packets={receivedPackets} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+                  Belum ada data received untuk session ini.
+                </div>
+              )
             ) : (
               <Table className="table-fixed">
                 <TableHeader>
@@ -287,6 +273,13 @@ export default function RigWitsPage({
                       </TableCell>
                     </TableRow>
                   ))}
+                  {receivedPackets.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                        Belum ada data received untuk session ini.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
                 </TableBody>
               </Table>
             )}
@@ -294,7 +287,7 @@ export default function RigWitsPage({
         </PacketPanel>
 
         <PacketPanel
-          title="Data Transmitted"
+          title="Output Queue"
           count={transmittedDisplayPackets.length}
           latestTimestamp={transmittedDisplayPackets[0]?.timestamp}
         >
@@ -327,13 +320,13 @@ export default function RigWitsPage({
                 Refresh
               </Button>
               {outputQueueLoading ? <Badge variant="outline">Loading output queue</Badge> : null}
-              {outputQueue.length ? <Badge variant="secondary">Backend queue</Badge> : <Badge variant="outline">Local preview</Badge>}
+              <Badge variant="secondary">Backend queue</Badge>
               {Object.entries(outputQueueStatusCounts).map(([status, count]) => (
                 <Badge key={status} variant="outline" className="capitalize">
                   {status}: {count}
                 </Badge>
               ))}
-              {outputQueueError ? <Badge variant="outline">Queue API unavailable</Badge> : null}
+              {outputQueueError ? <Badge variant="outline">Gagal memuat data dari backend.</Badge> : null}
             </div>
             {outputQueueError ? (
               <p className="mt-1 text-xs text-muted-foreground">{outputQueueError}</p>
@@ -341,7 +334,13 @@ export default function RigWitsPage({
           </div>
           <ScrollArea className="h-[360px]">
             {mode === "raw" ? (
-              <PacketStream packets={transmittedDisplayPackets} />
+              transmittedDisplayPackets.length > 0 ? (
+                <PacketStream packets={transmittedDisplayPackets} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+                  Belum ada output queue untuk session ini.
+                </div>
+              )
             ) : (
               <Table className="table-fixed">
                 <TableHeader>
@@ -351,59 +350,71 @@ export default function RigWitsPage({
                     <TableHead>Parameter</TableHead>
                     <TableHead className="w-28">Value</TableHead>
                     <TableHead className="w-32">Raw</TableHead>
+                    <TableHead className="w-40">Status</TableHead>
+                    <TableHead className="w-48">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transmittedDisplayPackets.map((packet) => (
-                    <TableRow key={packet.id}>
+                  {outputQueue.map((item) => {
+                    const packet = queueItemToPacketLog(item);
+                    const isUpdating = updatingQueueItemId === item.id;
+
+                    return (
+                    <TableRow key={item.id}>
                       <TableCell>{format(new Date(packet.timestamp), "HH:mm:ss")}</TableCell>
-                      <TableCell className="font-mono">{packet.witsId}</TableCell>
+                      <TableCell className="font-mono">{item.witsId ?? packet.witsId}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{packet.label}</div>
+                        <div className="font-medium">{item.label ?? packet.label}</div>
                       </TableCell>
-                      <TableCell>{packet.parsedValue}</TableCell>
-                      <TableCell className="truncate font-mono text-xs" title={packet.rawPacket}>
-                        {packet.rawPacket}
+                      <TableCell>{item.parsedValue ?? packet.parsedValue}</TableCell>
+                      <TableCell className="truncate font-mono text-xs" title={item.rawPacket}>
+                        {item.rawPacket}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">
+                          {item.status ?? "unknown"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => void handleUpdateQueueStatus(item, "sent")}
+                            disabled={isUpdating || !token}
+                          >
+                            Sent
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => void handleUpdateQueueStatus(item, "skipped")}
+                            disabled={isUpdating || !token}
+                          >
+                            Skip
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
+                  {!outputQueueLoading && outputQueue.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                        Belum ada output queue untuk session ini.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
                 </TableBody>
               </Table>
             )}
           </ScrollArea>
         </PacketPanel>
       </div>
-
-      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send WITS Data</DialogTitle>
-            <DialogDescription>
-              Manual packet entry updates the transmitted list locally. No live backend send is triggered.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>WITS packet</Label>
-              <Textarea value={draftPacket} onChange={(event) => setDraftPacket(event.target.value)} rows={4} />
-            </div>
-            <div className="space-y-2">
-              <Label>Source label</Label>
-              <Input value={draftSource} onChange={(event) => setDraftSource(event.target.value)} />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setSendDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleSendPacket}>
-              Add to transmitted list
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 

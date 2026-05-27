@@ -17,9 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bell, Eye, Gauge, RefreshCw, Ruler } from "lucide-react";
+import { Activity, Bell, Eye, Gauge, RefreshCw, Ruler } from "lucide-react";
 import { toast } from "sonner";
 import { ThresholdSettings } from "@/types";
+import { SystemHealthPanel } from "@/components/system-health-panel";
 import {
   dashboardThresholdDefinitions,
   mergeDashboardThresholds,
@@ -59,8 +60,7 @@ export const SettingsPage: React.FC<{
   };
 
   const handleSaveThresholds = () => {
-    updateSettings({ thresholds: thresholdDrafts });
-    toast.success("Thresholds synced to dashboard alarms");
+    toast.warning("Operational thresholds are managed by /api/wits-config.");
   };
 
   const updateDisplay = (display: Partial<typeof settings.display>) => {
@@ -73,7 +73,7 @@ export const SettingsPage: React.FC<{
         <div>
           <h1 className="text-2xl font-bold sm:text-3xl">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Shared dashboard preferences, alarm thresholds, and session behavior.
+            Local UI preferences only. Operational data, WITS runtime config, surveys, alarms, and plot templates come from backend APIs.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs sm:flex">
@@ -100,6 +100,10 @@ export const SettingsPage: React.FC<{
             <Bell className="mr-2 size-4" />
             Notifications
           </TabsTrigger>
+          <TabsTrigger value="system-health">
+            <Activity className="mr-2 size-4" />
+            System Health
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-0">
@@ -121,7 +125,7 @@ export const SettingsPage: React.FC<{
               </CompactRow>
             </SettingCard>
 
-            <SettingCard icon={RefreshCw} title="Live Updates" description="Controls dashboard realtime mock stream.">
+            <SettingCard icon={RefreshCw} title="Live Updates" description="Controls backend refresh cadence.">
               <CompactRow label="Auto-refresh" description="Pause or resume realtime updates.">
                 <Switch
                   checked={settings.display.autoRefresh}
@@ -172,11 +176,11 @@ export const SettingsPage: React.FC<{
               <div>
                 <h3 className="font-semibold">Parameter Thresholds</h3>
                 <p className="text-sm text-muted-foreground">
-                  Saved low/high ranges feed Main Dashboard card status and AppContext KPI status.
+                  Read-only placeholder. Unit, scale, alarm threshold, and curve scale must come from /api/wits-config.
                 </p>
               </div>
-              <Button size="sm" onClick={handleSaveThresholds}>
-                Save Thresholds
+              <Button size="sm" variant="outline" onClick={handleSaveThresholds}>
+                Endpoint backend untuk fitur ini belum tersedia.
               </Button>
             </div>
 
@@ -194,6 +198,7 @@ export const SettingsPage: React.FC<{
                       </span>
                       <Switch
                         checked={threshold.enabled ?? true}
+                        disabled
                         onCheckedChange={(enabled) => patchThreshold(threshold.parameter, { enabled })}
                       />
                     </div>
@@ -202,6 +207,7 @@ export const SettingsPage: React.FC<{
                     <ThresholdInput
                       label="Low"
                       value={threshold.low ?? 0}
+                      disabled
                       onChange={(value) =>
                         patchThreshold(threshold.parameter, {
                           low: value,
@@ -212,6 +218,7 @@ export const SettingsPage: React.FC<{
                     <ThresholdInput
                       label="High"
                       value={threshold.high ?? 0}
+                      disabled
                       onChange={(value) =>
                         patchThreshold(threshold.parameter, {
                           high: value,
@@ -244,6 +251,14 @@ export const SettingsPage: React.FC<{
               description="Placeholder until SMTP/alarm delivery is wired."
             />
           </div>
+        </TabsContent>
+
+        <TabsContent value="system-health" className="mt-0">
+          <SystemHealthPanel
+            mode="settings"
+            title="System Health"
+            description="Read-only connection health for user troubleshooting. No admin actions are exposed here."
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -324,10 +339,12 @@ function ThresholdInput({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-1">
@@ -335,6 +352,7 @@ function ThresholdInput({
       <Input
         type="number"
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         className="h-9"
       />

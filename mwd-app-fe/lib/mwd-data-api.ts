@@ -24,7 +24,15 @@ export type MwdDataRecord = {
 export type MwdDataInput = Record<string, unknown>;
 
 export type GetMwdDataOptions = {
-  sessionId?: string;
+  sessionId?: string | number;
+  limit?: number;
+  depthMin?: number;
+  depthMax?: number;
+};
+
+export type GetHistoricalDataOptions = GetMwdDataOptions & {
+  measuredFrom?: string;
+  measuredTo?: string;
 };
 
 const timestampKeys = [
@@ -46,16 +54,29 @@ const metricAliases: Record<string, string> = {
   rateofpenetration: "rop",
   rop: "rop",
   weightonbit: "wob",
+  weight_on_bit: "wob",
   wob: "wob",
   rotaryspeed: "rpm",
+  rotary_speed: "rpm",
+  rotationspeed: "rpm",
+  rotation_speed: "rpm",
+  downholerpm: "rpm",
+  downhole_rpm: "rpm",
   rpm: "rpm",
   temperature: "temp",
   temp: "temp",
   standpipepressure: "spp",
+  standpipe_pressure: "spp",
   spp: "spp",
+  pumppressure: "spp",
+  pump_pressure: "spp",
   pressure: "spp",
   flowrate: "flowrate",
   flow_rate: "flowrate",
+  flowin: "flowIn",
+  flow_in: "flowIn",
+  flowout: "flowOut",
+  flow_out: "flowOut",
   gamma: "gamma",
   gammaray: "gamma",
   gamma_ray: "gamma",
@@ -84,6 +105,18 @@ const metricAliases: Record<string, string> = {
   hole_depth: "holeDepth",
   decoderpressure: "decoderPressure",
   decoder_pressure: "decoderPressure",
+  mwdpressure: "mwdPressure",
+  mwd_pressure: "mwdPressure",
+  annularpressure: "annularPressure",
+  annular_pressure: "annularPressure",
+  battery: "batteryVoltage",
+  batteryvoltage: "batteryVoltage",
+  battery_voltage: "batteryVoltage",
+  hookload: "hookLoad",
+  hook_load: "hookLoad",
+  ecd: "ecd",
+  shock: "shock",
+  vibration: "vibration",
 };
 
 function isRecord(value: unknown): value is BackendMwdDataRecord {
@@ -208,10 +241,13 @@ export function mwdDataRecordsToChartData(records: MwdDataRecord[]): ChartDataPo
     .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 }
 
-export function filterMwdDataForSession(records: MwdDataRecord[], sessionId?: string) {
+export function filterMwdDataForSession(records: MwdDataRecord[], sessionId?: string | number) {
   if (!sessionId) return records;
-  const sessionScoped = records.filter((record) => record.sessionId === sessionId);
-  return sessionScoped.length > 0 ? sessionScoped : records;
+  const requestedSessionId = String(sessionId);
+  const recordsWithSession = records.filter((record) => record.sessionId);
+  if (recordsWithSession.length === 0) return records;
+  const sessionScoped = records.filter((record) => String(record.sessionId) === requestedSessionId);
+  return sessionScoped;
 }
 
 export function filterMwdDataByDateRange(
@@ -293,6 +329,14 @@ export async function createMwdData(token: string, input: MwdDataInput): Promise
   return record;
 }
 
+export async function postRawMwdData(token: string, input: MwdDataInput): Promise<void> {
+  await apiRequest<unknown>("/api/mwd-data", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
 export async function updateMwdData(
   token: string,
   dataId: string,
@@ -320,11 +364,17 @@ export async function deleteMwdData(token: string, dataId: string): Promise<void
   });
 }
 
-export async function getHistoricalData(token: string): Promise<MwdDataRecord[]> {
-  const response = await apiRequest<BackendMwdDataResponse | BackendMwdDataRecord[]>("/api/historical-data", {
-    method: "GET",
-    token,
-  });
+export async function getHistoricalData(
+  token: string,
+  options: GetHistoricalDataOptions = {}
+): Promise<MwdDataRecord[]> {
+  const response = await apiRequest<BackendMwdDataResponse | BackendMwdDataRecord[]>(
+    `/api/historical-data${toQueryString(options)}`,
+    {
+      method: "GET",
+      token,
+    }
+  );
 
   return unwrapRecordList(response)
     .map(normalizeMwdDataRecord)

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Copy, Download, Plus, Save } from "lucide-react";
+import { Copy, Download, Plus, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
@@ -15,13 +15,49 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { availableLasColumns, mockLasPresets } from "@/data/las-data";
-import { downloadBlob, exportLas, LasExportColumnPayload, LasWellInfoItem } from "@/lib/exports-api";
+import {
+  downloadBlob,
+  exportLas,
+  getExportRecords,
+  ExportRecord,
+  LasExportColumnPayload,
+  LasWellInfoItem,
+} from "@/lib/exports-api";
 import { cn } from "@/lib/utils";
 import { LasExportColumn, LasPreviewResult, LasPreset } from "@/types/las";
 
 function uid(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}`;
+}
+
+function createDefaultLasPreset(): LasPreset {
+  return {
+    id: "local-las-preset-default",
+    name: "Local LAS Preset",
+    description: "Local UI preset. Columns are selected from backend WITS config.",
+    isDefault: true,
+    updatedAt: new Date().toISOString(),
+    settings: {
+      minimumDepth: 0,
+      maximumDepth: 0,
+      stepDepth: 0.5,
+      maximumGap: 30,
+      nullValue: "-999.25",
+    },
+    options: {
+      includeProjectedSurvey: false,
+      includeSurveysInOtherSection: true,
+      correctDepthColumnForTvd: false,
+      dateTimeInFirstColumn: false,
+      interpolateSurveyValues: false,
+      useSurveyFormattedOutput: false,
+    },
+    columns: [],
+  };
 }
 
 function Field({
@@ -117,16 +153,7 @@ function getLasField(column: LasExportColumn) {
 }
 
 function toLasColumns(columns: LasExportColumn[]): LasExportColumnPayload[] {
-  const sourceColumns = columns.length
-    ? columns
-    : [
-        { id: "default-depth", witsId: "0110", mnemonic: "DEPT", unit: "m", description: "Bit Depth" },
-        { id: "default-inc", witsId: "0713", mnemonic: "INCL", unit: "deg", description: "Inclination" },
-        { id: "default-azi", witsId: "0714", mnemonic: "AZIM", unit: "deg", description: "Azimuth" },
-        { id: "default-gr", witsId: "0824", mnemonic: "GR", unit: "API", description: "Gamma Ray" },
-      ];
-
-  return sourceColumns.map((column) => ({
+  return columns.map((column) => ({
     field: getLasField(column),
     mnemonic: column.mnemonic,
     unit: column.unit,
@@ -163,6 +190,12 @@ function toWellInfo(session: ReturnType<typeof useApp>["activeMwdSession"]): Las
   ];
 }
 
+function formatExportDate(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : format(date, "dd MMM yyyy HH:mm");
+}
+
 export default function GenerateLasPage({
   onNavigate,
 }: {
@@ -170,12 +203,23 @@ export default function GenerateLasPage({
 }) {
   const router = useRouter();
   const { token, user } = useAuth();
-  const { activeMwdSessionId, activeMwdSession } = useApp();
-  const [presets, setPresets] = useState<LasPreset[]>(mockLasPresets);
-  const [activePresetId, setActivePresetId] = useState(mockLasPresets[0]?.id ?? "");
+  const {
+    activeMwdSessionId,
+    activeMwdSession,
+    witsConfig,
+    witsConfigLoading,
+    witsConfigError,
+    refreshWitsConfig,
+  } = useApp();
+  const [presets, setPresets] = useState<LasPreset[]>(() => [createDefaultLasPreset()]);
+  const [activePresetId, setActivePresetId] = useState("local-las-preset-default");
   const [draftPresetName, setDraftPresetName] = useState("New LAS Preset");
   const [preview, setPreview] = useState<LasPreviewResult | null>(null);
   const [exportingLas, setExportingLas] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportRecords, setExportRecords] = useState<ExportRecord[]>([]);
+  const [exportRecordsLoading, setExportRecordsLoading] = useState(false);
+  const [exportRecordsError, setExportRecordsError] = useState("");
   const canExport = user?.role === "admin" || user?.role === "engineer";
 
   const activePreset = useMemo(
@@ -183,8 +227,67 @@ export default function GenerateLasPage({
     [activePresetId, presets]
   );
 
-  const selectedColumnIds = new Set(activePreset?.columns.map((column) => column.id) ?? []);
-  const availableColumns = availableLasColumns.filter((column) => !selectedColumnIds.has(column.id));
+  const backendLasColumns = useMemo<LasExportColumn[]>(
+    () =>
+      witsConfig
+        .filter((config) => config.enabled)
+        .map((config) => {
+          const witsId = String(config.numericId).padStart(4, "0");
+          return {
+            id: `wits-${witsId}`,
+            witsId,
+            mnemonic: config.lasMnemonic || `W${witsId}`,
+            unit: config.units || "",
+            description: config.lasDescription || config.name || config.mappedField || `WITS ${witsId}`,
+          };
+        }),
+    [witsConfig]
+  );
+  const activePresetColumns = useMemo(
+    () =>
+      (activePreset?.columns ?? []).filter((column) =>
+        backendLasColumns.some((backendColumn) => backendColumn.id === column.id)
+      ),
+    [activePreset?.columns, backendLasColumns]
+  );
+  const selectedColumnIds = new Set(activePresetColumns.map((column) => column.id));
+  const availableColumns = backendLasColumns.filter((column) => !selectedColumnIds.has(column.id));
+  const lasExportRecords = useMemo(
+    () =>
+      exportRecords.filter((record) => {
+        const type = `${record.type ?? ""} ${record.fileName ?? ""}`.toLowerCase();
+        return type.includes("las") || type.includes(".las");
+      }),
+    [exportRecords]
+  );
+
+  const loadExportRecords = useCallback(async () => {
+    if (!token) {
+      setExportRecords([]);
+      setExportRecordsError("");
+      return;
+    }
+
+    setExportRecordsLoading(true);
+    setExportRecordsError("");
+
+    try {
+      const records = await getExportRecords(token);
+      setExportRecords(records);
+    } catch (error) {
+      setExportRecords([]);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load export history.", error);
+      }
+      setExportRecordsError("Gagal memuat data dari backend.");
+    } finally {
+      setExportRecordsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadExportRecords();
+  }, [loadExportRecords]);
 
   const updateActivePreset = (patch: Partial<LasPreset>) => {
     if (!activePreset) {
@@ -205,14 +308,14 @@ export default function GenerateLasPage({
   };
 
   const addPreset = () => {
-    const base = activePreset ?? mockLasPresets[0];
+    const base = activePreset ?? createDefaultLasPreset();
     const nextPreset: LasPreset = {
       ...base,
       id: uid("las-preset"),
       name: draftPresetName,
       description: "Local LAS preset created from current settings.",
       isDefault: false,
-      columns: [...base.columns],
+      columns: [...activePresetColumns],
       updatedAt: new Date().toISOString(),
     };
     setPresets((current) => [nextPreset, ...current]);
@@ -227,7 +330,7 @@ export default function GenerateLasPage({
       id: uid("las-preset"),
       name: `${activePreset.name} Copy`,
       isDefault: false,
-      columns: [...activePreset.columns],
+      columns: [...activePresetColumns],
       updatedAt: new Date().toISOString(),
     };
     setPresets((current) => [duplicate, ...current]);
@@ -246,15 +349,15 @@ export default function GenerateLasPage({
   const moveColumn = (columnIndex: number, direction: -1 | 1) => {
     if (!activePreset) return;
     const nextIndex = columnIndex + direction;
-    if (nextIndex < 0 || nextIndex >= activePreset.columns.length) return;
-    const nextColumns = [...activePreset.columns];
+    if (nextIndex < 0 || nextIndex >= activePresetColumns.length) return;
+    const nextColumns = [...activePresetColumns];
     [nextColumns[columnIndex], nextColumns[nextIndex]] = [nextColumns[nextIndex], nextColumns[columnIndex]];
     updateActivePreset({ columns: nextColumns });
   };
 
   const handleGeneratePreview = () => {
     if (!activePreset) return;
-    const nextPreview = createPreview(activePreset);
+    const nextPreview = createPreview({ ...activePreset, columns: activePresetColumns });
     setPreview(nextPreview);
     toast.success("LAS preview generated locally");
   };
@@ -276,8 +379,13 @@ export default function GenerateLasPage({
     }
 
     if (!activePreset) return;
+    if (activePresetColumns.length === 0) {
+      toast.error("Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.");
+      return;
+    }
 
     setExportingLas(true);
+    setExportError("");
 
     try {
       const blob = await exportLas(token, {
@@ -298,14 +406,17 @@ export default function GenerateLasPage({
         interpolateSurvey: activePreset.options.interpolateSurveyValues,
         surveyStationType: "actual",
         depthUnit: "m",
-        columns: toLasColumns(activePreset.columns),
+        columns: toLasColumns(activePresetColumns),
         wellInfo: toWellInfo(activeMwdSession),
       });
       downloadBlob(blob, "mwd-export.las");
+      await loadExportRecords();
       toast.success("LAS export downloaded");
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to export LAS.";
+      setExportError(message);
       toast.error("LAS export failed", {
-        description: error instanceof Error ? error.message : "Unable to export LAS.",
+        description: message,
       });
     } finally {
       setExportingLas(false);
@@ -319,17 +430,37 @@ export default function GenerateLasPage({
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">Data Management</Badge>
             <Badge variant="outline">Generate LAS</Badge>
+            <Badge variant={witsConfigError ? "destructive" : "outline"}>
+              {witsConfigError
+                ? "WITS config unavailable"
+                : witsConfigLoading
+                  ? "Loading WITS config"
+                  : backendLasColumns.length > 0
+                    ? `${backendLasColumns.length} WITS LAS columns`
+                    : "Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu."}
+            </Badge>
           </div>
           <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Generate LAS</h1>
           <p className="text-sm text-muted-foreground">
             Configure LAS presets, depth export rules, survey options, selected channels, and preview output.
           </p>
         </div>
-        <Button onClick={() => void handleGenerateLas()} disabled={exportingLas || !canExport}>
-          <Download className="mr-2 size-4" />
-          {exportingLas ? "Generating..." : "Generate LAS"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void refreshWitsConfig()} disabled={witsConfigLoading}>
+            Refresh WITS
+          </Button>
+          <Button onClick={() => void handleGenerateLas()} disabled={exportingLas || !canExport}>
+            <Download className="mr-2 size-4" />
+            {exportingLas ? "Generating..." : "Generate LAS"}
+          </Button>
+        </div>
       </div>
+
+      {exportError ? (
+        <Card className="rounded-2xl border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
+          {exportError}
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
         <Card className="rounded-2xl p-5">
@@ -510,6 +641,11 @@ export default function GenerateLasPage({
                   <Badge variant="outline">{availableColumns.length} available</Badge>
                 </div>
                 <div className="mt-4 space-y-2">
+                  {backendLasColumns.length === 0 && !witsConfigLoading ? (
+                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                      Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.
+                    </div>
+                  ) : null}
                   {availableColumns.map((column) => (
                     <div key={column.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2">
                       <div className="min-w-0 flex-1">
@@ -519,7 +655,7 @@ export default function GenerateLasPage({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => updateActivePreset({ columns: [...activePreset.columns, column] })}
+                        onClick={() => updateActivePreset({ columns: [...activePresetColumns, column] })}
                       >
                         Add
                       </Button>
@@ -531,10 +667,10 @@ export default function GenerateLasPage({
               <Card className="rounded-2xl p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold">Selected LAS Columns</h2>
-                  <Badge variant="secondary">{activePreset.columns.length} columns</Badge>
+                  <Badge variant="secondary">{activePresetColumns.length} columns</Badge>
                 </div>
                 <div className="mt-4 space-y-2">
-                  {activePreset.columns.map((column: LasExportColumn, index) => (
+                  {activePresetColumns.map((column: LasExportColumn, index) => (
                     <div key={column.id} className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[1fr_auto_auto_auto]">
                       <div className="min-w-0">
                         <div className="font-mono text-sm font-semibold">{index + 1}. {column.mnemonic} ({column.witsId})</div>
@@ -543,7 +679,7 @@ export default function GenerateLasPage({
                       <Button size="sm" variant="ghost" disabled={index === 0} onClick={() => moveColumn(index, -1)}>
                         Up
                       </Button>
-                      <Button size="sm" variant="ghost" disabled={index === activePreset.columns.length - 1} onClick={() => moveColumn(index, 1)}>
+                      <Button size="sm" variant="ghost" disabled={index === activePresetColumns.length - 1} onClick={() => moveColumn(index, 1)}>
                         Down
                       </Button>
                       <ConfirmDeleteButton
@@ -551,7 +687,7 @@ export default function GenerateLasPage({
                         description={`${column.mnemonic} (${column.witsId}) will be removed from this preset.`}
                         onConfirm={() => {
                           updateActivePreset({
-                            columns: activePreset.columns.filter((item) => item.id !== column.id),
+                            columns: activePresetColumns.filter((item) => item.id !== column.id),
                           });
                           toast.success("LAS column removed");
                         }}
@@ -586,7 +722,7 @@ export default function GenerateLasPage({
                 </div>
                 <div className="rounded-xl border px-4 py-3">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">Columns</div>
-                  <div className="mt-1 font-mono font-medium">{preview?.columnCount ?? activePreset.columns.length}</div>
+                  <div className="mt-1 font-mono font-medium">{preview?.columnCount ?? activePresetColumns.length}</div>
                 </div>
                 <div className="rounded-xl border px-4 py-3">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">Estimated Lines</div>
@@ -596,6 +732,52 @@ export default function GenerateLasPage({
               <pre className="mt-4 max-h-[360px] overflow-auto rounded-xl border bg-background p-4 font-mono text-xs leading-5">
                 {preview?.previewText ?? createPreview(activePreset).previewText}
               </pre>
+            </Card>
+
+            <Card className="rounded-2xl p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">LAS Export History</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Loaded from /api/exports/records after each LAS export.
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => void loadExportRecords()} disabled={exportRecordsLoading}>
+                  <RefreshCw className={cn("mr-2 size-4", exportRecordsLoading && "animate-spin")} />
+                  Refresh History
+                </Button>
+              </div>
+
+              {exportRecordsError ? (
+                <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+                  {exportRecordsError}
+                </div>
+              ) : null}
+
+              {!exportRecordsLoading && !exportRecordsError && lasExportRecords.length === 0 ? (
+                <div className="mt-4 rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                  Belum ada riwayat export LAS
+                </div>
+              ) : null}
+
+              <div className="mt-4 space-y-2">
+                {lasExportRecords.slice(0, 8).map((record) => (
+                  <div key={record.id} className="grid gap-2 rounded-xl border px-3 py-2 text-sm md:grid-cols-[1fr_auto_auto]">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{record.fileName ?? record.id}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {record.type ?? "LAS"} {record.createdAt ? `| ${formatExportDate(record.createdAt)}` : ""}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="w-fit">{record.status ?? "recorded"}</Badge>
+                    {record.downloadUrl ? (
+                      <Button size="sm" variant="outline" asChild>
+                        <a href={record.downloadUrl}>Download</a>
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </Card>
           </div>
         ) : null}

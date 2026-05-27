@@ -43,7 +43,7 @@ export function ProjectionDialog({
         <DialogHeader>
           <DialogTitle>Add Projection</DialogTitle>
           <DialogDescription>
-            Create a projected survey record using a lightweight local calculation.
+            Create a projected survey record and store it through the survey API.
           </DialogDescription>
         </DialogHeader>
 

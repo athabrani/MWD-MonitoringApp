@@ -7,7 +7,6 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
-import { generateMockChartData } from '@/data/mock-data';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Calendar as CalendarIcon, Download, RefreshCw } from 'lucide-react';
@@ -39,9 +38,7 @@ export const HistoryPage: React.FC = () => {
   } = useApp();
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(new Date());
-  const [historicalData, setHistoricalData] = useState<ChartDataPoint[]>(() =>
-    generateMockChartData(24)
-  );
+  const [historicalData, setHistoricalData] = useState<ChartDataPoint[]>([]);
   const [historicalLoading, setHistoricalLoading] = useState(false);
   const [historicalError, setHistoricalError] = useState('');
   const [historicalExporting, setHistoricalExporting] = useState(false);
@@ -75,7 +72,11 @@ export const HistoryPage: React.FC = () => {
     setHistoricalError('');
 
     try {
-      const records = await getHistoricalData(token);
+      const records = await getHistoricalData(token, {
+        sessionId: activeMwdSessionId || undefined,
+        measuredFrom: startDate?.toISOString(),
+        measuredTo: endDate?.toISOString(),
+      });
       const sessionRecords = filterMwdDataForSession(records, activeMwdSessionId);
       const dateScopedRecords = filterMwdDataByDateRange(sessionRecords, startDate, endDate);
       const chartData = mwdDataRecordsToChartData(dateScopedRecords);
@@ -95,12 +96,12 @@ export const HistoryPage: React.FC = () => {
           : `${chartData.length} records loaded.`,
       });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to load historical data.';
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Unable to load historical data.', error);
+      }
+      const message = 'Gagal memuat data dari backend.';
       setHistoricalError(message);
-      toast.error('Historical data failed', {
-        description: message,
-      });
+      toast.error(message);
     } finally {
       setHistoricalLoading(false);
     }
@@ -175,7 +176,7 @@ export const HistoryPage: React.FC = () => {
             >
               <SelectTrigger>
                 <SelectValue
-                  placeholder={mwdSessionsLoading ? "Loading sessions..." : "No backend sessions"}
+                  placeholder={mwdSessionsLoading ? "Loading sessions..." : "Belum ada job/session. Buat session baru untuk mulai monitoring."}
                 />
               </SelectTrigger>
               <SelectContent>
@@ -187,7 +188,7 @@ export const HistoryPage: React.FC = () => {
               </SelectContent>
             </Select>
             {mwdSessionsError ? (
-              <p className="mt-1 text-xs text-destructive">Session API unavailable.</p>
+              <p className="mt-1 text-xs text-destructive">Gagal memuat data dari backend.</p>
             ) : null}
           </div>
 
@@ -264,22 +265,22 @@ export const HistoryPage: React.FC = () => {
           availableParameters={chartParameters}
           defaultParameters={['rop', 'wob']}
           disableTimeWindowFilter
-          emptyMessage="No historical data returned for the selected filters."
+          emptyMessage="Belum ada data MWD untuk session ini."
         />
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="text-sm text-muted-foreground mb-1">Total Alarms</div>
-          <div className="text-3xl font-bold">47</div>
+          <div className="text-sm text-muted-foreground">Belum ada alarm.</div>
         </Card>
         <Card className="p-4">
           <div className="text-sm text-muted-foreground mb-1">Avg Latency</div>
-          <div className="text-3xl font-bold">52ms</div>
+          <div className="text-sm text-muted-foreground">Belum ada data MWD untuk session ini.</div>
         </Card>
         <Card className="p-4">
           <div className="text-sm text-muted-foreground mb-1">Data Gaps</div>
-          <div className="text-3xl font-bold">2</div>
+          <div className="text-sm text-muted-foreground">Belum ada data MWD untuk session ini.</div>
         </Card>
       </div>
     </div>

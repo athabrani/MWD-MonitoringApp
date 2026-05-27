@@ -12,7 +12,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  RotateCcw,
   Scale,
   Trash2,
 } from "lucide-react";
@@ -43,6 +42,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   deleteMemoryFile,
   getMemoryFile,
+  getMemoryFileCorrelations,
   getMemoryFilePoints,
   getMemoryFiles,
   importMemoryFile,
@@ -60,7 +60,6 @@ import {
   parseMemoryCsv,
   validateMemoryWitsId,
 } from "@/lib/memory-import";
-import { mockLogDataRecords } from "@/data/monitoring-data";
 import {
   CorrelationSettings,
   GapFillRequest,
@@ -81,20 +80,7 @@ const steps: Array<{ id: WizardStep; title: string; description: string }> = [
   { id: "correlate", title: "Correlate", description: "Shift, rescale, compare, fill gaps" },
 ];
 
-const initialChannels: MemoryStorageChannel[] = [
-  {
-    id: "memory-channel-demo-7001",
-    witsId: "7001",
-    name: "Memory Gamma Ray",
-    decimalPlaces: 2,
-    scaleFactor: 1,
-    bitOffset: 0,
-    sensorSpacing: 0,
-    plotScaleInfo: "0-200 API",
-    createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-    source: "mock-local",
-  },
-];
+const initialChannels: MemoryStorageChannel[] = [];
 
 const existingWitsTargets = ["0824", "0716", "0717", "0921"];
 
@@ -236,10 +222,10 @@ function Stepper({
 
 export function MemoryImportWizard() {
   const { token, user } = useAuth();
-  const { activeMwdSessionId } = useApp();
+  const { activeMwdSessionId, refreshMwdData } = useApp();
   const [activeStep, setActiveStep] = useState<WizardStep>("storage");
   const [storageChannels, setStorageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
-  const [selectedStorageId, setSelectedStorageId] = useState(initialChannels[0].id);
+  const [selectedStorageId, setSelectedStorageId] = useState(initialChannels[0]?.id ?? "");
   const [storageDraft, setStorageDraft] = useState({
     witsId: "8023",
     name: "Memory Resistivity",
@@ -263,6 +249,7 @@ export function MemoryImportWizard() {
   const [gapFillRequests, setGapFillRequests] = useState<GapFillRequest[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [backendMemoryFiles, setBackendMemoryFiles] = useState<MemoryFileRecord[]>([]);
+  const [backendCorrelations, setBackendCorrelations] = useState<MemoryFileCorrelation[]>([]);
   const [selectedBackendFileId, setSelectedBackendFileId] = useState("");
   const [backendFileDetail, setBackendFileDetail] = useState<MemoryFileRecord | null>(null);
   const [backendFilePoints, setBackendFilePoints] = useState<MemoryFilePoint[]>([]);
@@ -272,6 +259,7 @@ export function MemoryImportWizard() {
   const [memoryFileDeletingId, setMemoryFileDeletingId] = useState("");
   const [memoryFilesError, setMemoryFilesError] = useState("");
   const [correlationMode, setCorrelationMode] = useState<"depth" | "time">("depth");
+  const [correlationSourceField, setCorrelationSourceField] = useState("");
   const [correlationTargetField, setCorrelationTargetField] = useState("mwdPressure");
   const [maxDepthDifference, setMaxDepthDifference] = useState(10);
   const [maxTimeDifferenceMs, setMaxTimeDifferenceMs] = useState(60000);
@@ -296,11 +284,18 @@ export function MemoryImportWizard() {
     return completed;
   }, [activeDataset, gapFillRequests.length, importFile, selectedSegment, selectedStorage]);
 
-  const compareRows = useMemo(
-    () => buildCompareRows(activeDataset, mockLogDataRecords.filter((record) => record.witsId === gapTargetWitsId && !record.hidden)),
-    [activeDataset, gapTargetWitsId]
-  );
-  const activeSourceField = getDatasetSourceField(activeDataset);
+  const compareRows = useMemo(() => buildCompareRows(activeDataset, []), [activeDataset]);
+
+  const activeSourceField =
+    correlationSourceField.trim() ||
+    getDatasetSourceField(activeDataset) ||
+    backendFileDetail?.fieldName ||
+    backendFilePoints.find((point) => point.fieldName)?.fieldName ||
+    "";
+  const correlationDepths = activeDataset
+    ? activeDataset.samples.map((sample) => sample.depth)
+    : backendFilePoints.map((point) => point.depth).filter((value): value is number => typeof value === "number");
+  const firstCorrelationValue = activeDataset?.samples[0]?.value ?? backendFilePoints.find((point) => typeof point.value === "number")?.value ?? 0;
   const selectedBackendFile = backendMemoryFiles.find((file) => file.id === selectedBackendFileId) ?? backendFileDetail;
 
   const loadBackendMemoryFiles = useCallback(async () => {
@@ -318,8 +313,10 @@ export function MemoryImportWizard() {
       setBackendMemoryFiles(files);
       setSelectedBackendFileId((current) => current || files[0]?.id || "");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load memory files.";
-      setMemoryFilesError(message);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load memory files.", error);
+      }
+      setMemoryFilesError("Gagal memuat data dari backend.");
     } finally {
       setMemoryFilesLoading(false);
     }
@@ -344,8 +341,10 @@ export function MemoryImportWizard() {
         setBackendFileDetail(detail);
         setBackendFilePoints(points);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to load memory file detail.";
-        setMemoryFilesError(message);
+        if (process.env.NODE_ENV === "development") {
+          console.error("Unable to load memory file detail.", error);
+        }
+        setMemoryFilesError("Gagal memuat data dari backend.");
       } finally {
         setMemoryFileDetailLoading(false);
       }
@@ -353,13 +352,44 @@ export function MemoryImportWizard() {
     [token]
   );
 
+  const loadBackendCorrelations = useCallback(async () => {
+    if (!token) {
+      setBackendCorrelations([]);
+      return;
+    }
+
+    try {
+      const correlations = await getMemoryFileCorrelations(
+        token,
+        activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}
+      );
+      setBackendCorrelations(correlations);
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load memory correlations.", error);
+      }
+      setCorrelationError("Gagal memuat data dari backend.");
+    }
+  }, [activeMwdSessionId, token]);
+
   useEffect(() => {
     void loadBackendMemoryFiles();
   }, [loadBackendMemoryFiles]);
 
   useEffect(() => {
+    void loadBackendCorrelations();
+  }, [loadBackendCorrelations]);
+
+  useEffect(() => {
     void loadBackendMemoryFileDetail(selectedBackendFileId);
   }, [loadBackendMemoryFileDetail, selectedBackendFileId]);
+
+  useEffect(() => {
+    setCorrelationSourceField((current) => {
+      if (current.trim()) return current;
+      return backendFileDetail?.fieldName ?? backendFilePoints.find((point) => point.fieldName)?.fieldName ?? "";
+    });
+  }, [backendFileDetail?.fieldName, backendFilePoints]);
 
   const progressValue = (completedSteps.size / steps.length) * 100;
 
@@ -430,14 +460,6 @@ export function MemoryImportWizard() {
       setMemoryFileImporting(false);
       event.target.value = "";
     }
-  };
-
-  const handleLoadMockFile = () => {
-    const parsedFile = parseMemoryCsv("vendor-memory-export-demo.csv", "");
-    setImportFile(parsedFile);
-    setSelectedSegmentId(parsedFile.segments[0]?.id ?? "");
-    setActiveStep("scan");
-    toast.success("Mock vendor CSV loaded for demo workflow");
   };
 
   const handleImportSegment = () => {
@@ -544,6 +566,7 @@ export function MemoryImportWizard() {
       const result = await correlateMemoryFile(token, selectedBackendFileId, buildCorrelationPayload(false));
       setCorrelationPreview(result);
       await loadBackendMemoryFileDetail(selectedBackendFileId);
+      await Promise.all([refreshMwdData(), loadBackendCorrelations()]);
       toast.success(result.summary || "Memory correlation applied.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to apply memory correlation.";
@@ -750,7 +773,7 @@ export function MemoryImportWizard() {
                     {!memoryFilesLoading && backendMemoryFiles.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
-                          No memory files returned from /api/memory-files.
+                          Belum ada memory file.
                         </TableCell>
                       </TableRow>
                     ) : null}
@@ -798,7 +821,7 @@ export function MemoryImportWizard() {
                         {backendFilePoints.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
-                              No points returned for this memory file.
+                              Belum ada memory file.
                             </TableCell>
                           </TableRow>
                         ) : null}
@@ -845,12 +868,12 @@ export function MemoryImportWizard() {
             </div>
           </WorkspaceSection>
 
-          <WorkspaceSection title="Create/Register Storage WITS ID" description="Registers a mock local storage channel; no backend or decoder setting is changed.">
+          <WorkspaceSection title="Create/Register Storage WITS ID" description="Registers a local UI storage channel; no backend or decoder setting is changed.">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>WITS ID</Label>
                 <Input value={storageDraft.witsId} onChange={(event) => setStorageDraft((current) => ({ ...current, witsId: event.target.value }))} />
-                {storageValidation ? <p className="text-xs text-destructive">{storageValidation}</p> : <p className="text-xs text-emerald-600">Available for mock memory storage.</p>}
+                {storageValidation ? <p className="text-xs text-destructive">{storageValidation}</p> : <p className="text-xs text-emerald-600">Available for local memory storage.</p>}
               </div>
               <div className="space-y-2">
                 <Label>Name</Label>
@@ -886,7 +909,7 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "upload" ? (
-        <WorkspaceSection title="Upload Memory File" description="CSV parser detects time/depth/value fields. If the file is empty or unreadable, the demo mock parser can be loaded explicitly.">
+        <WorkspaceSection title="Upload Memory File" description="CSV parser detects time/depth/value fields. Empty or unreadable files stay empty.">
           <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
             <Card className="p-4">
               <div className="flex items-center gap-2 font-semibold">
@@ -900,12 +923,8 @@ export function MemoryImportWizard() {
                   onChange={handleFileChange}
                   disabled={isParsing || memoryFileImporting || !canManageMemoryFiles}
                 />
-                <Button variant="outline" onClick={handleLoadMockFile} disabled={isParsing || memoryFileImporting}>
-                  {isParsing || memoryFileImporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RotateCcw className="mr-2 size-4" />}
-                  Load mock vendor CSV
-                </Button>
                 <PlaceholderNote>
-                  Upload reads CSV/text in the browser and sends JSON content through POST /api/memory-files/import. Mock CSV remains local only for workflow testing.
+                  Upload reads CSV/text in the browser and sends JSON content through POST /api/memory-files/import when backend access is available.
                 </PlaceholderNote>
               </div>
             </Card>
@@ -922,7 +941,7 @@ export function MemoryImportWizard() {
                   <SummaryTile label="End" value={formatDateTime(importFile.detectedTimeSpan.end)} />
                 </div>
               ) : (
-                <div className="mt-4 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">No memory file loaded yet.</div>
+                <div className="mt-4 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Belum ada memory file.</div>
               )}
             </Card>
           </div>
@@ -966,7 +985,7 @@ export function MemoryImportWizard() {
               </div>
             </div>
           ) : (
-            <PlaceholderNote>Upload or load a mock CSV before scanning segments.</PlaceholderNote>
+            <PlaceholderNote>Upload a CSV before scanning segments.</PlaceholderNote>
           )}
         </WorkspaceSection>
       ) : null}
@@ -1017,7 +1036,7 @@ export function MemoryImportWizard() {
 
       {activeStep === "correlate" ? (
         <WorkspaceSection title="Correlate Imported Data" description="Apply local time/depth/value adjustments and compare imported memory samples against existing real-time log data.">
-          {activeDataset ? (
+          {selectedBackendFile ? (
             <Tabs defaultValue="correlate" className="space-y-4">
               <TabsList className="h-auto flex-wrap justify-start">
                 <TabsTrigger value="correlate">Correlation</TabsTrigger>
@@ -1055,7 +1074,11 @@ export function MemoryImportWizard() {
                   </div>
                   <div className="space-y-2">
                     <Label>Source memory field</Label>
-                    <Input value={activeSourceField || "-"} readOnly />
+                    <Input
+                      value={correlationSourceField}
+                      onChange={(event) => setCorrelationSourceField(event.target.value)}
+                      placeholder={backendFileDetail?.fieldName ?? backendFilePoints.find((point) => point.fieldName)?.fieldName ?? "memory field"}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Target MWD field</Label>
@@ -1086,8 +1109,12 @@ export function MemoryImportWizard() {
                   </div>
                 )}
                 <div className="grid gap-4 md:grid-cols-3">
-                  <SummaryCard icon={ArrowDownUp} label="Depth range" value={`${formatNumber(Math.min(...activeDataset.samples.map((sample) => sample.depth)))} - ${formatNumber(Math.max(...activeDataset.samples.map((sample) => sample.depth)))}`} />
-                  <SummaryCard icon={Scale} label="Value preview" value={`${formatNumber(activeDataset.samples[0]?.value ?? 0, 3)} first sample`} />
+                  <SummaryCard
+                    icon={ArrowDownUp}
+                    label="Depth range"
+                    value={correlationDepths.length > 0 ? `${formatNumber(Math.min(...correlationDepths))} - ${formatNumber(Math.max(...correlationDepths))}` : "-"}
+                  />
+                  <SummaryCard icon={Scale} label="Value preview" value={`${formatNumber(firstCorrelationValue, 3)} first sample`} />
                   <SummaryCard icon={GitCompare} label="Backend file" value={selectedBackendFile ? selectedBackendFile.fileName : "Select a backend file"} />
                 </div>
                 {correlationError ? (
@@ -1137,7 +1164,7 @@ export function MemoryImportWizard() {
                     <p className="mt-1 text-sm text-muted-foreground">{correlationPreview.summary}</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-4">
                       <SummaryTile label="Matched" value={String(correlationPreview.matchedCount ?? getCorrelationMetric(correlationPreview, ["matchedCount", "matched_count"]) ?? "-")} />
-                      <SummaryTile label="Unmatched" value={String(correlationPreview.unmatchedCount ?? getCorrelationMetric(correlationPreview, ["unmatchedCount", "unmatched_count"]) ?? "-")} />
+                      <SummaryTile label="Skipped" value={String(correlationPreview.skippedCount ?? correlationPreview.unmatchedCount ?? getCorrelationMetric(correlationPreview, ["skippedCount", "skipped_count", "unmatchedCount", "unmatched_count"]) ?? "-")} />
                       <SummaryTile label="Updated" value={String(correlationPreview.updatedCount ?? getCorrelationMetric(correlationPreview, ["updatedCount", "updated_count"]) ?? "-")} />
                       <SummaryTile label="Affected" value={String(correlationPreview.affectedRows ?? getCorrelationMetric(correlationPreview, ["affectedRows", "affected_rows"]) ?? "-")} />
                     </div>
@@ -1162,7 +1189,11 @@ export function MemoryImportWizard() {
                           ))}
                         </TableBody>
                       </Table>
-                    ) : null}
+                    ) : (
+                      <div className="mt-4 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                        Preview returned no sample rows.
+                      </div>
+                    )}
                   </Card>
                 ) : null}
               </TabsContent>
@@ -1269,10 +1300,55 @@ export function MemoryImportWizard() {
               </TabsContent>
             </Tabs>
           ) : (
-            <PlaceholderNote>Import a selected segment before running correlation and gap filling tools.</PlaceholderNote>
+            <PlaceholderNote>Select a backend memory file, review its points, then choose source and target fields before previewing correlation.</PlaceholderNote>
           )}
         </WorkspaceSection>
       ) : null}
+
+      <WorkspaceSection
+        title="Memory Correlations"
+        description="History from GET /api/memory-files/correlations. Apply correlation refreshes this list and active MWD data."
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={() => void loadBackendCorrelations()} disabled={!token}>
+            <RefreshCw className="mr-2 size-4" />
+            Refresh Correlations
+          </Button>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead>Matched</TableHead>
+                <TableHead>Skipped</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead>Summary</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {backendCorrelations.slice(0, 8).map((correlation) => (
+                <TableRow key={correlation.id}>
+                  <TableCell>{correlation.status ?? "-"}</TableCell>
+                  <TableCell>{correlation.matchedCount ?? "-"}</TableCell>
+                  <TableCell>{correlation.skippedCount ?? correlation.unmatchedCount ?? "-"}</TableCell>
+                  <TableCell>{correlation.updatedCount ?? correlation.affectedRows ?? "-"}</TableCell>
+                  <TableCell className="max-w-[520px] truncate text-sm text-muted-foreground">
+                    {correlation.summary}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {backendCorrelations.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                    Belum ada memory correlation
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      </WorkspaceSection>
     </div>
   );
 }

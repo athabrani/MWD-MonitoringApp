@@ -1,40 +1,28 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import {
-  AppLayout,
-  AppPage,
-  getAppPagePath,
-} from "@/components/layouts/app-layout";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { mockPolarisWellplanSurveys } from "@/data/polaris-config";
-import { PolarisWellplanSurvey } from "@/types/polaris";
+  createSurvey,
+  deleteSurvey,
+  getSurveys,
+  importSurveysCsv,
+  surveyRecordToPayload,
+  updateSurvey,
+} from "@/lib/surveys-api";
+import { SurveyRecord } from "@/types/monitoring";
 
-const emptySurvey: PolarisWellplanSurvey = {
+const emptySurvey: SurveyRecord = {
   id: "",
   md: 0,
   inc: 0,
@@ -43,12 +31,13 @@ const emptySurvey: PolarisWellplanSurvey = {
   vs: 0,
   ns: 0,
   ew: 0,
-  cd: 0,
-  ca: 90,
-  dl: 0,
+  dls: 0,
+  toolfaceMode: "Plan",
+  timestamp: new Date().toISOString(),
+  isProjection: false,
 };
 
-const surveyColumns: Array<keyof Omit<PolarisWellplanSurvey, "id">> = [
+const surveyColumns: Array<keyof Pick<SurveyRecord, "md" | "inc" | "azm" | "tvd" | "vs" | "ns" | "ew" | "dls">> = [
   "md",
   "inc",
   "azm",
@@ -56,9 +45,7 @@ const surveyColumns: Array<keyof Omit<PolarisWellplanSurvey, "id">> = [
   "vs",
   "ns",
   "ew",
-  "cd",
-  "ca",
-  "dl",
+  "dls",
 ];
 
 export default function WellplanSurveysPage({
@@ -67,12 +54,49 @@ export default function WellplanSurveysPage({
   onNavigate?: (page: AppPage) => void;
 }) {
   const router = useRouter();
-  const [draftSurvey, setDraftSurvey] = useState<PolarisWellplanSurvey>(emptySurvey);
-  const [surveys, setSurveys] = useState<PolarisWellplanSurvey[]>(
-    mockPolarisWellplanSurveys
-  );
-  const [surveyPendingDelete, setSurveyPendingDelete] =
-    useState<PolarisWellplanSurvey | null>(null);
+  const { token, user } = useAuth();
+  const { activeMwdSessionId } = useApp();
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftSurvey, setDraftSurvey] = useState<SurveyRecord>(emptySurvey);
+  const [surveys, setSurveys] = useState<SurveyRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
+  const [error, setError] = useState("");
+  const canManage = user?.role === "engineer" || user?.role === "admin";
+
+  const loadSurveys = useCallback(async () => {
+    if (!token) {
+      setSurveys([]);
+      setError("");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const rows = await getSurveys(token, {
+        sessionId: activeMwdSessionId || undefined,
+        stationType: "plan",
+      });
+      setSurveys(rows);
+    } catch (loadError) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load wellplan surveys.", loadError);
+      }
+      const message = "Gagal memuat data dari backend.";
+      setSurveys([]);
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  useEffect(() => {
+    void loadSurveys();
+  }, [loadSurveys]);
 
   const totals = useMemo(
     () => ({
@@ -82,68 +106,125 @@ export default function WellplanSurveysPage({
     [surveys]
   );
 
-  const updateDraft = (
-    field: keyof Omit<PolarisWellplanSurvey, "id">,
-    value: string
-  ) => {
+  const updateDraft = (field: (typeof surveyColumns)[number], value: string) => {
     setDraftSurvey((prev) => ({
       ...prev,
       [field]: Number(value),
     }));
   };
 
-  const updateRow = (
-    id: string,
-    field: keyof Omit<PolarisWellplanSurvey, "id">,
-    value: string
-  ) => {
-    setSurveys((prev) =>
-      prev.map((survey) =>
-        survey.id === id
-          ? {
-              ...survey,
-              [field]: Number(value),
-            }
-          : survey
-      )
-    );
+  const updateRow = async (survey: SurveyRecord, field: (typeof surveyColumns)[number], value: string) => {
+    if (!token || !canManage) return;
+
+    const nextSurvey = {
+      ...survey,
+      [field]: Number(value),
+    };
+
+    setSurveys((prev) => prev.map((row) => (row.id === survey.id ? nextSurvey : row)));
+
+    try {
+      const saved = await updateSurvey(token, survey.id, surveyRecordToPayload(nextSurvey, activeMwdSessionId, "plan"));
+      setSurveys((prev) => prev.map((row) => (row.id === saved.id ? saved : row)));
+    } catch (updateError) {
+      toast.error("Unable to update wellplan survey", {
+        description: updateError instanceof Error ? updateError.message : "Backend request failed.",
+      });
+      await loadSurveys();
+    }
   };
 
-  const addSurvey = () => {
-    const hasInvalidValue = surveyColumns.some((column) =>
-      Number.isNaN(Number(draftSurvey[column]))
-    );
+  const addSurvey = async () => {
+    if (!token) {
+      toast.error("Please sign in before creating wellplan surveys.");
+      return;
+    }
+
+    if (!canManage) {
+      toast.warning("Only admin or engineer users can create wellplan surveys.");
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before creating wellplan surveys.");
+      return;
+    }
+
+    const hasInvalidValue = surveyColumns.some((column) => !Number.isFinite(Number(draftSurvey[column])));
 
     if (hasInvalidValue) {
-      toast.error("Gagal menambahkan survey data.", {
-        description: "Pastikan semua field numerik berisi nilai yang valid.",
-      });
+      toast.error("Pastikan semua field numerik berisi nilai yang valid.");
       return;
     }
 
-    setSurveys((prev) => [
-      ...prev,
-      {
-        ...draftSurvey,
-        id: `survey-${Date.now()}`,
-      },
-    ]);
-    setDraftSurvey(emptySurvey);
-    toast.success("Survey data berhasil ditambahkan.");
+    setSaving(true);
+
+    try {
+      const saved = await createSurvey(token, surveyRecordToPayload(draftSurvey, activeMwdSessionId, "plan"));
+      setSurveys((prev) => [...prev, saved]);
+      setDraftSurvey({ ...emptySurvey, timestamp: new Date().toISOString() });
+      toast.success("Wellplan survey saved.");
+    } catch (createError) {
+      toast.error("Unable to create wellplan survey", {
+        description: createError instanceof Error ? createError.message : "Backend request failed.",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteSurvey = (id: string) => {
-    const exists = surveys.some((survey) => survey.id === id);
+  const removeSurvey = async (survey: SurveyRecord) => {
+    if (!token || !canManage) return;
 
-    if (!exists) {
-      toast.error("Gagal menghapus survey data.", {
-        description: "Row survey yang dipilih tidak ditemukan.",
+    setDeletingId(survey.id);
+
+    try {
+      await deleteSurvey(token, survey.id);
+      setSurveys((prev) => prev.filter((row) => row.id !== survey.id));
+      toast.success("Wellplan survey deleted.");
+    } catch (deleteError) {
+      toast.error("Unable to delete wellplan survey", {
+        description: deleteError instanceof Error ? deleteError.message : "Backend request failed.",
       });
+    } finally {
+      setDeletingId("");
+    }
+  };
+
+  const importCsv = async (file?: File) => {
+    if (!file) return;
+
+    if (!token || !canManage) {
+      toast.warning("Only admin or engineer users can import wellplan CSV.");
+      if (importInputRef.current) importInputRef.current.value = "";
       return;
     }
 
-    setSurveys((prev) => prev.filter((survey) => survey.id !== id));
-    toast.success("Survey data berhasil dihapus.");
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before importing wellplan CSV.");
+      if (importInputRef.current) importInputRef.current.value = "";
+      return;
+    }
+
+    setImporting(true);
+
+    try {
+      await importSurveysCsv(token, {
+        content: await file.text(),
+        sessionId: activeMwdSessionId,
+        stationType: "plan",
+        verticalSectionAzimuth: 90,
+      });
+      toast.success("Wellplan CSV imported.");
+      await loadSurveys();
+    } catch (importError) {
+      toast.error("Unable to import wellplan CSV", {
+        description: importError instanceof Error ? importError.message : "Backend request failed.",
+      });
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
   };
 
   const content = (
@@ -153,15 +234,33 @@ export default function WellplanSurveysPage({
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">Configuration</Badge>
             <Badge variant="outline">Well Plan Surveys</Badge>
+            {activeMwdSessionId ? <Badge variant="outline">Session {activeMwdSessionId}</Badge> : null}
           </div>
           <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Well Plan Surveys Editor</h1>
           <p className="text-sm text-muted-foreground sm:text-base">
-            Inline editor untuk menambah, mengubah, dan menghapus survey rows sebelum dipakai
-            oleh modul plotting dan directional configuration.
+            Uses /api/surveys with stationType=plan for read, create, update, and delete.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="hidden"
+            onChange={(event) => void importCsv(event.target.files?.[0])}
+          />
+          <Button
+            variant="outline"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing || !canManage || !activeMwdSessionId}
+          >
+            {importing ? "Importing..." : "Import CSV"}
+          </Button>
+          <Button variant="outline" onClick={() => void loadSurveys()} disabled={loading}>
+            <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -174,17 +273,14 @@ export default function WellplanSurveysPage({
           >
             Close Window
           </Button>
-          <Button
-            onClick={() =>
-              toast.success("Perubahan wellplan surveys berhasil disimpan.", {
-                description: "Penyimpanan saat ini masih bersifat local draft.",
-              })
-            }
-          >
-            Save Changes
-          </Button>
         </div>
       </div>
+
+      {error ? (
+        <Card className="border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          {error}
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
@@ -198,30 +294,19 @@ export default function WellplanSurveysPage({
       </div>
 
       <Card className="max-w-full p-4">
-        <h2 className="text-lg font-semibold">Add Survey</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Local editor scaffold. Rows can be added, adjusted, and removed before backend
-          persistence is wired.
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <h2 className="text-lg font-semibold">Add Plan Survey</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {surveyColumns.map((column) => (
             <div key={column} className="min-w-0 space-y-2">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                {column}
-              </div>
-              <Input
-                type="number"
-                className="h-9"
-                value={draftSurvey[column]}
-                onChange={(e) => updateDraft(column, e.target.value)}
-              />
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">{column}</div>
+              <Input type="number" className="h-9" value={draftSurvey[column]} onChange={(event) => updateDraft(column, event.target.value)} />
             </div>
           ))}
         </div>
         <div className="mt-4 flex justify-end">
-          <Button onClick={addSurvey}>
+          <Button onClick={() => void addSurvey()} disabled={saving || !canManage || !activeMwdSessionId}>
             <Plus className="mr-2 size-4" />
-            Add Survey
+            {saving ? "Saving..." : "Add Survey"}
           </Button>
         </div>
       </Card>
@@ -232,7 +317,7 @@ export default function WellplanSurveysPage({
             <TableHeader>
               <TableRow>
                 {surveyColumns.map((column) => (
-                  <TableHead key={column} className="uppercase text-center">
+                  <TableHead key={column} className="text-center uppercase">
                     {column}
                   </TableHead>
                 ))}
@@ -248,7 +333,8 @@ export default function WellplanSurveysPage({
                         type="number"
                         className="h-8 min-w-0 text-right text-sm"
                         value={survey[column]}
-                        onChange={(e) => updateRow(survey.id, column, e.target.value)}
+                        disabled={!canManage}
+                        onChange={(event) => void updateRow(survey, column, event.target.value)}
                       />
                     </TableCell>
                   ))}
@@ -256,8 +342,8 @@ export default function WellplanSurveysPage({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="-full sm:w-auto border-red-400/40 bg-red-500/80 text-white hover:border-red-300/50 hover:bg-red-500 hover:text-white"
-                      onClick={() => setSurveyPendingDelete(survey)}
+                      disabled={!canManage || deletingId === survey.id}
+                      onClick={() => void removeSurvey(survey)}
                     >
                       <Trash2 className="mr-0 size-4 sm:mr-2" />
                       <span className="hidden sm:inline">Delete</span>
@@ -265,44 +351,17 @@ export default function WellplanSurveysPage({
                   </TableCell>
                 </TableRow>
               ))}
+              {!loading && surveys.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={surveyColumns.length + 1} className="py-8 text-center text-sm text-muted-foreground">
+                    Belum ada survey untuk session ini.
+                  </TableCell>
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
         </div>
       </Card>
-
-      <AlertDialog
-        open={surveyPendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSurveyPendingDelete(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete wellplan survey row?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {surveyPendingDelete
-                ? `Are you sure you want to delete the survey at MD ${surveyPendingDelete.md.toFixed(2)}? This action only affects the local editor data.`
-                : "Are you sure you want to delete this survey row?"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 text-white hover:bg-red-700"
-              onClick={() => {
-                if (surveyPendingDelete) {
-                  deleteSurvey(surveyPendingDelete.id);
-                }
-                setSurveyPendingDelete(null);
-              }}
-            >
-              Yes, delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 
@@ -311,10 +370,7 @@ export default function WellplanSurveysPage({
   }
 
   return (
-    <AppLayout
-      currentPage="configuration-wellplan-surveys"
-      onNavigate={(page) => router.push(getAppPagePath(page))}
-    >
+    <AppLayout currentPage="configuration-wellplan-surveys" onNavigate={(page) => router.push(getAppPagePath(page))}>
       {content}
     </AppLayout>
   );

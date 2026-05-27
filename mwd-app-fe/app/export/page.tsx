@@ -170,11 +170,10 @@ export const ExportPage: React.FC = () => {
       <Card className="p-6 bg-muted">
         <h4 className="font-medium mb-2">Export Guidelines</h4>
         <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-          <li>Large date ranges may take longer to process</li>
+          <li>Date range filtering for export is a backend gap until /api/exports/historical supports measuredFrom/measuredTo</li>
           <li>CSV format is best for data analysis in spreadsheets</li>
           <li>JSON format is ideal for programmatic access</li>
-          <li>PDF format provides a comprehensive report with visualizations</li>
-          <li>Maximum export range is 30 days for performance reasons</li>
+          <li>Historical export sends only sessionId, format, depthMin, and depthMax when available</li>
         </ul>
       </Card>
     </div>

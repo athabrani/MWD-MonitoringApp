@@ -192,11 +192,11 @@ export const DashboardScreen: React.FC = () => {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Inclination</span>
-                <span className="font-mono">{kpiData.inclination.value.toFixed(1)}°</span>
+                <span className="font-mono">{kpiData.inclination.value?.toFixed(1) ?? '-'}°</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Azimuth</span>
-                <span className="font-mono">{kpiData.azimuth.value.toFixed(1)}°</span>
+                <span className="font-mono">{kpiData.azimuth.value?.toFixed(1) ?? '-'}°</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Current MD</span>

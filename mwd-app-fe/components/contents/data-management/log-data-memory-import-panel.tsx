@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, Dispatch, SetStateAction, useMemo, useState } from "react";
-import { ArrowDownUp, Copy, FileSearch, FileUp, GitCompare, RotateCcw, Scale } from "lucide-react";
+import { ArrowDownUp, Copy, FileSearch, FileUp, GitCompare, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,14 +179,6 @@ export function LogDataMemoryImportPanel({
     }
   };
 
-  const loadMockFile = () => {
-    const parsed = parseMemoryCsv("vendor-memory-export-demo.csv", "");
-    setMemoryFile(parsed);
-    setSelectedSegmentId(parsed.segments[0]?.id ?? "");
-    setSelectedFieldName(parsed.segments[0]?.fieldName ?? "gamma");
-    toast.success("Mock memory CSV scanned locally");
-  };
-
   const importSelectedSegment = () => {
     if (!selectedChannel || !memoryFile || !selectedSegment || !selectedFieldName) {
       toast.error("Select WITS ID, file, data field, and segment before import");
@@ -307,10 +299,6 @@ export function LogDataMemoryImportPanel({
               </div>
               <div className="mt-4 space-y-3">
                 <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} disabled={!selectedChannel} />
-                <Button variant="outline" onClick={loadMockFile} disabled={!selectedChannel}>
-                  <RotateCcw className="mr-2 size-4" />
-                  Load mock vendor CSV
-                </Button>
                 <PlaceholderNote>
                   This parser is local and basic. It scans CSV headers, detects depth/time/value fields, and stores imported rows in local state.
                 </PlaceholderNote>

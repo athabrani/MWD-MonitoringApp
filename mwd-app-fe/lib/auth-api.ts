@@ -65,13 +65,15 @@ export async function loginWithPassword(
     body: JSON.stringify({ identifier, password }),
   });
 
-  if (!response.token || !response.user) {
-    throw new Error("Login response did not include a token and user profile.");
+  if (!response.token) {
+    throw new Error("Login response did not include a token.");
   }
+
+  const currentUser = await fetchCurrentUser(response.token);
 
   return {
     token: response.token,
-    user: normalizeBackendUser(response.user),
+    user: currentUser,
   };
 }
 

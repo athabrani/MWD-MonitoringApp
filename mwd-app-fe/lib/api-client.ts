@@ -61,7 +61,13 @@ export async function apiRequest<T>(
   });
 
   const text = await response.text();
-  const payload = text ? (JSON.parse(text) as unknown) : null;
+  let payload: unknown = null;
+
+  try {
+    payload = text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    payload = text ? { message: text } : null;
+  }
 
   if (!response.ok) {
     throw new ApiClientError(getErrorMessage(payload), response.status);

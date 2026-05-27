@@ -11,16 +11,25 @@ type BackendExportRecordsResponse = {
 };
 
 export type ExportFormat = "csv" | "json";
+export type FileExportFormat = ExportFormat | "pdf" | "xls" | "xlsx";
+export type SurveyExportFormat = "csv";
 
 export type ExportBlob = Blob & {
   fileName?: string;
 };
 
 export type HistoricalExportPayload = {
-  sessionId: string;
+  sessionId: string | number;
   format: ExportFormat;
   depthMin?: number;
   depthMax?: number;
+};
+
+export type SurveyExportPayload = {
+  sessionId: string | number;
+  format: SurveyExportFormat;
+  stationType?: "actual" | "plan" | string;
+  verticalSectionAzimuth?: number;
 };
 
 export type LasExportColumnPayload = {
@@ -38,7 +47,7 @@ export type LasWellInfoItem = {
 };
 
 export type LasExportPayload = {
-  sessionId: string;
+  sessionId: string | number;
   startDepth: number;
   endDepth: number;
   stepDepth: number;
@@ -61,13 +70,13 @@ export type LasExportPayload = {
 
 export type PdfPlotExportPayload =
   | {
-      sessionId: string;
+      sessionId: string | number;
       templateId: string;
       depthMin: number;
       depthMax: number;
     }
   | {
-      sessionId: string;
+      sessionId: string | number;
       depthMin: number;
       depthMax: number;
       template: Record<string, unknown>;
@@ -174,6 +183,14 @@ export async function exportHistorical(
   payload: HistoricalExportPayload
 ): Promise<ExportBlob> {
   return requestExportBlob(token, "/api/exports/historical", payload);
+}
+
+export async function exportSurveys(token: string, payload: SurveyExportPayload): Promise<ExportBlob> {
+  if (payload.format !== "csv") {
+    throw new Error("Survey export endpoint only supports CSV.");
+  }
+
+  return requestExportBlob(token, "/api/exports/surveys", payload);
 }
 
 export async function exportLas(token: string, payload: LasExportPayload): Promise<ExportBlob> {

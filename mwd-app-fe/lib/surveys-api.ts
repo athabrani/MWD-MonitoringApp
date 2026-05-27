@@ -14,13 +14,17 @@ type BackendSurveyResponse = {
 
 export type SurveyInput = Record<string, unknown>;
 export type SurveysQuery = {
-  sessionId?: string;
+  sessionId?: string | number;
+  stationType?: "actual" | "plan";
+};
+export type GenerateSurveyFromMwdDataInput = {
+  sessionId: string | number;
   stationType?: "actual" | "plan";
 };
 
 export type ImportSurveysCsvInput = {
   content: string;
-  sessionId?: string;
+  sessionId?: string | number;
   stationType?: "actual" | "plan";
   verticalSectionAzimuth?: number;
 };
@@ -135,9 +139,14 @@ export function normalizeSurveyRecord(record: BackendSurveyRecord): SurveyRecord
   };
 }
 
-export function surveyRecordToPayload(record: SurveyRecord, sessionId?: string): SurveyInput {
+export function surveyRecordToPayload(
+  record: SurveyRecord,
+  sessionId?: string | number,
+  stationType: "actual" | "plan" = "actual"
+): SurveyInput {
   return {
     ...(sessionId ? { sessionId } : {}),
+    stationType,
     md: record.md,
     measuredDepth: record.md,
     tvd: record.tvd,
@@ -210,7 +219,10 @@ export async function deleteSurvey(token: string, surveyId: string): Promise<voi
   });
 }
 
-export async function createSurveysFromMwdData(token: string, input: SurveyInput): Promise<SurveyRecord[]> {
+export async function createSurveysFromMwdData(
+  token: string,
+  input: GenerateSurveyFromMwdDataInput
+): Promise<SurveyRecord[]> {
   const response = await apiRequest<BackendSurveyResponse | BackendSurveyRecord[]>("/api/surveys/from-mwd-data", {
     method: "POST",
     token,
@@ -242,7 +254,7 @@ export async function importSurveysCsv(token: string, input: ImportSurveysCsvInp
       method: "POST",
       token,
       headers: {
-        "Content-Type": "text/csv",
+        "Content-Type": "text/plain",
       },
       body: content,
     }

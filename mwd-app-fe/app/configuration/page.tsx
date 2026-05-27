@@ -40,14 +40,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  mockPolarisContacts,
-  mockPolarisDecoderConfiguration,
-  mockPolarisSurveyConfiguration,
-  mockPolarisSystemInfo,
-  mockPolarisWellInformation,
-  mockPolarisWitsIds,
-} from "@/data/polaris-config";
-import {
   PolarisAccessLevel,
   PolarisContact,
   PolarisDataSourceMode,
@@ -68,7 +60,6 @@ import { PlaceholderNote, WorkspaceSection } from "@/components/layouts/workspac
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { WitsMemoryImportPanel } from "@/components/contents/configuration/wits-memory-import-panel";
-import { loadStoredWitsIds, saveStoredWitsIds } from "@/lib/wits-config-store";
 import { cn } from "@/lib/utils";
 import {
   createMwdSession,
@@ -91,7 +82,6 @@ const toolTypes: PolarisToolType[] = ["Mud Pulse", "EM", "Simulator", "Memory"];
 const dataSourceModes: PolarisDataSourceMode[] = [
   "decoder",
   "manual",
-  "simulated",
   "derived",
 ];
 type WitsViewMode = "list" | "detail";
@@ -105,11 +95,127 @@ const emptyContact: PolarisContact = {
   active: true,
 };
 
+const emptyDecoderConfiguration: PolarisDecoderConfiguration = {
+  toolType: "Mud Pulse",
+  toolfaceModeInclination: 0,
+  witsOutputTimer: 0,
+  gvTagMapping: "",
+};
+
+const emptySystemInfo: PolarisSystemInfo = {
+  smtpHost: "",
+  smtpPort: 0,
+  username: "",
+  senderEmail: "",
+  subjectTemplate: "",
+  bodyTemplate: "",
+  signature: "",
+  reportLogoLight: "",
+  reportLogoDark: "",
+};
+
+const emptyWellInformation: PolarisWellInformation = {
+  companyName: "",
+  surveyCompany: "",
+  siteName: "",
+  wellName: "",
+  jobName: "",
+  jobNumber: "",
+  operator: "",
+  rigName: "",
+  rigId: "",
+  fieldName: "",
+  apiOrUwi: "",
+  afe: "",
+  location: "",
+  stateOrProvince: "",
+  countyOrParish: "",
+  country: "",
+  filePrefix: "",
+  fileSuffix: "",
+  fileSequence: "",
+  startDate: "",
+  endDate: "",
+  startDepth: 0,
+  endDepth: 0,
+  drillingStatus: "Standby",
+  backupDatabaseToDashboard: false,
+  dashboardContactName: "",
+  dashboardContactEmail: "",
+  dashboardContactSecondary: "",
+  dashboardContactPhone: "",
+  dashboardCoordinator: "",
+  notes: "",
+};
+
+const emptySurveyConfiguration: PolarisSurveyConfiguration = {
+  units: "metric",
+  proposedAzimuth: 0,
+  surveyDepthOffset: 0,
+  surveyDoglegUnit: "",
+  plotPaperNote: "",
+  northReference: "grid",
+  magneticDeclination: 0,
+  latitude: "",
+  longitude: "",
+  northing: 0,
+  easting: 0,
+  kb: 0,
+  df: 0,
+  gl: 0,
+  subseaDepth: 0,
+  surveyReportColumns: "",
+  surveyRigPortSource: "database",
+  plotInclination: true,
+  plotAzimuth: true,
+  plotTvd: true,
+  plotVerticalSection: true,
+  plotNorthSouth: true,
+  plotEastWest: true,
+  outputDoglegSeverity: true,
+  outputCoordinates: true,
+  outputTvdss: false,
+  importWellplanFile: "",
+};
+
+const emptyWitsRecord: PolarisWitsId = {
+  id: "",
+  numericId: 0,
+  enabled: true,
+  name: "",
+  units: "",
+  decimalPlaces: 0,
+  scaleFactor: 1,
+  biasOffset: 0,
+  sensorToBitSpacing: 0,
+  sendToAux: false,
+  sendToRigWits: false,
+  doNotRepeat: false,
+  realTimePlot: "",
+  depthTracking: "",
+  plotScaleInfo: "",
+  leftScale: 0,
+  rightScale: 0,
+  lineColor: "#2563eb",
+  wrapColor: "#ef4444",
+  lasMnemonic: "",
+  lasDescription: "",
+  lasFilter: 0,
+  alarmEnabled: false,
+  alarmLow: 0,
+  alarmHigh: 0,
+  dataSourceType: "serial",
+  dataSourceValue: 0,
+  useForMemoryImportStorage: false,
+  dataSourceMode: "decoder",
+  scriptNotes: "",
+};
+
 function normalizeWellInfo(
   value?: Partial<PolarisWellInformation> | null
 ): PolarisWellInformation {
   return {
-    ...mockPolarisWellInformation,
+    ...emptyWellInformation,
     ...value,
   };
 }
@@ -125,7 +231,7 @@ function normalizeSurveyConfig(
   value?: Partial<PolarisSurveyConfiguration> | null
 ): PolarisSurveyConfiguration {
   return {
-    ...mockPolarisSurveyConfiguration,
+    ...emptySurveyConfiguration,
     ...value,
   };
 }
@@ -134,7 +240,7 @@ function normalizeDecoderConfig(
   value?: Partial<PolarisDecoderConfiguration> | null
 ): PolarisDecoderConfiguration {
   return {
-    ...mockPolarisDecoderConfiguration,
+    ...emptyDecoderConfiguration,
     ...value,
   };
 }
@@ -143,7 +249,7 @@ function normalizeSystemInfo(
   value?: Partial<PolarisSystemInfo> | null
 ): PolarisSystemInfo {
   return {
-    ...mockPolarisSystemInfo,
+    ...emptySystemInfo,
     ...value,
   };
 }
@@ -152,7 +258,7 @@ function normalizeWitsRecord(
   value?: Partial<PolarisWitsId> | null
 ): PolarisWitsId {
   return {
-    ...mockPolarisWitsIds[0],
+    ...emptyWitsRecord,
     ...value,
   };
 }
@@ -196,28 +302,25 @@ export default function ConfigurationPage({
     mwdSessionsLoading,
     mwdSessionsError,
     refreshMwdSessions,
+    refreshWitsConfig,
   } = useApp();
   const [wellInfo, setWellInfo] = useState<PolarisWellInformation>(() =>
-    normalizeWellInfo(mockPolarisWellInformation)
+    normalizeWellInfo(emptyWellInformation)
   );
   const [wellInfoDirty, setWellInfoDirty] = useState(false);
   const [wellSessionLoading, setWellSessionLoading] = useState(false);
   const [wellSessionSaving, setWellSessionSaving] = useState(false);
   const [wellSessionError, setWellSessionError] = useState("");
   const [loadedWellSessionId, setLoadedWellSessionId] = useState("");
-  const [contacts, setContacts] = useState<PolarisContact[]>(mockPolarisContacts);
-  const [selectedContactId, setSelectedContactId] = useState<string>(
-    mockPolarisContacts[0]?.id ?? ""
-  );
+  const [contacts, setContacts] = useState<PolarisContact[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState<string>("");
   const [draftContact, setDraftContact] = useState<PolarisContact>(() =>
-    normalizeContact(mockPolarisContacts[0] ?? emptyContact)
+    normalizeContact(emptyContact)
   );
   const [surveyConfig, setSurveyConfig] = useState<PolarisSurveyConfiguration>(() =>
-    normalizeSurveyConfig(mockPolarisSurveyConfiguration)
+    normalizeSurveyConfig(emptySurveyConfiguration)
   );
-  const [witsIds, setWitsIds] = useState<PolarisWitsId[]>(() =>
-    loadStoredWitsIds(mockPolarisWitsIds)
-  );
+  const [witsIds, setWitsIds] = useState<PolarisWitsId[]>([]);
   const [selectedWitsId, setSelectedWitsId] = useState<string>("");
   const [witsViewMode, setWitsViewMode] = useState<WitsViewMode>("list");
   const [newWitsIdInput, setNewWitsIdInput] = useState("");
@@ -229,10 +332,10 @@ export default function ConfigurationPage({
   const [witsConfigError, setWitsConfigError] = useState("");
   const canManageWitsConfig = user?.role === "engineer" || user?.role === "admin";
   const [decoderConfig, setDecoderConfig] = useState<PolarisDecoderConfiguration>(() =>
-    normalizeDecoderConfig(mockPolarisDecoderConfiguration)
+    normalizeDecoderConfig(emptyDecoderConfiguration)
   );
   const [systemInfo, setSystemInfo] = useState<PolarisSystemInfo>(() =>
-    normalizeSystemInfo(mockPolarisSystemInfo)
+    normalizeSystemInfo(emptySystemInfo)
   );
 
   const activeWitsRecord = useMemo(
@@ -249,13 +352,11 @@ export default function ConfigurationPage({
   const safeDecoderConfig = normalizeDecoderConfig(decoderConfig);
   const safeSystemInfo = normalizeSystemInfo(systemInfo);
 
-  useEffect(() => {
-    saveStoredWitsIds(witsIds);
-  }, [witsIds]);
-
-  const loadWitsConfigFromApi = React.useCallback(async () => {
+  const loadWitsConfigFromApi = React.useCallback(async (preferredId?: string) => {
     if (!token) {
-      setWitsConfigError("");
+      setWitsIds([]);
+      setSelectedWitsId("");
+      setWitsConfigError("Backend session is not available. Please sign in again.");
       return;
     }
 
@@ -266,18 +367,27 @@ export default function ConfigurationPage({
       const records = await getWitsConfig(token);
       setWitsIds(records);
       setSelectedWitsId((current) =>
-        current && records.some((record) => record.id === current) ? current : records[0]?.id ?? ""
+        preferredId && records.some((record) => record.id === preferredId)
+          ? preferredId
+          : current && records.some((record) => record.id === current)
+            ? current
+            : records[0]?.id ?? ""
       );
+      await refreshWitsConfig();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load WITS config.";
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load WITS config.", error);
+      }
+      const message = "Gagal memuat data dari backend.";
+      setWitsIds([]);
+      setSelectedWitsId("");
+      setWitsViewMode("list");
       setWitsConfigError(message);
-      toast.error("WITS config API unavailable", {
-        description: "Using local WITS configuration data.",
-      });
+      toast.error(message);
     } finally {
       setWitsConfigLoading(false);
     }
-  }, [token]);
+  }, [refreshWitsConfig, token]);
 
   useEffect(() => {
     void loadWitsConfigFromApi();
@@ -300,7 +410,10 @@ export default function ConfigurationPage({
       })
       .catch((error) => {
         if (cancelled) return;
-        setWellSessionError(error instanceof Error ? error.message : "Unable to load MWD session detail.");
+        if (process.env.NODE_ENV === "development") {
+          console.error("Unable to load MWD session detail.", error);
+        }
+        setWellSessionError("Gagal memuat data dari backend.");
       })
       .finally(() => {
         if (!cancelled) setWellSessionLoading(false);
@@ -429,7 +542,7 @@ export default function ConfigurationPage({
     });
     setSelectedContactId(nextContact.id);
     setDraftContact(normalizeContact(nextContact));
-    toast.success("Contact configuration updated.");
+    toast.success("Contact saved as local UI-only draft.");
   };
 
   const deleteSelectedContact = () => {
@@ -492,7 +605,10 @@ export default function ConfigurationPage({
       const detail = await getWitsConfigById(token, recordId);
       replaceWitsRecord(detail);
     } catch (error) {
-      setWitsConfigError(error instanceof Error ? error.message : "Unable to load WITS config detail.");
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load WITS config detail.", error);
+      }
+      setWitsConfigError("Gagal memuat data dari backend.");
     } finally {
       setWitsConfigDetailLoading(false);
     }
@@ -551,6 +667,10 @@ export default function ConfigurationPage({
     });
 
   const addWitsIdFromInput = async () => {
+    if (!token) {
+      toast.error("Backend session is not available. Please sign in again.");
+      return;
+    }
     if (!canManageWitsConfig) {
       toast.warning("Only admin or engineer users can create WITS config.");
       return;
@@ -569,10 +689,8 @@ export default function ConfigurationPage({
     setWitsConfigError("");
 
     try {
-      const savedRecord = token
-        ? await createWitsConfig(token, witsConfigToPayload(nextRecord))
-        : nextRecord;
-      replaceWitsRecord(savedRecord);
+      const savedRecord = await createWitsConfig(token, witsConfigToPayload(nextRecord));
+      await loadWitsConfigFromApi(savedRecord.id);
       setSelectedWitsId(savedRecord.id);
       setWitsViewMode("detail");
       setNewWitsIdInput("");
@@ -591,6 +709,10 @@ export default function ConfigurationPage({
 
   const saveActiveWits = async () => {
     if (!activeWitsRecord) return;
+    if (!token) {
+      toast.error("Backend session is not available. Please sign in again.");
+      return;
+    }
     if (!canManageWitsConfig) {
       toast.warning("Only admin or engineer users can update WITS config.");
       return;
@@ -606,15 +728,9 @@ export default function ConfigurationPage({
     setWitsConfigError("");
 
     try {
-      const savedRecord = token
-        ? await updateWitsConfig(token, activeWitsRecord.id, witsConfigToPayload(activeWitsRecord))
-        : activeWitsRecord;
-      replaceWitsRecord(savedRecord);
-      toast.success(
-        token
-          ? `WITS ID ${savedRecord.numericId} changes saved.`
-          : `WITS ID ${savedRecord.numericId} changes saved locally.`
-      );
+      const savedRecord = await updateWitsConfig(token, activeWitsRecord.id, witsConfigToPayload(activeWitsRecord));
+      await loadWitsConfigFromApi(savedRecord.id);
+      toast.success(`WITS ID ${savedRecord.numericId} changes saved.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save WITS config.";
       setWitsConfigError(message);
@@ -628,6 +744,10 @@ export default function ConfigurationPage({
 
   const deleteActiveWits = async () => {
     if (!activeWitsRecord) return;
+    if (!token) {
+      toast.error("Backend session is not available. Please sign in again.");
+      return;
+    }
     if (!canManageWitsConfig) {
       toast.warning("Only admin or engineer users can delete WITS config.");
       return;
@@ -642,10 +762,8 @@ export default function ConfigurationPage({
     setWitsConfigError("");
 
     try {
-      if (token) {
-        await deleteWitsConfig(token, activeWitsRecord.id);
-      }
-      setWitsIds((prev) => prev.filter((item) => item.id !== activeWitsRecord.id));
+      await deleteWitsConfig(token, activeWitsRecord.id);
+      await loadWitsConfigFromApi();
       setSelectedWitsId("");
       setWitsViewMode("list");
       toast.success(`WITS ID ${activeWitsRecord.numericId} deleted.`);
@@ -661,6 +779,10 @@ export default function ConfigurationPage({
   };
 
   const addMemoryStorageWitsId = async () => {
+    if (!token) {
+      toast.error("Backend session is not available. Please sign in again.");
+      return;
+    }
     if (!canManageWitsConfig) {
       toast.warning("Only admin or engineer users can create WITS config.");
       return;
@@ -709,17 +831,11 @@ export default function ConfigurationPage({
     setWitsConfigError("");
 
     try {
-      const savedRecord = token
-        ? await createWitsConfig(token, witsConfigToPayload(nextRecord))
-        : nextRecord;
-      replaceWitsRecord(savedRecord);
+      const savedRecord = await createWitsConfig(token, witsConfigToPayload(nextRecord));
+      await loadWitsConfigFromApi(savedRecord.id);
       setSelectedWitsId(savedRecord.id);
       setWitsViewMode("detail");
-      toast.success(
-        token
-          ? `Memory storage WITS ID ${savedRecord.numericId} created.`
-          : `Memory storage WITS ID ${savedRecord.numericId} created locally.`
-      );
+      toast.success(`Memory storage WITS ID ${savedRecord.numericId} created.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create memory storage WITS config.";
       setWitsConfigError(message);
@@ -741,17 +857,17 @@ export default function ConfigurationPage({
           </div>
           <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Configuration Workspace</h1>
           <p className="text-sm text-muted-foreground sm:text-base">
-            Scaffold konfigurasi software bergaya Polaris untuk well setup, contact access,
-            surveys, WITS IDs, decoder, dan system info.
+            Well/job sessions and WITS config use backend APIs. Contacts, decoder config,
+            SMTP/report settings, and system info are local UI-only until endpoints are documented.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => toast.message("Mock save queue created.")}>
+          <Button variant="outline" onClick={() => toast.message("Settings without backend endpoints are local UI-only drafts.")}>
             <Save className="mr-2 size-4" />
             Save Draft
           </Button>
-          <Button onClick={() => toast.message("Configuration audit report is still a placeholder.")}>
+          <Button onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}>
             <Settings2 className="mr-2 size-4" />
             Generate Review
           </Button>
@@ -785,7 +901,7 @@ export default function ConfigurationPage({
                     >
                       <SelectTrigger>
                         <SelectValue
-                          placeholder={mwdSessionsLoading ? "Loading sessions..." : "No backend sessions"}
+                          placeholder={mwdSessionsLoading ? "Loading sessions..." : "Belum ada job/session. Buat session baru untuk mulai monitoring."}
                         />
                       </SelectTrigger>
                       <SelectContent>
@@ -1171,8 +1287,8 @@ export default function ConfigurationPage({
         <TabsContent value="contacts" className="space-y-4">
           <WorkspaceSection
             title="Email / Login Contacts"
-            description="Maintain software-side recipients and access levels for reports and dashboard visibility."
-            badge="CSV import placeholder"
+            description="Local UI-only contacts. No backend contact endpoint is documented yet."
+            badge="Endpoint backend untuk fitur ini belum tersedia."
           >
             <div className="mb-4 flex flex-wrap gap-2">
               <Button
@@ -1188,8 +1304,9 @@ export default function ConfigurationPage({
               <Button
                 variant="outline"
                 onClick={() =>
-                  toast.message("CSV import is a placeholder until parser wiring is added.")
+                  toast.message("Endpoint backend untuk fitur ini belum tersedia.")
                 }
+                disabled
               >
                 <ArrowUpFromLine className="mr-2 size-4" />
                 Import CSV
@@ -1704,7 +1821,7 @@ export default function ConfigurationPage({
           <WorkspaceSection
             title="WITS ID Configuration"
             description="Manage logging, scaling, alarms, LAS mapping, plot configuration, and memory import storage per WITS record."
-            badge="Editor panel with local memory import"
+            badge="Backend /api/wits-config"
           >
             {witsViewMode === "list" ? (
               <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto]">
@@ -1790,6 +1907,13 @@ export default function ConfigurationPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {witsIds.length === 0 && !witsConfigLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                          Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                     {witsIds.map((item) => (
                       <TableRow
                         key={item.id}
@@ -1864,7 +1988,7 @@ export default function ConfigurationPage({
                             <div>
                               <h5 className="font-semibold">General Information</h5>
                               <p className="text-xs text-muted-foreground">
-                                Local WITS ID identity, scaling, and bit spacing.
+                                Backend WITS ID identity, scaling, mapped field, unit, and bit spacing.
                               </p>
                             </div>
                             <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
@@ -2042,7 +2166,7 @@ export default function ConfigurationPage({
                             <div>
                               <h5 className="font-semibold">Alarm Settings</h5>
                               <p className="text-xs text-muted-foreground">
-                                Local warning thresholds for this WITS channel.
+                                Backend alarm min/max thresholds for this WITS channel.
                               </p>
                             </div>
                             <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
@@ -2174,8 +2298,8 @@ export default function ConfigurationPage({
         <TabsContent value="decoder" className="space-y-4">
           <WorkspaceSection
             title="Decoder Configuration"
-            description="Tool type, toolface inclination mode, WITS output timer, and GV tag mapping scaffold."
-            badge="Decoder mapping placeholder"
+            description="Local UI-only decoder draft. No decoder config endpoint is documented yet."
+            badge="Endpoint backend untuk fitur ini belum tersedia."
           >
             <div className="grid gap-4 md:grid-cols-3">
               <FormField label="Tool Type">
@@ -2242,8 +2366,8 @@ export default function ConfigurationPage({
         <TabsContent value="system" className="space-y-4">
           <WorkspaceSection
             title="System Info"
-            description="SMTP profile, email template, signature, and report logo placeholders."
-            badge="No external transport wiring"
+            description="Local UI-only SMTP/report draft. Email report endpoints must be active before delivery is enabled."
+            badge="Endpoint backend untuk fitur ini belum tersedia."
           >
             <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
               <Card className="border-dashed p-4">
@@ -2298,8 +2422,9 @@ export default function ConfigurationPage({
                   <Button
                     variant="outline"
                     onClick={() =>
-                      toast.message("SMTP test is a placeholder until backend transport is available.")
+                      toast.message("Email reports belum aktif.")
                     }
+                    disabled
                   >
                     Test SMTP Profile
                   </Button>
@@ -2375,7 +2500,7 @@ export default function ConfigurationPage({
             </div>
 
             <PlaceholderNote>
-              Placeholder only: SMTP test, CSV import, GV tag auto-discovery, and logo upload do not call any backend yet.
+              Endpoint backend untuk fitur ini belum tersedia. Jika backend email report mengembalikan 503, tampilkan "Email reports belum aktif".
             </PlaceholderNote>
           </WorkspaceSection>
         </TabsContent>
@@ -2387,8 +2512,7 @@ export default function ConfigurationPage({
           <div>
             <div className="font-medium">Phase 1 scope marker</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Configuration Workspace is fully scaffolded with local state and mock data. Monitoring,
-              Rig WITS runtime views, LAS, Re-Logging, and Troubleshooting remain for the next phases. Memory Import is now available as a local WITS ID editor workflow.
+              Backend-backed sections must use documented endpoints only. UI-only sections are labelled as local drafts and are not operational source data.
             </p>
           </div>
         </div>

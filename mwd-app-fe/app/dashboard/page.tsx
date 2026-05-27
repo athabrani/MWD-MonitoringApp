@@ -12,16 +12,17 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert, RefreshCw } from 'lucide-react';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { getDashboardThresholdStatus } from '@/lib/dashboard-thresholds';
+import { getDashboardThresholdStatus, type ParameterStatus } from '@/lib/dashboard-thresholds';
 import { getRenderableTracksFromPlotConfig } from '@/lib/plot-track-config';
 import { getDepthTrackingState, type DepthTrackingState } from '@/lib/depth-tracking-api';
 
@@ -35,14 +36,23 @@ export const DashboardPage: React.FC = () => {
     failoverEventsLoading,
     failoverEventsError,
     refreshFailoverEvents,
-    kpiData,
+    serialStatus,
+    serialStatusLoading,
+    serialStatusError,
+    refreshSerialStatus,
+    espWsStatus,
+    espWsStatusLoading,
+    espWsStatusError,
+    refreshEspWsStatus,
+    realtimeStatus,
+    realtimeError,
     chartData,
+    latestMwdDataRecord,
     events,
     activeWell,
     mwdSessions,
     activeMwdSession,
     activeMwdSessionId,
-    setActiveMwdSessionId,
     mwdSessionsLoading,
     mwdSessionsError,
     refreshMwdSessions,
@@ -52,6 +62,9 @@ export const DashboardPage: React.FC = () => {
     witsDataValuesLoading,
     witsDataValuesError,
     refreshWitsDataValues,
+    witsConfigLoading,
+    witsConfigError,
+    refreshWitsConfig,
     witsAlarmsLoading,
     witsAlarmsError,
     refreshWitsAlarms,
@@ -108,6 +121,48 @@ export const DashboardPage: React.FC = () => {
     : depthTrackingError
       ? 'Unavailable'
       : depthTrackingState?.status ?? depthTrackingState?.mode ?? 'No state';
+  const startupError = mwdSessionsError || witsConfigError || mwdDataError;
+  const startupLoading = mwdSessionsLoading || witsConfigLoading || mwdDataLoading;
+  const hasNoSessions = !mwdSessionsLoading && !mwdSessionsError && mwdSessions.length === 0;
+  const hasNoMwdData =
+    Boolean(activeMwdSessionId) &&
+    !mwdDataLoading &&
+    !mwdDataError &&
+    !latestMwdDataRecord;
+  const shouldBlockDashboard = Boolean(startupError) || hasNoSessions;
+  const serialStatusLabel = serialStatusLoading
+    ? 'Loading'
+    : serialStatusError
+      ? 'Unavailable'
+      : serialStatus?.status ?? 'No status';
+  const espWsStatusLabel = espWsStatusLoading
+    ? 'Loading'
+    : espWsStatusError
+      ? 'Unavailable'
+      : espWsStatus?.status ?? 'No status';
+  const realtimeStatusLabel = realtimeError ? 'Error' : realtimeStatus;
+  const dashboardHealthItems = [
+    {
+      label: 'DTS',
+      value: depthTrackingLabel,
+      tone: depthTrackingError ? 'destructive' : depthTrackingLoading ? 'outline' : 'secondary',
+    },
+    {
+      label: 'Serial',
+      value: serialStatusLabel,
+      tone: serialStatusError ? 'destructive' : serialStatus?.connected ? 'secondary' : 'outline',
+    },
+    {
+      label: 'ESP WS',
+      value: espWsStatusLabel,
+      tone: espWsStatusError || espWsStatus?.lastError ? 'destructive' : espWsStatus?.connected ? 'secondary' : 'outline',
+    },
+    {
+      label: 'Realtime',
+      value: realtimeStatusLabel,
+      tone: realtimeError ? 'destructive' : realtimeStatus === 'connected' ? 'secondary' : 'outline',
+    },
+  ] as const;
 
   const loadDepthTrackingState = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!token || !activeMwdSessionId) {
@@ -220,77 +275,110 @@ export const DashboardPage: React.FC = () => {
   ];
 
   const keyParameters = useMemo(() => {
-    const currentDepth = activeWell?.activeJob?.currentDepth ?? 0;
-    const inclination = kpiData.inclination.value;
-    const azimuth = kpiData.azimuth.value;
-    const gamma = kpiData.gamma.value;
-    const rop = kpiData.rop.value;
-    const wob = kpiData.wob.value;
-    const standpipePressure = kpiData.standpipePressure.value;
-    const flowRate = kpiData.flowRate.value;
-    const mudWeight = kpiData.mudWeight.value;
-    const temperature = kpiData.temperature.value;
-    const rpm = kpiData.rpm.value;
-    const gravity = toolfaceData.angle;
-    const pulseAmp = flowRate / 190;
-    const gammaDepth = currentDepth + 300.98;
-    const bitDepth = currentDepth - 7.02;
-    const decoderPressure = standpipePressure * 0.92;
-    const rpmDownhole = rpm - 6.5;
-    const vibration = 2.4 + rpm / 85;
-    const diffPressure = standpipePressure * 0.18;
-    const ecdTvdSurveyBase = mudWeight + 0.34;
-    const tvd = currentDepth * 0.956;
-    const getStatusForParameter = (parameter: string, value: number) =>
-      getDashboardThresholdStatus(value, thresholdByParameter.get(parameter));
+    const toNumber = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+
+      return undefined;
+    };
+    const readLatestNumber = (metricKeys: string[], rawKeys: string[] = metricKeys) => {
+      if (!latestMwdDataRecord) return undefined;
+
+      for (const key of metricKeys) {
+        const value = latestMwdDataRecord.metrics[key];
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+      }
+
+      for (const key of rawKeys) {
+        const value = toNumber(latestMwdDataRecord.raw[key]);
+        if (value !== undefined) return value;
+      }
+
+      return undefined;
+    };
+    const getStatusForParameter = (parameter: string, value?: number) =>
+      typeof value === 'number'
+        ? getDashboardThresholdStatus(value, thresholdByParameter.get(parameter))
+        : undefined;
+    const formatNumber = (value?: number, digits = 1) =>
+      typeof value === 'number' ? value.toFixed(digits) : '-';
+    const formatDepthValue = (value?: number) =>
+      typeof value === 'number' ? formatDepthPrecise(value) : '-';
+    const formatRopValue = (value?: number) =>
+      typeof value === 'number' ? formatRop(value) : '-';
+
+    const inclination = readLatestNumber(['inc'], ['inclination', 'inc']);
+    const azimuth = readLatestNumber(['azi'], ['azimuth', 'azi']);
+    const gamma = readLatestNumber(['gamma'], ['gammaRay', 'gamma_ray', 'gamma']);
+    const bitDepth = readLatestNumber(['depthMd'], ['depthMd', 'depth_md', 'measuredDepth', 'measured_depth'])
+      ?? latestMwdDataRecord?.depth;
+    const holeDepth = readLatestNumber(['holeDepth'], ['hole_depth', 'holeDepth']);
+    const pumpPressure = readLatestNumber(['spp'], ['standpipePressure', 'standpipe_pressure', 'pumpPressure', 'pump_pressure', 'spp']);
+    const decoderPressure = readLatestNumber(['decoderPressure'], ['decoderPressure', 'decoder_pressure']);
+    const batteryVoltage = readLatestNumber(['batteryVoltage'], ['batteryVoltage', 'battery_voltage', 'battery']);
+    const temperature = readLatestNumber(['temp'], ['temperature', 'temp']);
+    const rop = readLatestNumber(['rop'], ['rop', 'rateOfPenetration', 'rate_of_penetration']);
+    const hookLoad = readLatestNumber(['hookLoad'], ['hookLoad', 'hook_load']);
+    const wob = readLatestNumber(['wob'], ['weightOnBit', 'weight_on_bit', 'wob']) ?? hookLoad;
+    const rpm = readLatestNumber(['rpm'], ['rotationSpeed', 'rotation_speed', 'rotarySpeed', 'rotary_speed', 'downholeRpm', 'downhole_rpm', 'rpm']);
+    const flowIn = readLatestNumber(['flowIn'], ['flowIn', 'flow_in']);
+    const flowOut = readLatestNumber(['flowOut'], ['flowOut', 'flow_out']);
+    const mudWeight = readLatestNumber(['mudWeight'], ['mudWeight', 'mud_weight']);
+    const ecd = readLatestNumber(['ecd'], ['ecd']);
+    const shock = readLatestNumber(['shock'], ['shock']);
+    const vibration = readLatestNumber(['vibration'], ['vibration']);
+    const toolface = readLatestNumber(
+      ['mtf', 'gtf', 'toolface'],
+      ['magneticToolface', 'magnetic_toolface', 'gravityToolface', 'gravity_toolface', 'toolface']
+    );
+    const pressure = readLatestNumber(
+      ['mwdPressure', 'annularPressure', 'spp'],
+      ['mwdPressure', 'mwd_pressure', 'annularPressure', 'annular_pressure', 'standpipePressure', 'standpipe_pressure', 'pressure']
+    );
 
     return [
-      { label: 'Inclination', value: inclination.toFixed(2), unit: 'deg', status: getStatusForParameter('inc', inclination) },
-      { label: 'Azimuth', value: azimuth.toFixed(2), unit: 'deg', status: getStatusForParameter('azi', azimuth) },
-      { label: 'Dip Angle', value: (inclination * 1.78).toFixed(1), unit: 'deg', placeholder: true },
-      { label: 'G Total', value: (1 + Math.abs(gravity - (toolfaceData.targetAngle ?? 180)) / 1000).toFixed(4), unit: 'g', placeholder: true },
-      { label: 'Magnetic Field', value: (58 + azimuth / 1000).toFixed(4), unit: 'uT', placeholder: true },
-      { label: 'Gas Avg', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
-      { label: 'Gamma', value: gamma.toFixed(0), unit: 'API', status: getStatusForParameter('gamma', gamma) },
-      { label: 'Confidence', value: `${Math.max(82, 98 - activeAlarms.length * 4).toFixed(0)}%`, unit: '', placeholder: true },
-      { label: 'WOB', value: wob.toFixed(1), unit: kpiData.wob.unit, status: getStatusForParameter('wob', wob) },
-      { label: 'Gamma Depth', value: formatDepthPrecise(gammaDepth), unit: depthUnit, status: getStatusForParameter('gammaDepth', gammaDepth), placeholder: true },
-      { label: 'Pulse Amp', value: pulseAmp.toFixed(2), unit: 'amp', status: getStatusForParameter('pulseAmp', pulseAmp), placeholder: true },
-      { label: 'Gas', value: (gamma * 0.73).toFixed(1), unit: 'unit', placeholder: true },
-      { label: 'Bit Depth', value: formatDepthPrecise(bitDepth), unit: depthUnit, status: getStatusForParameter('bitDepth', bitDepth), placeholder: true },
-      { label: 'Decoder Pressure', value: decoderPressure.toFixed(1), unit: 'psi', status: getStatusForParameter('decoderPressure', decoderPressure), placeholder: true },
-      { label: 'Pumps Up', value: flowRate > 0 ? 'Yes' : 'No', unit: '', placeholder: true },
-      { label: 'Hole Depth', value: formatDepthPrecise(currentDepth), unit: depthUnit, status: getStatusForParameter('holeDepth', currentDepth) },
-      { label: 'Pump Pressure', value: standpipePressure.toFixed(1), unit: 'psi', status: getStatusForParameter('pumpPressure', standpipePressure) },
-      { label: 'Pumps Down', value: flowRate < 50 ? 'Yes' : 'No', unit: '', placeholder: true },
-      { label: 'ROP', value: formatRop(rop), unit: ropUnit, status: getStatusForParameter('rop', rop) },
-      { label: 'Gravity', value: gravity.toFixed(1), unit: 'deg', status: getStatusForParameter('gravity', gravity) },
-      { label: 'Mud Weight', value: mudWeight.toFixed(2), unit: kpiData.mudWeight.unit, status: getStatusForParameter('mudweight', mudWeight) },
-      { label: 'Temp', value: temperature.toFixed(1), unit: kpiData.temperature.unit, status: getStatusForParameter('temp', temperature) },
-      { label: 'RPM', value: rpm.toFixed(0), unit: kpiData.rpm.unit, status: getStatusForParameter('rpm', rpm) },
-      { label: 'Decoder Pressure', value: decoderPressure.toFixed(1), unit: 'psi', status: getStatusForParameter('decoderPressure', decoderPressure), placeholder: true },
-      { label: 'Vib (ax.lat)', value: vibration.toFixed(2), unit: 'g', status: getStatusForParameter('vibration', vibration), placeholder: true },
-      { label: 'RPM Downhole', value: rpmDownhole.toFixed(1), unit: 'rpm', status: getStatusForParameter('rpmDownhole', rpmDownhole), placeholder: true },
-      { label: 'SSI', value: (0.82 + gamma / 260).toFixed(2), unit: '', placeholder: true },
-      { label: 'Diff Pressure', value: diffPressure.toFixed(1), unit: 'psi', status: getStatusForParameter('diffPressure', diffPressure), placeholder: true },
-      { label: 'ECD TVD Survey Base', value: ecdTvdSurveyBase.toFixed(2), unit: 'ppg', status: getStatusForParameter('ecdTvdSurveyBase', ecdTvdSurveyBase), placeholder: true },
-      { label: 'TVD', value: formatDepthPrecise(tvd), unit: depthUnit, status: getStatusForParameter('tvd', tvd), placeholder: true },
+      { label: 'Inclination', value: formatNumber(inclination, 2), unit: 'deg', status: getStatusForParameter('inc', inclination) },
+      { label: 'Azimuth', value: formatNumber(azimuth, 2), unit: 'deg', status: getStatusForParameter('azi', azimuth) },
+      { label: 'Gamma', value: formatNumber(gamma, 0), unit: 'API', status: getStatusForParameter('gamma', gamma) },
+      { label: 'Bit Depth', value: formatDepthValue(bitDepth), unit: depthUnit, status: getStatusForParameter('bitDepth', bitDepth) },
+      { label: 'Hole Depth', value: formatDepthValue(holeDepth), unit: depthUnit, status: getStatusForParameter('holeDepth', holeDepth) },
+      { label: 'Pump Pressure', value: formatNumber(pumpPressure, 1), unit: 'psi', status: getStatusForParameter('pumpPressure', pumpPressure) },
+      { label: 'Decoder Pressure', value: formatNumber(decoderPressure, 1), unit: 'psi', status: getStatusForParameter('decoderPressure', decoderPressure) },
+      { label: 'Battery', value: formatNumber(batteryVoltage, 1), unit: 'V', status: getStatusForParameter('batteryVoltage', batteryVoltage) },
+      { label: 'Temperature', value: formatNumber(temperature, 1), unit: 'degF', status: getStatusForParameter('temp', temperature) },
+      { label: 'ROP', value: formatRopValue(rop), unit: ropUnit, status: getStatusForParameter('rop', rop) },
+      { label: 'Hook Load', value: formatNumber(hookLoad, 1), unit: 'klbs', status: getStatusForParameter('hookLoad', hookLoad) },
+      { label: 'WOB', value: formatNumber(wob, 1), unit: 'klbs', status: getStatusForParameter('wob', wob) },
+      { label: 'RPM', value: formatNumber(rpm, 1), unit: 'rpm', status: getStatusForParameter('rpm', rpm) },
+      { label: 'Flow In', value: formatNumber(flowIn, 1), unit: 'gpm', status: getStatusForParameter('flowIn', flowIn) },
+      { label: 'Flow Out', value: formatNumber(flowOut, 1), unit: 'gpm', status: getStatusForParameter('flowOut', flowOut) },
+      { label: 'Mud Weight', value: formatNumber(mudWeight, 2), unit: 'ppg', status: getStatusForParameter('mudweight', mudWeight) },
+      { label: 'ECD', value: formatNumber(ecd, 2), unit: 'ppg', status: getStatusForParameter('ecd', ecd) },
+      { label: 'Shock', value: formatNumber(shock, 2), unit: 'g', status: getStatusForParameter('shock', shock) },
+      { label: 'Vibration', value: formatNumber(vibration, 2), unit: 'g', status: getStatusForParameter('vibration', vibration) },
+      { label: 'Toolface', value: formatNumber(toolface, 1), unit: 'deg', status: getStatusForParameter('toolface', toolface) },
+      { label: 'Pressure', value: formatNumber(pressure, 1), unit: 'psi', status: getStatusForParameter('pressure', pressure) },
     ];
   }, [
-    activeAlarms.length,
-    activeWell?.activeJob?.currentDepth,
     depthUnit,
     formatDepthPrecise,
     formatRop,
-    kpiData,
+    latestMwdDataRecord,
     ropUnit,
     thresholdByParameter,
-    toolfaceData.angle,
-    toolfaceData.targetAngle,
   ]);
 
-  const getKeyParameterTone = (status?: 'normal' | 'warning' | 'critical') => {
+  const getKeyParameterTone = (status?: ParameterStatus) => {
     switch (status) {
+      case 'normal':
+        return {
+          card: 'border-border/80 bg-background/90',
+          value: 'text-foreground',
+          accent: 'bg-emerald-500',
+        };
       case 'warning':
         return {
           card: 'border-yellow-500/40 bg-yellow-50/70 dark:border-yellow-500/35 dark:bg-yellow-500/10',
@@ -305,9 +393,9 @@ export const DashboardPage: React.FC = () => {
         };
       default:
         return {
-          card: 'border-border/80 bg-background/90',
-          value: 'text-foreground',
-          accent: 'bg-emerald-500',
+          card: 'border-border/70 bg-muted/25',
+          value: 'text-muted-foreground',
+          accent: 'bg-muted-foreground/35',
         };
     }
   };
@@ -360,154 +448,181 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className={cn(isCompact ? 'space-y-3' : 'space-y-4')}>
       <div>
-        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold sm:text-3xl">Real-time Dashboard</h1>
-            <p className="text-muted-foreground">
-              {activeWellName} - {activeJobName}
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-              <Select
-                value={activeMwdSessionId}
-                onValueChange={setActiveMwdSessionId}
-                disabled={mwdSessionsLoading || mwdSessions.length === 0}
-              >
-                <SelectTrigger className="h-8 w-full min-w-[220px] bg-background/90 text-xs sm:w-[260px]">
-                  <SelectValue
-                    placeholder={mwdSessionsLoading ? "Loading sessions..." : "No backend sessions"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {mwdSessions.map((session) => (
-                    <SelectItem key={session.id} value={session.id}>
-                      {session.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => void refreshMwdSessions()}
-                disabled={mwdSessionsLoading}
-                title="Refresh MWD sessions"
-              >
-                <RefreshCw className={cn("size-3.5", mwdSessionsLoading && "animate-spin")} />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void refreshMwdData()}
-                disabled={mwdDataLoading}
-                title="Refresh MWD data"
-              >
-                <RefreshCw className={cn("mr-1 size-3.5", mwdDataLoading && "animate-spin")} />
-                Data
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => {
-                  void refreshWitsDataValues();
-                  void refreshWitsAlarms();
-                }}
-                disabled={witsDataValuesLoading || witsAlarmsLoading}
-                title="Refresh WITS values and alarms"
-              >
-                <RefreshCw
-                  className={cn(
-                    "mr-1 size-3.5",
-                    (witsDataValuesLoading || witsAlarmsLoading) && "animate-spin"
-                  )}
-                />
-                WITS
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void loadDepthTrackingState()}
-                disabled={depthTrackingLoading || !token}
-                title="Refresh depth tracking state"
-              >
-                <RefreshCw className={cn("mr-1 size-3.5", depthTrackingLoading && "animate-spin")} />
-                DTS
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => {
-                  void refreshConnectionStatus();
-                  void refreshFailoverEvents();
-                }}
-                disabled={connectionStatusLoading || failoverEventsLoading}
-                title="Refresh connection status and failover events"
-              >
-                <RefreshCw
-                  className={cn(
-                    "mr-1 size-3.5",
-                    (connectionStatusLoading || failoverEventsLoading) && "animate-spin"
-                  )}
-                />
-                Link
-              </Button>
+        <div className="mb-3 space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-bold sm:text-3xl">Real-time Dashboard</h1>
+              <p className="text-muted-foreground">
+                {activeWellName} - {activeJobName}
+              </p>
             </div>
+            <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => {
+                    void refreshMwdSessions();
+                    void refreshMwdData();
+                    void refreshWitsDataValues();
+                    void refreshWitsConfig();
+                    void refreshWitsAlarms();
+                    void loadDepthTrackingState();
+                    void refreshConnectionStatus();
+                    void refreshFailoverEvents();
+                    void refreshSerialStatus();
+                    void refreshEspWsStatus();
+                  }}
+                  disabled={
+                    mwdSessionsLoading ||
+                    mwdDataLoading ||
+                    witsDataValuesLoading ||
+                    witsConfigLoading ||
+                    witsAlarmsLoading ||
+                    depthTrackingLoading ||
+                    connectionStatusLoading ||
+                    failoverEventsLoading ||
+                    serialStatusLoading ||
+                    espWsStatusLoading
+                  }
+                  title="Refresh all dashboard data and connection health"
+                >
+                  <RefreshCw
+                    className={cn(
+                      "mr-1.5 size-3.5",
+                      (mwdSessionsLoading ||
+                        mwdDataLoading ||
+                        witsDataValuesLoading ||
+                        witsConfigLoading ||
+                        witsAlarmsLoading ||
+                        depthTrackingLoading ||
+                        connectionStatusLoading ||
+                        failoverEventsLoading ||
+                        serialStatusLoading ||
+                        espWsStatusLoading) &&
+                        "animate-spin"
+                    )}
+                  />
+                  Refresh All
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs">
+                      <SlidersHorizontal className="mr-1 size-3.5" />
+                      Options
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Granular refresh</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => void refreshMwdData()} disabled={mwdDataLoading}>
+                      Refresh Data
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        void refreshWitsDataValues();
+                        void refreshWitsConfig();
+                        void refreshWitsAlarms();
+                      }}
+                      disabled={witsDataValuesLoading || witsConfigLoading || witsAlarmsLoading}
+                    >
+                      Refresh WITS
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void loadDepthTrackingState()} disabled={depthTrackingLoading || !token}>
+                      Refresh DTS
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        void refreshConnectionStatus();
+                        void refreshFailoverEvents();
+                        void refreshSerialStatus();
+                        void refreshEspWsStatus();
+                      }}
+                      disabled={connectionStatusLoading || failoverEventsLoading || serialStatusLoading || espWsStatusLoading}
+                    >
+                      Refresh Link
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
+              <TrendingUp className="size-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium uppercase text-muted-foreground">Depth</span>
+              <span className="text-sm font-semibold leading-none">
+                {formatDepth(activeWell?.activeJob?.currentDepth ?? 0)} {depthUnit}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Target {formatDepth(activeWell?.activeJob?.targetDepth ?? 0)} {depthUnit}
+              </span>
+            </div>
+            {dashboardHealthItems.map((item) => (
+              <div
+                key={item.label}
+                className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2"
+              >
+                <span className="text-xs font-medium uppercase text-muted-foreground">{item.label}</span>
+                <Badge variant={item.tone} className="max-w-[150px] truncate text-[11px] capitalize">
+                  {item.value}
+                </Badge>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
             {mwdSessionsError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                Session API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {mwdDataError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                MWD data API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {witsDataValuesError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                WITS values API unavailable
+                Gagal memuat data dari backend.
+              </Badge>
+            ) : null}
+            {witsConfigError ? (
+              <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {witsAlarmsError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                WITS alarms API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {depthTrackingError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                Depth tracking API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {connectionStatusError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                Connection status API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
             {failoverEventsError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                Failover events API unavailable
+                Gagal memuat data dari backend.
               </Badge>
             ) : null}
-            <Badge variant="secondary" className="w-fit max-w-full text-xs sm:text-sm">
-              <TrendingUp className="mr-1 size-4" />
-              Depth: {formatDepth(activeWell?.activeJob?.currentDepth ?? 0)} / {formatDepth(activeWell?.activeJob?.targetDepth ?? 0)} {depthUnit}
-            </Badge>
-            <Badge
-              variant={depthTrackingError ? "destructive" : "outline"}
-              className="w-fit max-w-full text-xs sm:text-sm"
-            >
-              DTS: {depthTrackingLabel}
-            </Badge>
+            {serialStatusError ? (
+              <Badge variant="outline" className="w-fit max-w-full text-[10px] sm:text-xs">
+                Serial status unavailable
+              </Badge>
+            ) : null}
+            {espWsStatusError ? (
+              <Badge variant="outline" className="w-fit max-w-full text-[10px] sm:text-xs">
+                ESP WS status unavailable
+              </Badge>
+            ) : null}
           </div>
         </div>
       </div>
@@ -589,6 +704,60 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
+      {hasNoMwdData && (
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertDescription>
+            Belum ada data MWD untuk session ini. KPI card tetap ditampilkan dengan status No Data sampai backend mengirim nilai.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {shouldBlockDashboard ? (
+        <Card className="rounded-2xl p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">
+                {startupError
+                  ? "Gagal memuat data dari backend."
+                  : hasNoSessions
+                    ? "Belum ada job/session. Buat session baru untuk mulai monitoring."
+                    : "Belum ada data MWD untuk session ini."}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                {startupError
+                  ? "Detail teknis tersedia di console saat development."
+                  : hasNoSessions
+                    ? "Buat atau pilih job/session dari backend sebelum membuka dashboard."
+                    : "Session sudah dipilih, tetapi /api/mwd-data belum mengembalikan data untuk session ini."}
+              </p>
+              {startupLoading ? (
+                <Badge variant="outline" className="mt-4">
+                  Loading startup data
+                </Badge>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => void refreshMwdSessions()} disabled={mwdSessionsLoading}>
+                <RefreshCw className={cn("mr-2 size-4", mwdSessionsLoading && "animate-spin")} />
+                Sessions
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void refreshWitsConfig();
+                  void refreshMwdData();
+                }}
+                disabled={!activeMwdSessionId || witsConfigLoading || mwdDataLoading}
+              >
+                <RefreshCw className={cn("mr-2 size-4", (witsConfigLoading || mwdDataLoading) && "animate-spin")} />
+                Retry Data
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <>
       <div
         className={cn(
           'grid',
@@ -791,6 +960,8 @@ export const DashboardPage: React.FC = () => {
             </Button>
           </div>
         </Card>
+      )}
+        </>
       )}
     </div>
   );

@@ -12,9 +12,15 @@ import { LogDataRecord } from "@/types/monitoring";
 
 const existingReservedWitsIds = new Set(["0110", "0113", "0121", "0130", "0713", "0714", "0716", "0717", "0823", "0824", "0836", "0921"]);
 const badMemoryIdExamples = new Set(["0126", "0166", "0855"]);
+let localIdCounter = 0;
 
 function makeId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  localIdCounter += 1;
+  return `${prefix}-${Date.now()}-${localIdCounter}`;
 }
 
 export function validateMemoryWitsId(witsId: string, channels: MemoryStorageChannel[]): string | null {
@@ -39,7 +45,7 @@ export function createMemoryStorageChannel(input: Omit<MemoryStorageChannel, "id
     ...input,
     id: makeId("memory-channel"),
     createdAt: new Date().toISOString(),
-    source: "mock-local",
+    source: "local-ui",
   };
 }
 
@@ -99,27 +105,6 @@ function dateValue(value: string | undefined, fallbackIndex: number): string {
   return new Date(Date.now() - (120 - fallbackIndex) * 60_000).toISOString();
 }
 
-function buildMockRows(fileName: string): MemoryImportRow[] {
-  return Array.from({ length: 54 }, (_, index) => {
-    const runBreak = index > 28 ? 210 : 0;
-    const timestamp = new Date(Date.now() - (80 - index) * 60_000 + runBreak * 60_000).toISOString();
-    const depth = 3820 + index * 1.6 + (index > 28 ? 12 : 0);
-    const value = 92 + Math.sin(index / 4) * 8 + index * 0.16;
-
-    return {
-      timestamp,
-      depth: Number(depth.toFixed(2)),
-      value: Number(value.toFixed(3)),
-      raw: {
-        time: timestamp,
-        depth: depth.toFixed(2),
-        gamma: value.toFixed(3),
-        source_file: fileName,
-      },
-    };
-  });
-}
-
 function buildSegments(rows: MemoryImportRow[], fieldName: string): MemoryImportSegment[] {
   if (rows.length === 0) return [];
 
@@ -167,17 +152,16 @@ export function parseMemoryCsv(fileName: string, text: string): MemoryImportFile
     .filter(Boolean);
 
   if (lines.length < 2) {
-    const rows = buildMockRows(fileName);
-    const segments = buildSegments(rows, "gamma");
+    const uploadedAt = new Date().toISOString();
     return {
       id: makeId("memory-file"),
       fileName,
-      uploadedAt: new Date().toISOString(),
-      detectedFields: ["time", "depth", "gamma"],
-      totalRows: rows.length,
-      detectedTimeSpan: { start: segments[0].startTime, end: segments[segments.length - 1].endTime },
-      segments,
-      parserMode: "mock-fallback",
+      uploadedAt,
+      detectedFields: [],
+      totalRows: 0,
+      detectedTimeSpan: { start: uploadedAt, end: uploadedAt },
+      segments: [],
+      parserMode: "csv-basic",
     };
   }
 
@@ -211,21 +195,20 @@ export function parseMemoryCsv(fileName: string, text: string): MemoryImportFile
     ];
   });
 
-  const parsedRows = rows.length > 0 ? rows : buildMockRows(fileName);
-  const segments = buildSegments(parsedRows, valueHeader ?? "value");
+  const segments = buildSegments(rows, valueHeader ?? "value");
 
   return {
     id: makeId("memory-file"),
     fileName,
     uploadedAt: new Date().toISOString(),
     detectedFields: headers.length > 0 ? headers : ["time", "depth", "value"],
-    totalRows: parsedRows.length,
+    totalRows: rows.length,
     detectedTimeSpan: {
       start: segments[0]?.startTime ?? new Date().toISOString(),
       end: segments[segments.length - 1]?.endTime ?? new Date().toISOString(),
     },
     segments,
-    parserMode: rows.length > 0 ? "csv-basic" : "mock-fallback",
+    parserMode: "csv-basic",
   };
 }
 

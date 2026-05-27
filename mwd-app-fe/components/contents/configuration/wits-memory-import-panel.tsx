@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, ComponentType, useMemo, useState } from "react";
-import { ArrowDownUp, Copy, FileSearch, FileUp, GitCompare, RotateCcw, Scale } from "lucide-react";
+import { ArrowDownUp, Copy, FileSearch, FileUp, GitCompare, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,6 @@ import {
   importMemorySegment,
   parseMemoryCsv,
 } from "@/lib/memory-import";
-import { mockLogDataRecords } from "@/data/monitoring-data";
 import {
   GapFillRequest,
   ImportedMemoryDataset,
@@ -138,10 +137,7 @@ export function WitsMemoryImportPanel({
   const selectedSegment = memoryFile?.segments.find((segment) => segment.id === selectedSegmentId) ?? null;
   const witsDatasets = datasets.filter((dataset) => dataset.storageWitsId === storageChannel.witsId);
   const activeDataset = witsDatasets.find((dataset) => dataset.id === activeDatasetId) ?? witsDatasets[0] ?? null;
-  const compareRows = useMemo(
-    () => buildCompareRows(activeDataset, mockLogDataRecords.filter((record) => record.witsId === gapTargetWitsId && !record.hidden)),
-    [activeDataset, gapTargetWitsId]
-  );
+  const compareRows = useMemo(() => buildCompareRows(activeDataset, []), [activeDataset]);
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -158,14 +154,6 @@ export function WitsMemoryImportPanel({
     } finally {
       event.target.value = "";
     }
-  };
-
-  const loadMockFile = () => {
-    const parsed = parseMemoryCsv("vendor-memory-export-demo.csv", "");
-    setMemoryFile(parsed);
-    setSelectedSegmentId(parsed.segments[0]?.id ?? "");
-    setSelectedFieldName(parsed.segments[0]?.fieldName ?? "gamma");
-    toast.success("Mock memory CSV scanned locally");
   };
 
   const importSelectedSegment = () => {
@@ -280,10 +268,6 @@ export function WitsMemoryImportPanel({
               </div>
               <div className="mt-4 space-y-3">
                 <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} disabled={!activeWitsRecord.useForMemoryImportStorage} />
-                <Button variant="outline" onClick={loadMockFile}>
-                  <RotateCcw className="mr-2 size-4" />
-                  Load mock vendor CSV
-                </Button>
                 <PlaceholderNote>
                   Parser and imported storage are browser local state. No production backend write is performed.
                 </PlaceholderNote>
@@ -305,7 +289,7 @@ export function WitsMemoryImportPanel({
                   <SummaryTile label="End" value={formatDateTime(memoryFile.detectedTimeSpan.end)} />
                 </div>
               ) : (
-                <div className="mt-4 rounded-lg border border-dashed p-5 text-sm text-muted-foreground">No memory file scanned for this WITS ID.</div>
+                <div className="mt-4 rounded-lg border border-dashed p-5 text-sm text-muted-foreground">Belum ada memory file.</div>
               )}
             </Card>
           </div>

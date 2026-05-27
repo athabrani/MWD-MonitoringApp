@@ -16,7 +16,11 @@ export type MwdSessionStatus = "active" | "paused" | "completed" | "unknown" | s
 export type MwdSessionListItem = {
   id: string;
   name: string;
+  sessionCode?: string;
   wellName?: string;
+  rigName?: string;
+  company?: string;
+  jobNumber?: string;
   jobName?: string;
   runNumber?: string;
   status: MwdSessionStatus;
@@ -83,9 +87,13 @@ function normalizeBackendMwdSession(session: BackendMwdSession): MwdSessionListI
   if (!id) return null;
 
   const wellName = readString(session, ["wellName", "well", "well_name"]);
+  const sessionCode = readString(session, ["sessionCode", "session_code", "code"]);
+  const rigName = readString(session, ["rigName", "rig_name", "rig"]);
+  const company = readString(session, ["company", "companyName", "company_name", "client"]);
+  const jobNumber = readString(session, ["jobNumber", "job_number", "jobNo", "job_no"]);
   const jobName = readString(session, ["jobName", "job", "job_name"]);
   const runNumber = readString(session, ["runNumber", "runNo", "run", "run_number"]);
-  const fallbackName = [wellName, jobName, runNumber ? `Run ${runNumber}` : undefined]
+  const fallbackName = [sessionCode, wellName, rigName, company, jobNumber]
     .filter(Boolean)
     .join(" / ");
 
@@ -95,7 +103,11 @@ function normalizeBackendMwdSession(session: BackendMwdSession): MwdSessionListI
       readString(session, ["name", "sessionName", "title", "session_name"]) ||
       fallbackName ||
       `MWD Session ${id}`,
+    sessionCode,
     wellName,
+    rigName,
+    company,
+    jobNumber,
     jobName,
     runNumber,
     status: readString(session, ["status", "state"]) || "unknown",

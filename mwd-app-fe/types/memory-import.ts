@@ -8,7 +8,7 @@ export interface MemoryStorageChannel {
   sensorSpacing: number;
   plotScaleInfo: string;
   createdAt: string;
-  source: "mock-local" | "configuration";
+  source: "local-ui" | "configuration";
 }
 
 export interface WitsIdStorageChannel extends MemoryStorageChannel {
@@ -52,7 +52,7 @@ export interface MemoryImportFile {
     end: string;
   };
   segments: MemoryImportSegment[];
-  parserMode: "csv-basic" | "mock-fallback";
+  parserMode: "csv-basic";
 }
 
 export interface ImportedMemorySample {

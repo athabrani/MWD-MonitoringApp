@@ -12,15 +12,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Bell, Eye, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockKPIData } from '@/data/mock-data';
+import { buildDefaultDashboardThresholds, dashboardThresholdDefinitions } from '@/lib/dashboard-thresholds';
 
 export const SettingsScreen: React.FC = () => {
   const { settings, updateSettings } = useApp();
-  const [thresholds, setThresholds] = useState<any>({
-    rop: { warning: 10, critical: 5 },
-    wob: { warning: 25, critical: 30 },
-    flowrate: { warning: 850, critical: 800 }
-  });
+  const [thresholds, setThresholds] = useState(() => buildDefaultDashboardThresholds());
 
   const handleSaveThresholds = () => {
     toast.success('Thresholds updated successfully');
@@ -63,34 +59,62 @@ export const SettingsScreen: React.FC = () => {
             </p>
 
             <div className="space-y-6">
-              {Object.entries(mockKPIData).map(([key, param]) => (
-                <div key={key}>
-                  <Label className="text-base">{param.name}</Label>
+              {thresholds.map((threshold, index) => (
+                <div key={threshold.parameter}>
+                  {(() => {
+                    const definition = dashboardThresholdDefinitions.find((item) => item.key === threshold.parameter);
+                    const label = definition?.label ?? threshold.parameter;
+                    const unit = definition?.unit ?? "";
+
+                    return (
+                      <>
+                  <Label className="text-base">{label}</Label>
                   <div className="grid md:grid-cols-2 gap-4 mt-2">
                     <div className="space-y-2">
-                      <Label htmlFor={`${key}-warning`} className="text-sm text-muted-foreground">
-                        Warning Threshold ({param.unit})
+                      <Label htmlFor={`${threshold.parameter}-warning`} className="text-sm text-muted-foreground">
+                        Warning Threshold {unit ? `(${unit})` : ""}
                       </Label>
                       <Input
-                        id={`${key}-warning`}
+                        id={`${threshold.parameter}-warning`}
                         type="number"
-                        defaultValue={param.warningThreshold || ''}
+                        defaultValue={threshold.warning ?? ''}
                         placeholder="Enter warning value"
+                        onChange={(event) =>
+                          setThresholds((current) =>
+                            current.map((item) =>
+                              item.parameter === threshold.parameter
+                                ? { ...item, warning: Number(event.target.value) }
+                                : item
+                            )
+                          )
+                        }
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor={`${key}-critical`} className="text-sm text-muted-foreground">
-                        Critical Threshold ({param.unit})
+                      <Label htmlFor={`${threshold.parameter}-critical`} className="text-sm text-muted-foreground">
+                        Critical Threshold {unit ? `(${unit})` : ""}
                       </Label>
                       <Input
-                        id={`${key}-critical`}
+                        id={`${threshold.parameter}-critical`}
                         type="number"
-                        defaultValue={param.criticalThreshold || ''}
+                        defaultValue={threshold.critical ?? ''}
                         placeholder="Enter critical value"
+                        onChange={(event) =>
+                          setThresholds((current) =>
+                            current.map((item) =>
+                              item.parameter === threshold.parameter
+                                ? { ...item, critical: Number(event.target.value) }
+                                : item
+                            )
+                          )
+                        }
                       />
                     </div>
                   </div>
-                  {key !== 'temperature' && <Separator className="mt-6" />}
+                      </>
+                    );
+                  })()}
+                  {index < thresholds.length - 1 && <Separator className="mt-6" />}
                 </div>
               ))}
             </div>

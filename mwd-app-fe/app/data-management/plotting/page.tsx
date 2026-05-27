@@ -20,6 +20,7 @@ import { ConfirmDeleteButton } from "@/components/contents/data-management/confi
 import { DepthScalePositionEditor } from "@/components/contents/data-management/depth-scale-position-editor";
 import { MudResistivityCalculator } from "@/components/contents/data-management/mud-resistivity-calculator";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
+import { WellPlotPanel } from "@/components/well-plot-panel";
 import { useAuth } from "@/context/AuthContext";
 import { useApp } from "@/context/AppContext";
 import { Badge } from "@/components/ui/badge";
@@ -39,15 +40,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  mockPlotConfigurations,
-  mockPlotHeaderInfo,
-  mockPlotLabels,
-  mockTemplateFiles,
-  mockUploadedUserFiles,
-} from "@/data/plotting-data";
 import { ApiClientError } from "@/lib/api-client";
 import { downloadBlob, exportPdfPlot } from "@/lib/exports-api";
+import { getMwdData, mwdDataRecordsToChartData } from "@/lib/mwd-data-api";
 import {
   createPlotTemplate,
   deletePlotTemplate,
@@ -55,6 +50,7 @@ import {
   plotConfigToTemplatePayload,
   updatePlotTemplate,
 } from "@/lib/plot-templates-api";
+import { getRenderableTracksFromPlotConfig } from "@/lib/plot-track-config";
 import { cn } from "@/lib/utils";
 import {
   AzimuthalPlotSettings,
@@ -77,21 +73,84 @@ import {
   TrackScaleType,
   UploadedUserFile,
 } from "@/types/plotting";
+import { PolarisWitsId } from "@/types/polaris";
+import type { ChartDataPoint } from "@/types";
 
-const dataSources = [
-  "None",
-  "0110 - Hole depth",
-  "0713 - Inclination",
-  "0714 - Azimuth",
-  "0716 - Magnetic toolface",
-  "0717 - Gravity toolface",
-  "0824 - Gamma corrected",
-  "0836 - Temperature",
-  "0921 - Battery voltage",
-];
+const noDataSourceOption = "None";
+
+const defaultGeneralSettings: PlotGeneralSettings = {
+  headerStyle: "Standard",
+  headerPreset: "Standard",
+  fileFormat: "PDF",
+  multiPageOutput: false,
+  measuredDepthStart: 0,
+  measuredDepthEnd: 0,
+  useTvd: false,
+  endByTvd: false,
+  depthScale: "1:500",
+  majorTicInterval: 100,
+  minorTicInterval: 10,
+  stepTicInterval: 10,
+  depthCorrection: "MD",
+  surveysInTrack: false,
+  surveyReportAtEnd: false,
+  printLabels: false,
+};
+
+const emptyPlotHeaderInfo: PlotHeaderInfo = {
+  plotTitle: "",
+  userDefinedLabels: [],
+  logInformation: {
+    logMeasurements: "",
+    depthMeasuredFrom: "",
+    maxTemperature: "",
+    startDepth: 0,
+    endDepth: 0,
+    startDate: "",
+    endDate: "",
+  },
+  drillingParameters: {
+    casingDepth: 0,
+    casingSize: "",
+    mudType: "",
+    density: 0,
+    viscosity: 0,
+    rm: 0,
+    rmf: 0,
+    rmc: 0,
+    elevations: {
+      kellyBushing: 0,
+      drillFloor: 0,
+      groundLevel: 0,
+    },
+  },
+  runSummaries: [],
+};
+
+const emptyPlotConfiguration: PlotConfiguration = {
+  id: "",
+  name: "Invalid template",
+  isDefault: false,
+  header: emptyPlotHeaderInfo,
+  labels: [],
+  general: defaultGeneralSettings,
+  pdfItems: [],
+  tracks: [],
+  azimuthal: {
+    maxValue: 360,
+    imageContrast: "Static",
+    highDefinition: false,
+    colorMap: "Default",
+    slideColor: "#2563eb",
+  },
+};
 
 function uid(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}`;
 }
 
 function clonePlotConfiguration(source: PlotConfiguration, name?: string): PlotConfiguration {
@@ -127,7 +186,7 @@ function ensurePlotTracks(tracks: TrackConfig[]): TrackConfig[] {
 }
 
 function normalizePlotConfiguration(config?: PlotConfiguration | null): PlotConfiguration {
-  const fallback = mockPlotConfigurations[0];
+  const fallback = emptyPlotConfiguration;
   const general = normalizeGeneralSettings(config?.general);
   const tracks = Array.isArray(config?.tracks) ? config.tracks : fallback.tracks;
   const pdfItems = Array.isArray(config?.pdfItems) ? config.pdfItems : fallback.pdfItems;
@@ -169,8 +228,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <Label className="text-xs font-semibold text-muted-foreground">{label}</Label>
+    <div className="min-w-0 space-y-2">
+      <Label className="block text-xs font-semibold leading-snug text-muted-foreground">{label}</Label>
       {children}
     </div>
   );
@@ -187,7 +246,7 @@ function NativeSelect<T extends string>({
 }) {
   return (
     <select
-      className="h-10 w-full min-w-0 rounded-md border bg-background pl-1 pr-3 text-sm"
+      className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
       value={value}
       onChange={(event) => onChange(event.target.value as T)}
     >
@@ -210,9 +269,13 @@ function ToggleRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex h-10 items-center gap-2 whitespace-nowrap rounded-md border px-2 text-sm">
-      <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(Boolean(value))} />
-      {label}
+    <label className="flex min-h-10 min-w-0 items-start gap-2 rounded-md border px-3 py-2 text-sm leading-snug">
+      <Checkbox
+        className="mt-0.5 shrink-0"
+        checked={checked}
+        onCheckedChange={(value) => onCheckedChange(Boolean(value))}
+      />
+      <span className="min-w-0 whitespace-normal break-words">{label}</span>
     </label>
   );
 }
@@ -611,7 +674,7 @@ function inferHeaderPreset(headerStyle: string): HeaderPreset {
 }
 
 function normalizeGeneralSettings(general?: PlotGeneralSettings): NormalizedGeneralSettings {
-  const fallback = mockPlotConfigurations[0].general;
+  const fallback = defaultGeneralSettings;
   const source = {
     ...fallback,
     ...(general ?? {}),
@@ -674,12 +737,12 @@ function SettingsPanel({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="rounded-2xl p-4">
-      <div>
+    <Card className="min-w-0 rounded-2xl p-4">
+      <div className="min-w-0">
         <h3 className="text-sm font-semibold">{title}</h3>
         {description ? <p className="mt-1 text-xs text-muted-foreground">{description}</p> : null}
       </div>
-      <div className="mt-3 space-y-3">{children}</div>
+      <div className="mt-3 min-w-0 space-y-3">{children}</div>
     </Card>
   );
 }
@@ -902,8 +965,9 @@ function GeneralEditor({
         ) : null}
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px] 2xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-        <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid min-w-0 gap-4 2xl:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
           <SettingsPanel title="Header (Built-in)" description="Synchronized with the plot header system.">
             <RadioGroup
               value={general.headerPreset}
@@ -950,7 +1014,7 @@ function GeneralEditor({
           </SettingsPanel>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <SettingsPanel title="Plot Depth Range">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <Field label="Start">
@@ -966,7 +1030,7 @@ function GeneralEditor({
           </SettingsPanel>
 
           <SettingsPanel title="Depth Scale and Grid Settings">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <Field label="Scale">
                 <NativeSelect<string> value={general.grid.depthScale} options={depthScaleOptions} onChange={(depthScale) => patchGrid({ depthScale })} />
               </Field>
@@ -977,7 +1041,7 @@ function GeneralEditor({
                 <Input type="number" min={0} value={general.grid.minorTick} onChange={(event) => patchGrid({ minorTick: toNumber(event.target.value, general.grid.minorTick) })} />
               </Field>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <Field label="First data spacing">
                 <Input type="number" min={0} value={general.grid.firstDataSpacing} onChange={(event) => patchGrid({ firstDataSpacing: toNumber(event.target.value, general.grid.firstDataSpacing) })} />
               </Field>
@@ -1003,7 +1067,7 @@ function GeneralEditor({
             </RadioGroup>
           </SettingsPanel>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4">
             <SettingsPanel title="Azimuthal Configuration">
               <Field label="Slide detection (no data)">
                 <Input type="number" min={0} value={general.azimuthal.slideDetectionNoData} onChange={(event) => patchAzimuthal({ slideDetectionNoData: toNumber(event.target.value, general.azimuthal.slideDetectionNoData) })} />
@@ -1014,15 +1078,19 @@ function GeneralEditor({
               <Field label={`Surveys in track (0-${activeTrackCount})`}>
                 <Input type="number" min={0} max={activeTrackCount} value={general.surveys.trackIndex} onChange={(event) => patchSurveys({ trackIndex: toNumber(event.target.value, general.surveys.trackIndex) })} />
               </Field>
-              <ToggleRow label="Include PTB" checked={general.surveys.includePtb} onCheckedChange={(includePtb) => patchSurveys({ includePtb })} />
-              <ToggleRow label="Print Labels" checked={general.surveys.printLabels} onCheckedChange={(printLabels) => patchSurveys({ printLabels })} />
-              <ToggleRow label="Transparent Background" checked={general.surveys.transparentBackground} onCheckedChange={(transparentBackground) => patchSurveys({ transparentBackground })} />
-              <ToggleRow label="Survey Report at end of plot" checked={general.surveys.reportAtEnd} onCheckedChange={(reportAtEnd) => patchSurveys({ reportAtEnd })} />
+              <div className="grid gap-2 lg:grid-cols-2">
+                <ToggleRow label="Include PTB" checked={general.surveys.includePtb} onCheckedChange={(includePtb) => patchSurveys({ includePtb })} />
+                <ToggleRow label="Print Labels" checked={general.surveys.printLabels} onCheckedChange={(printLabels) => patchSurveys({ printLabels })} />
+                <ToggleRow label="Transparent Background" checked={general.surveys.transparentBackground} onCheckedChange={(transparentBackground) => patchSurveys({ transparentBackground })} />
+                <ToggleRow label="Survey Report at end of plot" checked={general.surveys.reportAtEnd} onCheckedChange={(reportAtEnd) => patchSurveys({ reportAtEnd })} />
+              </div>
             </SettingsPanel>
           </div>
         </div>
 
-        <div className="space-y-4">
+        </div>
+
+        <div className="min-w-0 space-y-4 xl:sticky xl:top-4">
           <PlotLayoutPreview config={config} general={general} onLayoutChange={patchLayout} />
         </div>
       </div>
@@ -1122,9 +1190,13 @@ function PdfBuilder({
 function TrackFormattingEditor({
   tracks,
   onTracksChange,
+  curveDataSources,
+  witsConfig,
 }: {
   tracks: TrackConfig[];
   onTracksChange: (tracks: TrackConfig[]) => void;
+  curveDataSources: string[];
+  witsConfig: PolarisWitsId[];
 }) {
   const normalizedTracks = useMemo(() => ensurePlotTracks(tracks), [tracks]);
   const [editingCurve, setEditingCurve] = useState<{ trackId: string; curveId: string } | null>(null);
@@ -1144,6 +1216,12 @@ function TrackFormattingEditor({
         ?.curves.find((curve) => curve.id === editingCurve.curveId) ?? null
     : null;
   const activeTrack = editingCurve ? normalizedTracks.find((track) => track.id === editingCurve.trackId) ?? null : null;
+  const getWitsConfigForDataSource = (source: string) => {
+    const witsId = source.split(" - ")[0]?.trim();
+    if (!witsId || !/^\d+$/.test(witsId)) return undefined;
+
+    return witsConfig.find((item) => String(item.numericId).padStart(4, "0") === witsId.padStart(4, "0"));
+  };
   const trackOptions = normalizedTracks.map((track, index) => ({ track, value: `track-${index + 1}` }));
   const enabledTrackCount = normalizedTracks.filter((track) => track.curves.some((curve) => curve.dataSource !== "None")).length;
   const addTrack = () => {
@@ -1303,13 +1381,31 @@ function TrackFormattingEditor({
                 <select
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
                   value={activeCurve.dataSource}
-                  onChange={(event) => patchCurve(activeTrack.id, activeCurve.id, { dataSource: event.target.value })}
+                  onChange={(event) => {
+                    const nextSource = event.target.value;
+                    const nextWitsConfig = getWitsConfigForDataSource(nextSource);
+                    patchCurve(activeTrack.id, activeCurve.id, {
+                      dataSource: nextSource,
+                      ...(nextWitsConfig
+                        ? {
+                            lineColor: nextWitsConfig.lineColor || activeCurve.lineColor,
+                            wrapColor: nextWitsConfig.wrapColor || activeCurve.wrapColor,
+                            scale: `${nextWitsConfig.leftScale}-${nextWitsConfig.rightScale}`,
+                          }
+                        : {}),
+                    });
+                  }}
                 >
-                  {dataSources.map((source) => (
+                  {Array.from(new Set([activeCurve.dataSource, ...curveDataSources].filter(Boolean))).map((source) => (
                     <option key={source} value={source}>
                       {source}
                     </option>
                   ))}
+                  {witsConfig.length === 0 ? (
+                    <option value="__empty_wits_config" disabled>
+                      Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.
+                    </option>
+                  ) : null}
                 </select>
               </Field>
               <Field label="Scale Left">
@@ -1431,14 +1527,22 @@ export default function PlottingPage({
     plotTemplatesLoading,
     plotTemplatesError,
     refreshPlotTemplates,
+    witsConfig,
+    witsConfigLoading,
+    witsConfigError,
+    refreshWitsConfig,
   } = useApp();
-  const [header, setHeader] = useState<PlotHeaderInfo>(mockPlotHeaderInfo);
-  const [plotLabels, setPlotLabels] = useState<PlotLabel[]>(mockPlotLabels);
-  const [templates, setTemplates] = useState<TemplateFile[]>(mockTemplateFiles);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedUserFile[]>(mockUploadedUserFiles);
+  const [header, setHeader] = useState<PlotHeaderInfo>(emptyPlotHeaderInfo);
+  const [plotLabels, setPlotLabels] = useState<PlotLabel[]>([]);
+  const [templates, setTemplates] = useState<TemplateFile[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedUserFile[]>([]);
   const [depthPositions, setDepthPositions] = useState<DepthScalePosition[]>([]);
   const [plottingView, setPlottingView] = useState<"landing" | "editor">("landing");
   const [previewConfig, setPreviewConfig] = useState<PlotConfiguration | null>(null);
+  const [previewChartData, setPreviewChartData] = useState<ChartDataPoint[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [pdfExportError, setPdfExportError] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editorTab, setEditorTab] = useState("general");
   const [draftConfigName, setDraftConfigName] = useState("Client Plot Configuration");
@@ -1462,7 +1566,21 @@ export default function PlottingPage({
     () => normalizedActivePlotConfig ?? configs.find((config) => config.id === activePlotConfigId) ?? configs[0],
     [activePlotConfigId, configs, normalizedActivePlotConfig]
   );
-
+  const curveDataSources = useMemo(
+    () => [
+      noDataSourceOption,
+      ...witsConfig
+        .filter((item) => item.enabled)
+        .sort((left, right) => left.numericId - right.numericId)
+        .map((item) => {
+          const witsId = String(item.numericId).padStart(4, "0");
+          const label = item.mappedField || item.name || item.lasMnemonic || "Unnamed";
+          const unit = item.units ? ` (${item.units})` : "";
+          return `${witsId} - ${label}${unit}`;
+        }),
+    ],
+    [witsConfig]
+  );
   const updateActiveConfig = (patch: Partial<PlotConfiguration>) => {
     if (!activeConfig) return;
     setConfigs((current) => current.map((config) => (config.id === activeConfig.id ? { ...config, ...patch } : config)));
@@ -1508,9 +1626,7 @@ export default function PlottingPage({
     }
 
     if (!token) {
-      setConfigs((current) => [savableConfig, ...current]);
-      selectConfig(savableConfig);
-      toast.success(`${successMessage} locally`);
+      toast.error("Please sign in before creating plot templates.");
       return;
     }
 
@@ -1519,16 +1635,15 @@ export default function PlottingPage({
     try {
       const savedTemplate = await createPlotTemplate(token, plotConfigToTemplatePayload(savableConfig));
       const savedConfig = savedTemplate.plotConfig ?? savableConfig;
-      setConfigs((current) => [savedConfig, ...current.filter((item) => item.id !== savableConfig.id)]);
+      await refreshPlotTemplates();
+      setActivePlotConfigId(savedConfig.id);
       selectConfig(savedConfig);
       toast.success(successMessage);
     } catch (error) {
-      setConfigs((current) => [savableConfig, ...current]);
-      selectConfig(savableConfig);
       toast.error(
         error instanceof Error
-          ? `Backend create failed. Kept local configuration. ${error.message}`
-          : "Backend create failed. Kept local configuration."
+          ? `Backend create failed. ${error.message}`
+          : "Backend create failed."
       );
     } finally {
       setSavingConfigId("");
@@ -1545,7 +1660,7 @@ export default function PlottingPage({
     }
 
     if (!token) {
-      toast.success("Plot configuration saved to local shared plotting state");
+      toast.error("Please sign in before saving plot templates.");
       return;
     }
 
@@ -1557,14 +1672,18 @@ export default function PlottingPage({
         ? await updatePlotTemplate(token, savableConfig.id, payload)
         : await createPlotTemplate(token, payload);
       const savedConfig = savedTemplate.plotConfig ?? savableConfig;
-      replaceConfig(savableConfig.id, savedConfig);
+      await refreshPlotTemplates();
+      setActivePlotConfigId(savedConfig.id);
+      selectConfig(savedConfig);
       toast.success("Plot configuration saved");
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 404) {
         try {
           const savedTemplate = await createPlotTemplate(token, plotConfigToTemplatePayload(savableConfig));
           const savedConfig = savedTemplate.plotConfig ?? savableConfig;
-          replaceConfig(savableConfig.id, savedConfig);
+          await refreshPlotTemplates();
+          setActivePlotConfigId(savedConfig.id);
+          selectConfig(savedConfig);
           toast.success("Plot configuration created");
         } catch (createError) {
           toast.error(createError instanceof Error ? createError.message : "Unable to create plot configuration.");
@@ -1601,8 +1720,7 @@ export default function PlottingPage({
     };
 
     if (!token) {
-      removeLocalConfig();
-      toast.success("Plot configuration deleted locally");
+      toast.error("Please sign in before deleting plot templates.");
       return;
     }
 
@@ -1631,7 +1749,11 @@ export default function PlottingPage({
       toast.error("Enter a plot configuration name");
       return;
     }
-    const source = activeConfig ?? mockPlotConfigurations[0];
+    if (!activeConfig) {
+      toast.error("Endpoint backend untuk fitur ini belum tersedia.");
+      return;
+    }
+    const source = activeConfig;
     const next = clonePlotConfiguration(source, draftConfigName.trim());
     setCreateDialogOpen(false);
     await persistNewConfig(next, "Plot configuration added");
@@ -1651,7 +1773,10 @@ export default function PlottingPage({
           toast.message("Plot template detail returned metadata only. Using current local configuration.");
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Unable to load plot template detail.");
+        if (process.env.NODE_ENV === "development") {
+          console.error("Unable to load plot template detail.", error);
+        }
+        toast.error("Gagal memuat data dari backend.");
       } finally {
         setLoadingConfigId("");
       }
@@ -1660,17 +1785,66 @@ export default function PlottingPage({
     setPlottingView("editor");
   };
 
-  const generatePlot = (config: PlotConfiguration) => {
-    const general = normalizeGeneralSettings(config.general);
-    selectConfig(config);
-    setPreviewConfig(config);
-    toast.success(`${config.name} queued as ${general.fileFormat} from ${general.depthRange.start}-${general.depthRange.end} ${general.depthCorrection}`);
+  const generatePlot = async (config: PlotConfiguration) => {
+    if (!token) {
+      toast.error("Please sign in before previewing plot data");
+      return;
+    }
+
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before previewing plot data");
+      return;
+    }
+
+    const normalizedConfig = normalizePlotConfiguration(config);
+    const general = normalizeGeneralSettings(normalizedConfig.general);
+    const hasTemplateTracks = getRenderableTracksFromPlotConfig(normalizedConfig).length > 0;
+
+    selectConfig(normalizedConfig);
+    setPreviewConfig(normalizedConfig);
+    setPreviewChartData([]);
+    setPreviewError("");
+    setPdfExportError("");
+
+    if (!hasTemplateTracks) {
+      setPreviewError("Belum ada plot template.");
+      toast.error("Belum ada plot template.");
+      return;
+    }
+
+    setPreviewLoading(true);
+
+    try {
+      const records = await getMwdData(token, {
+        sessionId: activeMwdSessionId,
+        depthMin: general.depthRange.start,
+        depthMax: general.depthRange.end,
+      });
+      const nextChartData = mwdDataRecordsToChartData(records);
+      setPreviewChartData(nextChartData);
+
+      if (nextChartData.length === 0) {
+        setPreviewError("Belum ada data MWD untuk session ini.");
+        toast.message("Belum ada data MWD untuk session ini.");
+        return;
+      }
+
+      toast.success(`${normalizedConfig.name} preview loaded from ${general.depthRange.start}-${general.depthRange.end} ${general.depthCorrection}`);
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load MWD data for plot preview.", error);
+      }
+      const message = "Gagal memuat data dari backend.";
+      setPreviewError(message);
+      toast.error("Plot preview failed", { description: message });
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const isBackendTemplateConfig = (config: PlotConfiguration) =>
     Boolean(config.id) &&
-    !config.id.startsWith("plot-config-") &&
-    !config.id.startsWith("mock-");
+    !config.id.startsWith("plot-config-");
 
   const downloadPdfPlot = async (config: PlotConfiguration) => {
     if (!token) {
@@ -1690,9 +1864,24 @@ export default function PlottingPage({
 
     const savableConfig = buildSavableConfig(config);
     const general = normalizeGeneralSettings(savableConfig.general);
+    setPdfExportError("");
 
     if (general.fileFormat !== "PDF") {
       toast.error("Set the plot file format to PDF before exporting a PDF plot.");
+      return;
+    }
+
+    if (getRenderableTracksFromPlotConfig(savableConfig).length === 0) {
+      const message = "Belum ada plot template.";
+      setPreviewError(message);
+      toast.error(message);
+      return;
+    }
+
+    if (previewChartData.length === 0) {
+      const message = "Belum ada data MWD untuk session ini.";
+      setPreviewError(message);
+      toast.error(message);
       return;
     }
 
@@ -1711,8 +1900,10 @@ export default function PlottingPage({
       downloadBlob(blob, "mwd-plot.pdf");
       toast.success("PDF plot downloaded");
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to export PDF plot.";
+      setPdfExportError(message);
       toast.error("PDF plot export failed", {
-        description: error instanceof Error ? error.message : "Unable to export PDF plot.",
+        description: message,
       });
     } finally {
       setExportingPdfPlot(false);
@@ -1738,6 +1929,15 @@ export default function PlottingPage({
             <Badge variant="secondary">Data Management</Badge>
             <Badge variant="outline">Plotting</Badge>
             <Badge variant="outline">{plottingView === "landing" ? "Configuration Center" : "Editor"}</Badge>
+            <Badge variant={witsConfigError ? "destructive" : "outline"}>
+              {witsConfigError
+                ? "WITS config unavailable"
+                : witsConfigLoading
+                  ? "Loading WITS config"
+                  : witsConfig.length > 0
+                    ? `${witsConfig.length} WITS curves`
+                    : "Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu."}
+            </Badge>
           </div>
           <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Plotting</h1>
           <p className="text-sm text-muted-foreground">
@@ -1749,6 +1949,9 @@ export default function PlottingPage({
             <Button variant="outline" onClick={() => setPlottingView("landing")}>
               <ArrowLeft className="mr-2 size-4" />
               Back to Plot Configurations
+            </Button>
+            <Button variant="outline" onClick={() => void refreshWitsConfig()} disabled={witsConfigLoading}>
+              Refresh WITS
             </Button>
             <Button
               disabled={!activeConfig || savingConfigId === activeConfig.id}
@@ -1814,7 +2017,7 @@ export default function PlottingPage({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {plotTemplatesLoading ? <Badge variant="outline">Loading backend templates</Badge> : null}
-                {plotTemplatesError ? <Badge variant="outline">Using local fallback</Badge> : null}
+                {plotTemplatesError ? <Badge variant="destructive">Gagal memuat data dari backend.</Badge> : null}
                 <Badge variant="outline">{configs.length} configurations</Badge>
               </div>
             </div>
@@ -1833,6 +2036,11 @@ export default function PlottingPage({
               </div>
             ) : null}
             <div className="mt-4 grid gap-3">
+              {!plotTemplatesLoading && configs.length === 0 ? (
+                <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
+                  Belum ada plot template.
+                </Card>
+              ) : null}
               {configs.map((config) => {
                 const general = normalizeGeneralSettings(config.general);
                 const tracks = Array.isArray(config.tracks) ? config.tracks : [];
@@ -1857,7 +2065,7 @@ export default function PlottingPage({
                         </div>
                       </button>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => generatePlot(config)}>
+                        <Button size="sm" onClick={() => void generatePlot(config)}>
                           <Eye className="mr-2 size-4" />
                           Generate Plot
                         </Button>
@@ -1904,12 +2112,7 @@ export default function PlottingPage({
                 </div>
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    setUploadedFiles((current) => [
-                      { id: uid("upload"), fileName: "new-user-file.xlsx", type: "Spreadsheet", description: "Mock uploaded user spreadsheet", updatedAt: new Date().toISOString(), conversionStatus: "Will convert to PDF", usableInPlotBuilder: false },
-                      ...current,
-                    ])
-                  }
+                  onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                 >
                   <FilePlus2 className="mr-2 size-4" />
                   Upload File
@@ -2082,7 +2285,12 @@ export default function PlottingPage({
                 <HeaderInformationEditor header={header} onChange={setHeader} />
               </TabsContent>
               <TabsContent value="tracks">
-                <TrackFormattingEditor tracks={activeConfig.tracks} onTracksChange={(tracks) => updateActiveConfig({ tracks })} />
+                <TrackFormattingEditor
+                  tracks={activeConfig.tracks}
+                  onTracksChange={(tracks) => updateActiveConfig({ tracks })}
+                  curveDataSources={curveDataSources}
+                  witsConfig={witsConfig}
+                />
               </TabsContent>
               <TabsContent value="labels">
                 <Card className="rounded-2xl p-5">
@@ -2132,12 +2340,7 @@ export default function PlottingPage({
                       <h2 className="text-lg font-semibold">Template Files</h2>
                       <Button
                         variant="outline"
-                        onClick={() =>
-                          setTemplates((current) => [
-                            { id: uid("template"), fileName: "uploaded-template.tpl", type: selectedTemplateType, description: "Mock uploaded template", updatedAt: new Date().toISOString() },
-                            ...current,
-                          ])
-                        }
+                        onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                       >
                         <FileUp className="mr-2 size-4" />
                         Upload Template
@@ -2181,12 +2384,7 @@ export default function PlottingPage({
                       <h2 className="text-lg font-semibold">Uploaded User Files</h2>
                       <Button
                         variant="outline"
-                        onClick={() =>
-                          setUploadedFiles((current) => [
-                            { id: uid("upload"), fileName: "new-user-file.xlsx", type: "Spreadsheet", description: "Mock uploaded user spreadsheet", updatedAt: new Date().toISOString(), conversionStatus: "Will convert to PDF", usableInPlotBuilder: false },
-                            ...current,
-                          ])
-                        }
+                        onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                       >
                         <FilePlus2 className="mr-2 size-4" />
                         Upload File
@@ -2285,48 +2483,46 @@ export default function PlottingPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(previewConfig)} onOpenChange={(open) => !open && setPreviewConfig(null)}>
+      <Dialog
+        open={Boolean(previewConfig)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPreviewConfig(null);
+          setPreviewChartData([]);
+          setPreviewError("");
+          setPdfExportError("");
+        }}
+      >
         {previewConfig && previewGeneral ? (
-          <DialogContent className="max-w-5xl">
+          <DialogContent className="max-w-6xl">
             <DialogHeader>
-              <DialogTitle>Generated Plot Preview</DialogTitle>
+              <DialogTitle>Plot Preview</DialogTitle>
               <DialogDescription>
-                Mock {previewGeneral.fileFormat} viewer for {previewConfig.name}. Backend plot generation is integration-ready but not connected.
+                Browser preview uses the selected backend plot template and MWD data from the active session.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
               <div className="min-h-[520px] rounded-2xl border bg-muted/30 p-4">
-                <div className="flex h-full flex-col rounded-xl border bg-background p-5 shadow-sm">
-                  <div className="border-b pb-3">
-                    <div className="text-xl font-bold">{previewConfig.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {previewGeneral.depthRange.start} - {previewGeneral.depthRange.end} {previewGeneral.depthCorrection} | {previewGeneral.fileFormat} | {previewGeneral.headerPreset} header
-                    </div>
-                  </div>
-                  <div
-                    className="mt-4 grid flex-1 gap-2"
-                    style={{
-                      gridTemplateColumns: `repeat(${Math.max(ensurePlotTracks(previewConfig.tracks).length, 1)}, minmax(0, 1fr))`,
-                    }}
-                  >
-                    {ensurePlotTracks(previewConfig.tracks).map((track) => (
-                      <div key={track.id} className="rounded-lg border bg-muted/20 p-2">
-                        <div className="text-xs font-medium">{track.name}</div>
-                        <div className="mt-1 text-[10px] text-muted-foreground">{track.scaleType}</div>
-                        <div
-                          className="mt-2 h-full min-h-80 rounded bg-gradient-to-b from-primary/10 via-primary/30 to-primary/10"
-                          style={{
-                            marginTop: `${Math.min(previewGeneral.grid.topSpacing, 24)}px`,
-                            marginBottom: `${Math.min(previewGeneral.grid.bottomSpacing, 24)}px`,
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-                    Preview uses General settings for header, depth range, correction, grid spacing, output format, surveys, and labels. No file has been written.
-                  </div>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{previewConfig.name}</Badge>
+                  <Badge variant="secondary">{previewGeneral.fileFormat}</Badge>
+                  <Badge variant="outline">
+                    {previewGeneral.depthRange.start}-{previewGeneral.depthRange.end} {previewGeneral.depthCorrection}
+                  </Badge>
+                  {previewLoading ? <Badge variant="outline">Loading MWD data</Badge> : null}
+                  {previewError ? <Badge variant="destructive">{previewError}</Badge> : null}
+                  {pdfExportError ? <Badge variant="destructive">PDF export failed</Badge> : null}
                 </div>
+                <WellPlotPanel
+                  plotConfig={previewConfig}
+                  chartDataOverride={previewChartData}
+                  mwdDataLoading={previewLoading}
+                  mwdDataError={previewError}
+                  showHeader={false}
+                  compact
+                  compactDashboardHeightPx={680}
+                  compactDashboardHeightCss="clamp(460px, 62vh, 680px)"
+                />
               </div>
               <Card className="rounded-2xl p-4">
                 <h3 className="font-semibold">Generation Request</h3>
@@ -2344,12 +2540,17 @@ export default function PlottingPage({
                 <Button
                   className="mt-4 w-full"
                   variant="outline"
-                  disabled={exportingPdfPlot || !canExport}
+                  disabled={exportingPdfPlot || previewLoading || Boolean(previewError) || previewChartData.length === 0 || !canExport}
                   onClick={() => void downloadPdfPlot(previewConfig)}
                 >
                   <Download className="mr-2 size-4" />
                   {exportingPdfPlot ? "Downloading..." : "Download PDF"}
                 </Button>
+                {pdfExportError ? (
+                  <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                    {pdfExportError}
+                  </div>
+                ) : null}
               </Card>
             </div>
             <DialogFooter>

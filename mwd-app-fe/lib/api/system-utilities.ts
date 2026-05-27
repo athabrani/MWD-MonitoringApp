@@ -149,6 +149,7 @@ export async function restoreSession(token: string, payload: RestoreSessionPaylo
   return apiRequest<unknown>("/api/system-utilities/restore-session", {
     method: "POST",
     token,
+    // The restore endpoint expects the original backup object itself, not { backup: ... }.
     body: JSON.stringify(payload.backup),
   });
 }

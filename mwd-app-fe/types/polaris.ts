@@ -7,7 +7,7 @@ export type PolarisDrillingStatus =
   | "Standby";
 export type PolarisUnits = "metric" | "imperial";
 export type PolarisNorthReference = "true" | "magnetic" | "grid";
-export type PolarisDataSourceMode = "decoder" | "manual" | "simulated" | "derived";
+export type PolarisDataSourceMode = "decoder" | "manual" | "derived";
 export type PolarisToolType = "Mud Pulse" | "EM" | "Simulator" | "Memory";
 export type PolarisSurveyRigSource = "database" | "realtime";
 export type WitsIdDataSourceType =

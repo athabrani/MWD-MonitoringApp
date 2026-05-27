@@ -70,7 +70,7 @@ export function PlotSurveyMenu({
           <DialogHeader>
             <DialogTitle>Configure Plot</DialogTitle>
             <DialogDescription>
-              This configures a local plot request only. Rendering output is still mocked.
+              This configures a local plot request only. Backend rendering endpoint is not connected here.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">

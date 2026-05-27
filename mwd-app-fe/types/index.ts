@@ -29,9 +29,9 @@ export interface ConnectionState {
 export interface MWDParameter {
   id: string;
   name: string;
-  value: number;
+  value?: number;
   unit: string;
-  status: 'normal' | 'warning' | 'critical';
+  status?: 'normal' | 'warning' | 'critical';
   trend?: 'up' | 'down' | 'stable';
   change1min?: number;
   category: 'drilling' | 'mud' | 'directional' | 'formation' | 'tool';

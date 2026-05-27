@@ -43,6 +43,7 @@ export type MemoryFileCorrelation = {
   summary: string;
   matchedCount?: number;
   unmatchedCount?: number;
+  skippedCount?: number;
   updatedCount?: number;
   affectedRows?: number;
   previewRows: BackendRecord[];
@@ -187,7 +188,8 @@ function normalizeCorrelation(record: BackendRecord, index = 0): MemoryFileCorre
   const fieldName = readString(record, ["fieldName", "field_name", "field"]);
   const affectedRows = readNumber(record, ["affectedRows", "affected_rows", "pointCount", "point_count", "count"]);
   const matchedCount = readNumber(record, ["matchedCount", "matched_count", "matches"]);
-  const unmatchedCount = readNumber(record, ["unmatchedCount", "unmatched_count"]);
+  const skippedCount = readNumber(record, ["skippedCount", "skipped_count", "skipped"]);
+  const unmatchedCount = readNumber(record, ["unmatchedCount", "unmatched_count"]) ?? skippedCount;
   const updatedCount = readNumber(record, ["updatedCount", "updated_count"]);
   const message = readString(record, ["message", "summary", "description"]);
 
@@ -201,6 +203,7 @@ function normalizeCorrelation(record: BackendRecord, index = 0): MemoryFileCorre
       .join(" | ") || "No correlation summary returned.",
     matchedCount,
     unmatchedCount,
+    skippedCount,
     updatedCount,
     affectedRows,
     previewRows: unwrapCorrelationRows(record),

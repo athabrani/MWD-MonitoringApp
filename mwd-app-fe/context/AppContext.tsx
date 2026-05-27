@@ -10,8 +10,6 @@ import {
   UserSettings,
   ToolfaceData
 } from '../types';
-import { mockWells, mockKPIData, mockEvents, generateMockChartData, mockToolfaceData } from '../data/mock-data';
-import { mockPlotConfigurations } from '@/data/plotting-data';
 import { useAuth } from '@/context/AuthContext';
 import {
   buildDefaultDashboardThresholds,
@@ -24,6 +22,7 @@ import {
   getMwdData,
   MwdDataRecord,
   mwdDataRecordsToChartData,
+  normalizeMwdDataRecord,
 } from '@/lib/mwd-data-api';
 import { getMwdSessions, MwdSessionListItem } from '@/lib/mwd-sessions-api';
 import { PlotConfiguration } from '@/types/plotting';
@@ -35,15 +34,24 @@ import {
   acknowledgeWitsAlarm,
   getWitsAlarms,
   getLatestConfiguredWitsDataValues,
+  getWitsConfig,
   resolveWitsAlarm,
   WitsDataValue,
 } from '@/lib/api/wits';
+import { PolarisWitsId } from '@/types/polaris';
 import {
   connectionStatusToState,
   failoverRecordToEvent,
   getCurrentConnectionStatus,
   getFailoverEvents,
 } from '@/lib/connection-api';
+import { getSerialStatus, type SerialStatus } from '@/lib/serial-api';
+import { getEspWsStatus, type EspWsStatus } from '@/lib/esp-ws-api';
+import {
+  getRealtimeClient,
+  type RealtimeConnectionState,
+  type RealtimeEvent,
+} from '@/lib/realtime-client';
 
 interface AppContextType {
   connectionState: ConnectionState;
@@ -54,6 +62,16 @@ interface AppContextType {
   failoverEventsLoading: boolean;
   failoverEventsError: string;
   refreshFailoverEvents: () => Promise<void>;
+  serialStatus: SerialStatus | null;
+  serialStatusLoading: boolean;
+  serialStatusError: string;
+  refreshSerialStatus: () => Promise<void>;
+  espWsStatus: EspWsStatus | null;
+  espWsStatusLoading: boolean;
+  espWsStatusError: string;
+  refreshEspWsStatus: () => Promise<void>;
+  realtimeStatus: RealtimeConnectionState;
+  realtimeError: string;
   wells: Well[];
   activeWell: Well | null;
   setActiveWell: (well: Well) => void;
@@ -66,12 +84,17 @@ interface AppContextType {
   refreshMwdSessions: () => Promise<void>;
   kpiData: KPIData;
   chartData: ChartDataPoint[];
+  latestMwdDataRecord: MwdDataRecord | null;
   mwdDataLoading: boolean;
   mwdDataError: string;
   refreshMwdData: () => Promise<void>;
   witsDataValuesLoading: boolean;
   witsDataValuesError: string;
   refreshWitsDataValues: () => Promise<void>;
+  witsConfig: PolarisWitsId[];
+  witsConfigLoading: boolean;
+  witsConfigError: string;
+  refreshWitsConfig: () => Promise<void>;
   witsAlarmsLoading: boolean;
   witsAlarmsError: string;
   refreshWitsAlarms: () => Promise<void>;
@@ -111,9 +134,9 @@ const defaultSettings: UserSettings = {
   favoriteParameters: ['rop', 'wob', 'inc', 'azi'],
 };
 
-const plotConfigurationsStorageKey = 'mwd_plot_configurations';
 const activePlotConfigStorageKey = 'mwd_active_plot_config_id';
 const activeMwdSessionStorageKey = 'mwd_active_session_id';
+const backendErrorMessage = 'Gagal memuat data dari backend.';
 const dashboardMetricToKpiKey: Partial<Record<string, keyof KPIData>> = {
   rop: 'rop',
   wob: 'wob',
@@ -165,6 +188,18 @@ const mappedFieldToMetricKey: Record<string, keyof KPIData | 'currentDepth'> = {
   temperature: 'temperature',
   temp: 'temperature',
 };
+const emptyKpiDefinitions: KPIData = {
+  rop: { id: 'rop', name: 'ROP', unit: 'm/hr', category: 'drilling' },
+  wob: { id: 'wob', name: 'WOB', unit: 'klbs', category: 'drilling' },
+  rpm: { id: 'rpm', name: 'RPM', unit: 'rpm', category: 'drilling' },
+  flowRate: { id: 'flowRate', name: 'Flow Rate', unit: 'gpm', category: 'mud' },
+  standpipePressure: { id: 'standpipePressure', name: 'Standpipe Pressure', unit: 'psi', category: 'mud' },
+  mudWeight: { id: 'mudWeight', name: 'Mud Weight', unit: 'ppg', category: 'mud' },
+  inclination: { id: 'inclination', name: 'Inclination', unit: 'deg', category: 'directional' },
+  azimuth: { id: 'azimuth', name: 'Azimuth', unit: 'deg', category: 'directional' },
+  gamma: { id: 'gamma', name: 'Gamma Ray', unit: 'API', category: 'formation' },
+  temperature: { id: 'temperature', name: 'Temperature', unit: 'degC', category: 'tool' },
+};
 
 function dedupePlotConfigurations(configs: PlotConfiguration[]) {
   const seen = new Set<string>();
@@ -183,12 +218,150 @@ function normalizeAngle(value: number) {
   return ((value % 360) + 360) % 360;
 }
 
+function isExpectedBackendConnectivityError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('failed to fetch') ||
+    message.includes('fetch failed') ||
+    message.includes('networkerror') ||
+    message.includes('load failed') ||
+    message.includes('udevadm') ||
+    message.includes('enoent')
+  );
+}
+
+function logBackendError(label: string, error: unknown) {
+  if (isExpectedBackendConnectivityError(error)) return;
+
+  if (process.env.NODE_ENV === 'development') {
+    console.error(label, error);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+
+  return undefined;
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function readBoolean(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.toLowerCase();
+      if (normalized === 'true' || normalized === 'connected' || normalized === 'open') return true;
+      if (normalized === 'false' || normalized === 'disconnected' || normalized === 'closed') return false;
+    }
+  }
+
+  return undefined;
+}
+
+function readDate(record: Record<string, unknown>, keys: string[]) {
+  const value = readString(record, keys);
+  if (!value) return new Date();
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function getMwdRecordKey(record: MwdDataRecord) {
+  if (record.id) return `id:${record.id}`;
+
+  const timestamp = record.timestamp.toISOString();
+  const depth = typeof record.depth === 'number' ? record.depth : '';
+  return `time-depth:${timestamp}:${depth}`;
+}
+
+function normalizeRealtimeEspStatus(data: Record<string, unknown>): EspWsStatus {
+  const signal = isRecord(data.signal) ? data.signal : {};
+  const status =
+    readString(data, ['status', 'state', 'connectionStatus', 'connection_status']) ??
+    (readBoolean(data, ['connected', 'isConnected', 'is_connected']) ? 'connected' : 'disconnected');
+  const lastError = readString(data, ['lastError', 'last_error', 'error']);
+
+  return {
+    connected: readBoolean(data, ['connected', 'isConnected', 'is_connected', 'status', 'state']) ?? status === 'connected',
+    reconnecting: readBoolean(data, ['reconnecting', 'isReconnecting', 'is_reconnecting']),
+    status,
+    lastReceivedAt: readString(data, ['lastReceivedAt', 'last_received_at', 'lastReceived', 'last_received', 'updatedAt', 'updated_at']),
+    lastError: lastError ?? null,
+    clientCount: readNumber(data, ['clientCount', 'client_count', 'clients', 'connections']),
+    message: readString(data, ['message', 'description', 'reason']) ?? lastError,
+    signal: {
+      rssi: readNumber(signal, ['rssi']),
+      snr: readNumber(signal, ['snr']),
+      sequence: readString(signal, ['sequence', 'seq']),
+      quality: readString(signal, ['quality']),
+    },
+    raw: data,
+  };
+}
+
+function normalizeRealtimeConnectionEvent(data: Record<string, unknown>): Event {
+  const source = readString(data, ['source', 'dataSource', 'data_source']);
+  const status = readString(data, ['status', 'state']) ?? 'connected';
+  const timestamp = readDate(data, ['createdAt', 'created_at', 'timestamp', 'time', 'updatedAt', 'updated_at']);
+  const id = readString(data, ['id', '_id', 'eventId', 'event_id']) ?? `${source ?? 'connection'}-${status}-${timestamp.toISOString()}`;
+  const normalizedStatus = status.toLowerCase();
+
+  return {
+    id: `connection-${id}`,
+    timestamp,
+    severity: normalizedStatus === 'error' || normalizedStatus === 'disconnected' ? 'critical' : normalizedStatus === 'reconnecting' ? 'warning' : 'info',
+    type: 'connection',
+    message: readString(data, ['description', 'message', 'summary']) ?? `Connection ${status}`,
+    source: source?.toLowerCase().includes('backup') ? 'backup' : 'primary',
+  };
+}
+
+function buildEmptyKpiData(): KPIData {
+  return Object.fromEntries(
+    Object.entries(emptyKpiDefinitions).map(([key, parameter]) => [
+      key,
+      {
+        ...parameter,
+        value: undefined,
+        change1min: undefined,
+        status: undefined,
+        trend: undefined,
+        warningThreshold: undefined,
+        criticalThreshold: undefined,
+      },
+    ])
+  ) as KPIData;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, isAuthenticated, user } = useAuth();
   const [connectionState, setConnectionState] = useState<ConnectionState>({
-    status: 'connected',
-    latency: 45,
-    packetLoss: 0.2,
+    status: 'offline',
+    latency: 0,
+    packetLoss: 0,
     lastReceived: new Date(),
     dataSource: 'primary'
   });
@@ -197,12 +370,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [backendConnectionStatusActive, setBackendConnectionStatusActive] = useState(false);
   const [failoverEventsLoading, setFailoverEventsLoading] = useState(false);
   const [failoverEventsError, setFailoverEventsError] = useState('');
+  const [serialStatus, setSerialStatus] = useState<SerialStatus | null>(null);
+  const [serialStatusLoading, setSerialStatusLoading] = useState(false);
+  const [serialStatusError, setSerialStatusError] = useState('');
+  const [espWsStatus, setEspWsStatus] = useState<EspWsStatus | null>(null);
+  const [espWsStatusLoading, setEspWsStatusLoading] = useState(false);
+  const [espWsStatusError, setEspWsStatusError] = useState('');
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>('idle');
+  const [realtimeError, setRealtimeError] = useState('');
   const [failoverEventIds, setFailoverEventIds] = useState<Set<string>>(() => new Set());
+  const mwdRecordKeysRef = useRef<Set<string>>(new Set());
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
+  const serialStatusRequestInFlight = useRef(false);
+  const espWsStatusRequestInFlight = useRef(false);
 
-  const [wells] = useState<Well[]>(mockWells);
-  const [activeWell, setActiveWell] = useState<Well | null>(mockWells[0]);
+  const [wells] = useState<Well[]>([]);
+  const [activeWell, setActiveWell] = useState<Well | null>(null);
   const [mwdSessions, setMwdSessions] = useState<MwdSessionListItem[]>([]);
   const [activeMwdSessionId, setActiveMwdSessionId] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -210,36 +394,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [mwdSessionsLoading, setMwdSessionsLoading] = useState(false);
   const [mwdSessionsError, setMwdSessionsError] = useState('');
-  const [kpiData, setKpiData] = useState<KPIData>(mockKPIData);
-  const [chartData, setChartData] = useState<ChartDataPoint[]>(generateMockChartData(1));
+  const [kpiData, setKpiData] = useState<KPIData>(() => buildEmptyKpiData());
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [latestMwdDataRecord, setLatestMwdDataRecord] = useState<MwdDataRecord | null>(null);
   const [mwdDataLoading, setMwdDataLoading] = useState(false);
   const [mwdDataError, setMwdDataError] = useState('');
   const [witsDataValuesLoading, setWitsDataValuesLoading] = useState(false);
   const [witsDataValuesError, setWitsDataValuesError] = useState('');
+  const [witsConfig, setWitsConfig] = useState<PolarisWitsId[]>([]);
+  const [witsConfigLoading, setWitsConfigLoading] = useState(false);
+  const [witsConfigError, setWitsConfigError] = useState('');
   const [witsAlarmsLoading, setWitsAlarmsLoading] = useState(false);
   const [witsAlarmsError, setWitsAlarmsError] = useState('');
   const [witsAlarmIds, setWitsAlarmIds] = useState<Set<string>>(() => new Set());
-  const [events, setEvents] = useState<Event[]>(mockEvents);
-  const [toolfaceData, setToolfaceData] = useState<ToolfaceData>(mockToolfaceData);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [toolfaceData, setToolfaceData] = useState<ToolfaceData>({
+    angle: 0,
+    type: 'GTF',
+    operationTimer: 0,
+  });
   const [alarmsMuted, setAlarmsMuted] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [plotConfigurations, setPlotConfigurations] = useState<PlotConfiguration[]>(() => {
-    if (typeof window === 'undefined') return mockPlotConfigurations;
-    const stored = window.localStorage.getItem(plotConfigurationsStorageKey);
-    if (!stored) return mockPlotConfigurations;
-
-    try {
-      const parsed = JSON.parse(stored) as PlotConfiguration[];
-      const deduped = Array.isArray(parsed) ? dedupePlotConfigurations(parsed) : [];
-      return deduped.length > 0 ? deduped : mockPlotConfigurations;
-    } catch {
-      return mockPlotConfigurations;
-    }
-  });
+  const [plotConfigurations, setPlotConfigurations] = useState<PlotConfiguration[]>([]);
   const [activePlotConfigId, setActivePlotConfigId] = useState(() => {
-    if (typeof window === 'undefined') return mockPlotConfigurations[0]?.id ?? '';
-    return window.localStorage.getItem(activePlotConfigStorageKey) ?? mockPlotConfigurations[0]?.id ?? '';
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem(activePlotConfigStorageKey) ?? '';
   });
   const [plotTemplatesLoading, setPlotTemplatesLoading] = useState(false);
   const [plotTemplatesError, setPlotTemplatesError] = useState('');
@@ -312,8 +492,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return sessions[0]?.id ?? '';
       });
     } catch (error) {
+      logBackendError('Unable to load MWD sessions.', error);
       setMwdSessions([]);
-      setMwdSessionsError(error instanceof Error ? error.message : 'Unable to load MWD sessions.');
+      setMwdSessionsError(backendErrorMessage);
     } finally {
       setMwdSessionsLoading(false);
     }
@@ -321,6 +502,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshPlotTemplates = useCallback(async () => {
     if (!token) {
+      setPlotConfigurations([]);
+      setActivePlotConfigId('');
       setPlotTemplatesError('');
       return;
     }
@@ -370,18 +553,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (backendConfigs.length === 0) {
         setPlotTemplatesError(
-          'Plot template endpoint returned metadata only. Full plotting config mapping needs clarification.'
+          ''
         );
+        setPlotConfigurations([]);
         return;
       }
 
-      setPlotConfigurations((current) => {
-        const backendIds = new Set(backendConfigs.map((config) => config.id));
-        const mockIds = new Set(mockPlotConfigurations.map((config) => config.id));
-        const localOnlyConfigs = current.filter(
-          (config) => !backendIds.has(config.id) && !mockIds.has(config.id)
-        );
-        const nextConfigs = dedupePlotConfigurations([...backendConfigs, ...localOnlyConfigs]);
+      setPlotConfigurations(() => {
+        const nextConfigs = dedupePlotConfigurations(backendConfigs);
         const sessionBackendConfigs = activeMwdSessionId
           ? backendConfigs.filter((config) => config.sessionId === activeMwdSessionId)
           : [];
@@ -414,7 +593,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return nextConfigs;
       });
     } catch (error) {
-      setPlotTemplatesError(error instanceof Error ? error.message : 'Unable to load plot templates.');
+      logBackendError('Unable to load plot templates.', error);
+      setPlotConfigurations([]);
+      setPlotTemplatesError(backendErrorMessage);
     } finally {
       setPlotTemplatesLoading(false);
     }
@@ -442,7 +623,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         next[kpiKey] = {
           ...currentParameter,
           value,
-          change1min: value - currentParameter.value,
+          change1min: typeof currentParameter.value === 'number' ? value - currentParameter.value : undefined,
           status: getDashboardThresholdStatus(value, threshold),
         };
         changed = true;
@@ -500,7 +681,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...currentParameter,
           value: item.value,
           unit: item.unit || currentParameter.unit,
-          change1min: item.value - currentParameter.value,
+          change1min: typeof currentParameter.value === 'number' ? item.value - currentParameter.value : undefined,
           status: getDashboardThresholdStatus(item.value, threshold),
         };
         changed = true;
@@ -543,7 +724,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [settings.thresholds]);
 
   const refreshWitsDataValues = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
       setWitsDataValuesError('');
       return;
     }
@@ -557,16 +738,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       applyWitsDataValues(values);
     } catch (error) {
-      setWitsDataValuesError(
-        error instanceof Error ? error.message : 'Unable to load WITS data values.'
-      );
+      logBackendError('Unable to load WITS data values.', error);
+      setWitsDataValuesError(backendErrorMessage);
     } finally {
       setWitsDataValuesLoading(false);
     }
   }, [activeMwdSessionId, applyWitsDataValues, token]);
 
+  const refreshWitsConfig = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setWitsConfig([]);
+      setWitsConfigError('');
+      return;
+    }
+
+    setWitsConfigLoading(true);
+    setWitsConfigError('');
+
+    try {
+      const configs = await getWitsConfig(token);
+      setWitsConfig(configs);
+    } catch (error) {
+      logBackendError('Unable to load WITS config.', error);
+      setWitsConfig([]);
+      setWitsConfigError(backendErrorMessage);
+    } finally {
+      setWitsConfigLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
   const refreshWitsAlarms = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
       setWitsAlarmsError('');
       setWitsAlarmIds(new Set());
       return;
@@ -588,14 +790,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return nextAlarmIds;
       });
     } catch (error) {
-      setWitsAlarmsError(error instanceof Error ? error.message : 'Unable to load WITS alarms.');
+      logBackendError('Unable to load WITS alarms.', error);
+      setWitsAlarmsError(backendErrorMessage);
     } finally {
       setWitsAlarmsLoading(false);
     }
   }, [activeMwdSessionId, token]);
 
   const refreshConnectionStatus = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
       setConnectionStatusError('');
       setBackendConnectionStatusActive(false);
       return;
@@ -621,9 +824,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBackendConnectionStatusActive(true);
       }
     } catch (error) {
-      setConnectionStatusError(
-        error instanceof Error ? error.message : 'Unable to load connection status.'
-      );
+      logBackendError('Unable to load connection status.', error);
+      setConnectionStatusError(backendErrorMessage);
     } finally {
       connectionStatusRequestInFlight.current = false;
       setConnectionStatusLoading(false);
@@ -631,7 +833,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, token]);
 
   const refreshFailoverEvents = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
       setFailoverEventsError('');
       setFailoverEventIds(new Set());
       return;
@@ -658,17 +860,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return nextEventIds;
       });
     } catch (error) {
-      setFailoverEventsError(
-        error instanceof Error ? error.message : 'Unable to load failover events.'
-      );
+      logBackendError('Unable to load failover events.', error);
+      setFailoverEventsError(backendErrorMessage);
     } finally {
       failoverEventsRequestInFlight.current = false;
       setFailoverEventsLoading(false);
     }
   }, [activeMwdSessionId, token]);
 
+  const refreshSerialStatus = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setSerialStatus(null);
+      setSerialStatusError('');
+      return;
+    }
+    if (serialStatusRequestInFlight.current) return;
+
+    serialStatusRequestInFlight.current = true;
+    setSerialStatusLoading(true);
+    setSerialStatusError('');
+
+    try {
+      const status = await getSerialStatus(token);
+      setSerialStatus(status);
+    } catch (error) {
+      logBackendError('Unable to load serial status.', error);
+      setSerialStatus(null);
+      setSerialStatusError(backendErrorMessage);
+    } finally {
+      serialStatusRequestInFlight.current = false;
+      setSerialStatusLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  const refreshEspWsStatus = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setEspWsStatus(null);
+      setEspWsStatusError('');
+      return;
+    }
+    if (espWsStatusRequestInFlight.current) return;
+
+    espWsStatusRequestInFlight.current = true;
+    setEspWsStatusLoading(true);
+    setEspWsStatusError('');
+
+    try {
+      const status = await getEspWsStatus(token);
+      setEspWsStatus(status);
+    } catch (error) {
+      logBackendError('Unable to load ESP websocket status.', error);
+      setEspWsStatus(null);
+      setEspWsStatusError(backendErrorMessage);
+    } finally {
+      espWsStatusRequestInFlight.current = false;
+      setEspWsStatusLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
   const refreshMwdData = useCallback(async () => {
-    if (!token) {
+    if (!token || !activeMwdSessionId) {
+      setChartData([]);
+      setLatestMwdDataRecord(null);
       setMwdDataError('');
       return;
     }
@@ -677,16 +930,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMwdDataError('');
 
     try {
-      const records = await getMwdData(token, {
-        sessionId: activeMwdSessionId || undefined,
-      });
+      const [latestRecords, records] = await Promise.all([
+        getMwdData(token, {
+          sessionId: activeMwdSessionId || undefined,
+          limit: 1,
+        }),
+        getMwdData(token, {
+          sessionId: activeMwdSessionId || undefined,
+        }),
+      ]);
+      const latestScopedRecords = filterMwdDataForSession(latestRecords, activeMwdSessionId);
       const scopedRecords = filterMwdDataForSession(records, activeMwdSessionId);
       const nextChartData = mwdDataRecordsToChartData(scopedRecords);
-      const latestRecord = getLatestMwdDataRecord(scopedRecords);
+      const latestRecord = getLatestMwdDataRecord(latestScopedRecords) ?? getLatestMwdDataRecord(scopedRecords);
 
-      if (nextChartData.length > 0) {
-        setChartData(nextChartData);
-      }
+      mwdRecordKeysRef.current = new Set(scopedRecords.map(getMwdRecordKey));
+      setChartData(nextChartData);
+      setLatestMwdDataRecord(latestRecord);
 
       if (latestRecord) {
         applyLatestMwdRecord(latestRecord);
@@ -694,13 +954,111 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...current,
           lastReceived: latestRecord.timestamp,
         }));
+      } else {
+        setKpiData(buildEmptyKpiData());
       }
     } catch (error) {
-      setMwdDataError(error instanceof Error ? error.message : 'Unable to load MWD data.');
+      logBackendError('Unable to load MWD data.', error);
+      setChartData([]);
+      setLatestMwdDataRecord(null);
+      setMwdDataError(backendErrorMessage);
     } finally {
       setMwdDataLoading(false);
     }
   }, [activeMwdSessionId, applyLatestMwdRecord, token]);
+
+  const applyRealtimeMwdData = useCallback((data: Record<string, unknown>) => {
+    const record = normalizeMwdDataRecord(data);
+    if (!record) return;
+
+    if (record.sessionId && activeMwdSessionId && String(record.sessionId) !== String(activeMwdSessionId)) {
+      return;
+    }
+
+    const recordKey = getMwdRecordKey(record);
+    if (mwdRecordKeysRef.current.has(recordKey)) {
+      setLatestMwdDataRecord((current) => {
+        if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
+          applyLatestMwdRecord(record);
+          return record;
+        }
+
+        return current;
+      });
+      return;
+    }
+
+    mwdRecordKeysRef.current.add(recordKey);
+    const chartPoint = mwdDataRecordsToChartData([record])[0];
+
+    if (chartPoint) {
+      setChartData((current) =>
+        [...current, chartPoint].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime())
+      );
+    }
+
+    setLatestMwdDataRecord((current) => {
+      if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
+        applyLatestMwdRecord(record);
+        return record;
+      }
+
+      return current;
+    });
+
+    setConnectionState((current) => ({
+      ...current,
+      lastReceived: record.timestamp,
+    }));
+  }, [activeMwdSessionId, applyLatestMwdRecord]);
+
+  const applyRealtimeEspGatewayStatus = useCallback((data: Record<string, unknown>) => {
+    const status = normalizeRealtimeEspStatus(data);
+    setEspWsStatus(status);
+    setEspWsStatusError(status.lastError ?? '');
+  }, []);
+
+  const applyRealtimeConnectionStatus = useCallback((data: Record<string, unknown>) => {
+    const event = normalizeRealtimeConnectionEvent(data);
+    const status = readString(data, ['status', 'state'])?.toLowerCase();
+
+    setEvents((current) => {
+      if (current.some((item) => item.id === event.id)) return current;
+      return [event, ...current].slice(0, 100);
+    });
+
+    setConnectionState((current) => ({
+      ...current,
+      status:
+        status === 'disconnected' || status === 'offline' || status === 'error'
+          ? 'offline'
+          : status === 'reconnecting' || status === 'degraded'
+            ? 'degraded'
+            : 'connected',
+      dataSource: event.source ?? current.dataSource,
+      lastReceived: event.timestamp,
+      reconnecting: status === 'reconnecting',
+    }));
+    setBackendConnectionStatusActive(true);
+  }, []);
+
+  const applyRealtimeEvent = useCallback((event: RealtimeEvent) => {
+    if (!event.data || Object.keys(event.data).length === 0) return;
+
+    if (event.type === 'mwd-data') {
+      applyRealtimeMwdData(event.data);
+      return;
+    }
+
+    if (event.type === 'esp-gateway-status') {
+      applyRealtimeEspGatewayStatus(event.data);
+      return;
+    }
+
+    if (event.type === 'connection-status') {
+      applyRealtimeConnectionStatus(event.data);
+    }
+  }, [applyRealtimeConnectionStatus, applyRealtimeEspGatewayStatus, applyRealtimeMwdData]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -723,51 +1081,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isAuthenticated, refreshPlotTemplates, token]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token) {
-      setMwdDataError('');
-      return;
-    }
-
-    void refreshMwdData();
-  }, [isAuthenticated, refreshMwdData, token]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated || !token || !activeMwdSessionId) {
       setWitsDataValuesError('');
+      setWitsConfigError('');
       setWitsAlarmsError('');
-      return;
-    }
-
-    void refreshWitsDataValues();
-    void refreshWitsAlarms();
-  }, [isAuthenticated, refreshWitsAlarms, refreshWitsDataValues, token]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !token) {
+      setMwdDataError('');
+      setChartData([]);
+      setLatestMwdDataRecord(null);
       setConnectionStatusError('');
       setFailoverEventsError('');
+      setSerialStatus(null);
+      setSerialStatusError('');
+      setEspWsStatus(null);
+      setEspWsStatusError('');
       setBackendConnectionStatusActive(false);
       setFailoverEventIds(new Set());
       return;
     }
 
-    void refreshConnectionStatus();
-    void refreshFailoverEvents();
-  }, [isAuthenticated, refreshConnectionStatus, refreshFailoverEvents, token]);
+    void (async () => {
+      await refreshWitsConfig();
+      await refreshMwdData();
+      void refreshWitsDataValues();
+      void refreshWitsAlarms();
+      void refreshConnectionStatus();
+      void refreshFailoverEvents();
+      void refreshSerialStatus();
+      void refreshEspWsStatus();
+    })();
+  }, [
+    activeMwdSessionId,
+    isAuthenticated,
+    refreshConnectionStatus,
+    refreshEspWsStatus,
+    refreshFailoverEvents,
+    refreshMwdData,
+    refreshSerialStatus,
+    refreshWitsAlarms,
+    refreshWitsConfig,
+    refreshWitsDataValues,
+    token,
+  ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !settings.display.autoRefresh) return;
+    if (!isAuthenticated || !token || !activeMwdSessionId || !settings.display.autoRefresh) return;
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       void refreshConnectionStatus();
+      void refreshSerialStatus();
+      void refreshEspWsStatus();
     }, 10000);
 
     return () => window.clearInterval(interval);
-  }, [isAuthenticated, refreshConnectionStatus, settings.display.autoRefresh, token]);
+  }, [
+    activeMwdSessionId,
+    isAuthenticated,
+    refreshConnectionStatus,
+    refreshEspWsStatus,
+    refreshSerialStatus,
+    settings.display.autoRefresh,
+    token,
+  ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !settings.display.autoRefresh) return;
+    if (!isAuthenticated || !token || !activeMwdSessionId || !settings.display.autoRefresh) return;
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
@@ -775,7 +1153,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 30000);
 
     return () => window.clearInterval(interval);
-  }, [isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
+  }, [activeMwdSessionId, isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
 
   useEffect(() => {
     if (!activeMwdSession || activeMwdSession.id === activeMwdSessionId) return;
@@ -788,11 +1166,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActivePlotConfigId(activePlotConfig.id);
     }
   }, [activePlotConfig, activePlotConfigId]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(plotConfigurationsStorageKey, JSON.stringify(dedupePlotConfigurations(plotConfigurations)));
-  }, [plotConfigurations]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !activePlotConfigId) return;
@@ -810,107 +1183,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     window.localStorage.removeItem(activeMwdSessionStorageKey);
   }, [activeMwdSessionId]);
 
-  // Simulate real-time data updates
   useEffect(() => {
-    if (connectionState.status === 'offline') return;
+    if (!isAuthenticated || !token || !activeMwdSessionId) return;
     if (!settings.display.autoRefresh) return;
 
     const interval = setInterval(() => {
-      // Update KPI values
-      setKpiData(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(key => {
-          const param = updated[key as keyof KPIData];
-          const threshold = settings.thresholds.find(
-            (item) => item.parameter === key || item.parameter === param.id
-          );
-          const variation = (Math.random() - 0.5) * 2;
-          param.value = Math.max(0, param.value + variation);
-          param.change1min = variation;
-          param.warningThreshold = threshold?.high ?? threshold?.warning ?? param.warningThreshold;
-          param.criticalThreshold = threshold?.high ?? threshold?.critical ?? param.criticalThreshold;
-          param.status = getDashboardThresholdStatus(param.value, threshold);
-        });
-        return updated;
-      });
-
-      // Update toolface with smooth animation
-      setToolfaceData(prev => ({
-        ...prev,
-        angle: (prev.angle + (Math.random() - 0.5) * 2 + 360) % 360,
-        operationTimer: prev.operationTimer + 5
-      }));
-
-      if (!backendConnectionStatusActive) {
-        setConnectionState(prev => ({
-          ...prev,
-          lastReceived: new Date(),
-          latency: 40 + Math.random() * 20,
-          packetLoss: Math.random() * 0.5
-        }));
-      }
-
-      // Add new chart data point
-      setChartData(prev => {
-        const newPoint: ChartDataPoint = {
-          timestamp: new Date(),
-          rop: kpiData.rop.value,
-          wob: kpiData.wob.value,
-          rpm: kpiData.rpm.value,
-          temp: kpiData.temperature.value,
-          spp: kpiData.standpipePressure.value,
-          flowrate: kpiData.flowRate.value,
-          gamma: kpiData.gamma.value,
-          inc: kpiData.inclination.value,
-          azi: kpiData.azimuth.value
-        };
-        
-        const updated = [...prev, newPoint];
-        if (updated.length > 60) {
-          updated.shift();
-        }
-        return updated;
-      });
+      void refreshMwdData();
+      void refreshWitsDataValues();
     }, settings.display.refreshInterval * 1000);
 
     return () => clearInterval(interval);
   }, [
-    connectionState.status,
-    backendConnectionStatusActive,
-    kpiData,
+    isAuthenticated,
+    activeMwdSessionId,
+    refreshMwdData,
+    refreshWitsDataValues,
     settings.display.autoRefresh,
     settings.display.refreshInterval,
-    settings.thresholds,
+    token,
   ]);
 
-  // Simulate occasional connection issues
   useEffect(() => {
-    if (backendConnectionStatusActive) return;
+    const client = getRealtimeClient();
+    const unsubscribeStatus = client.on('status', ({ status, error }) => {
+      setRealtimeStatus(status);
+      setRealtimeError(error ?? '');
 
-    const randomEvents = setInterval(() => {
-      const rand = Math.random();
-      
-      if (rand > 0.95) {
-        setConnectionState(prev => ({
-          ...prev,
-          status: 'degraded',
-          latency: 150 + Math.random() * 100,
-          packetLoss: 2 + Math.random() * 3
-        }));
-        
-        setTimeout(() => {
-          setConnectionState(prev => ({
-            ...prev,
-            status: 'connected',
-            latency: 45,
-            packetLoss: 0.2
-          }));
-        }, 10000);
-      }
-    }, 30000);
+      setConnectionState((current) => ({
+        ...current,
+        status:
+          status === 'connected'
+            ? 'connected'
+            : status === 'reconnecting' || status === 'connecting'
+              ? 'degraded'
+              : status === 'idle'
+                ? current.status
+                : 'offline',
+        reconnecting: status === 'reconnecting' || status === 'connecting',
+      }));
+    });
+    const unsubscribeEvent = client.on('event', applyRealtimeEvent);
 
-    return () => clearInterval(randomEvents);
-  }, [backendConnectionStatusActive]);
+    if (!isAuthenticated || !token || !activeMwdSessionId) {
+      client.disconnect();
+      return () => {
+        unsubscribeStatus();
+        unsubscribeEvent();
+      };
+    }
+
+    client.connect();
+    client.subscribeSession(activeMwdSessionId);
+
+    return () => {
+      unsubscribeStatus();
+      unsubscribeEvent();
+    };
+  }, [activeMwdSessionId, applyRealtimeEvent, isAuthenticated, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -924,14 +1253,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setConnectionState(prev => ({ ...prev, reconnecting: true }));
     
     setTimeout(() => {
-      setConnectionState({
-        status: 'connected',
-        latency: 45,
-        packetLoss: 0.2,
-        lastReceived: new Date(),
-        dataSource: 'primary',
-        reconnecting: false
-      });
+      setConnectionState(prev => ({ ...prev, reconnecting: false }));
     }, 2000);
   }, []);
 
@@ -1010,6 +1332,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       failoverEventsLoading,
       failoverEventsError,
       refreshFailoverEvents,
+      serialStatus,
+      serialStatusLoading,
+      serialStatusError,
+      refreshSerialStatus,
+      espWsStatus,
+      espWsStatusLoading,
+      espWsStatusError,
+      refreshEspWsStatus,
+      realtimeStatus,
+      realtimeError,
       wells,
       activeWell,
       setActiveWell,
@@ -1022,12 +1354,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       refreshMwdSessions,
       kpiData,
       chartData,
+      latestMwdDataRecord,
       mwdDataLoading,
       mwdDataError,
       refreshMwdData,
       witsDataValuesLoading,
       witsDataValuesError,
       refreshWitsDataValues,
+      witsConfig,
+      witsConfigLoading,
+      witsConfigError,
+      refreshWitsConfig,
       witsAlarmsLoading,
       witsAlarmsError,
       refreshWitsAlarms,

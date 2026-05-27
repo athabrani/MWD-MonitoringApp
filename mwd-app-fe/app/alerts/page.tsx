@@ -205,7 +205,7 @@ export const AlertsPage: React.FC = () => {
           Monitor and manage system alarms and notifications
         </p>
         {witsAlarmsError ? (
-          <p className="mt-2 text-sm text-destructive">{witsAlarmsError}</p>
+          <p className="mt-2 text-sm text-destructive">Gagal memuat data dari backend.</p>
         ) : null}
       </div>
 
@@ -254,7 +254,7 @@ export const AlertsPage: React.FC = () => {
           {filteredActive.length === 0 ? (
             <Card className="p-12 text-center">
               <Check className="size-12 mx-auto mb-4 text-green-500" />
-              <h3 className="font-semibold mb-2">No Active Alarms</h3>
+              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
               <p className="text-muted-foreground">
                 All systems operating normally
               </p>
@@ -270,7 +270,7 @@ export const AlertsPage: React.FC = () => {
           {acknowledgedAlarms.length === 0 ? (
             <Card className="p-12 text-center">
               <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">No Acknowledged Alarms</h3>
+              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
               <p className="text-muted-foreground">
                 Acknowledged alarms will appear here
               </p>
@@ -286,7 +286,7 @@ export const AlertsPage: React.FC = () => {
           {resolvedAlarms.length === 0 ? (
             <Card className="p-12 text-center">
               <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">No Resolved Alarms</h3>
+              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
               <p className="text-muted-foreground">
                 Resolved alarms from the last 24 hours will appear here
               </p>

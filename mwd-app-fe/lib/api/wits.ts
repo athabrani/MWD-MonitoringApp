@@ -183,7 +183,7 @@ function normalizeDataSourceType(value?: string): WitsIdDataSourceType {
 }
 
 function normalizeDataSourceMode(value?: string): PolarisDataSourceMode {
-  const knownModes: PolarisDataSourceMode[] = ["decoder", "manual", "simulated", "derived"];
+  const knownModes: PolarisDataSourceMode[] = ["decoder", "manual", "derived"];
   return knownModes.includes(value as PolarisDataSourceMode)
     ? (value as PolarisDataSourceMode)
     : "manual";

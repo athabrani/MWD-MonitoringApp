@@ -7,7 +7,11 @@ type BackendListResponse = {
   data?: unknown;
   items?: unknown;
   operations?: unknown;
+  preview?: unknown;
+  previewRows?: unknown;
   results?: unknown;
+  sample?: unknown;
+  samples?: unknown;
 };
 
 export type MwdEditOperation = {
@@ -97,6 +101,10 @@ function unwrapList(response: unknown): BackendRecord[] {
 
   const list =
     (response as BackendListResponse).operations ??
+    (response as BackendListResponse).sample ??
+    (response as BackendListResponse).samples ??
+    (response as BackendListResponse).previewRows ??
+    (response as BackendListResponse).preview ??
     (response as BackendListResponse).results ??
     (response as BackendListResponse).items ??
     (response as BackendListResponse).data ??

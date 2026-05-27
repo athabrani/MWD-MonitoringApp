@@ -1,333 +1,264 @@
 "use client";
 
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Slider } from '@/components/ui/slider';
-import { VerticalTrajectory } from '@/components/contents/trajectory/vertical-trajectory';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Camera, Download, Maximize2, RefreshCw, Target } from "lucide-react";
 import {
-  ScatterChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
   Scatter,
+  ScatterChart,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer
-} from 'recharts';
-import { mockTrajectoryData } from '@/data/mock-data';
-import { Download, Camera, Maximize2, Target } from 'lucide-react';
-import { toast } from 'sonner';
+} from "recharts";
+import { toast } from "sonner";
+import { VerticalTrajectory } from "@/components/contents/trajectory/vertical-trajectory";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import { getSurveys } from "@/lib/surveys-api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { TrajectoryData, TrajectoryPoint } from "@/types";
+import type { SurveyRecord } from "@/types/monitoring";
+
+function surveyToTrajectoryPoint(survey: SurveyRecord): TrajectoryPoint {
+  return {
+    md: survey.md,
+    tvd: survey.tvd,
+    inclination: survey.inc,
+    azimuth: survey.azm,
+    northing: survey.ns,
+    easting: survey.ew,
+  };
+}
+
+function formatValue(value: number, digits = 1) {
+  return Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
 
 export const TrajectoryPage: React.FC = () => {
-  const [view, setView] = useState<'vertical' | 'plan' | '3d'>('vertical');
+  const { token } = useAuth();
+  const { activeMwdSessionId } = useApp();
+  const [view, setView] = useState<"vertical" | "plan" | "3d">("vertical");
   const [depthSlider, setDepthSlider] = useState(100);
-  const trajectoryData = mockTrajectoryData;
+  const [actualSurveys, setActualSurveys] = useState<SurveyRecord[]>([]);
+  const [plannedSurveys, setPlannedSurveys] = useState<SurveyRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const currentDepthIndex = Math.floor((depthSlider / 100) * trajectoryData.actual.length);
-  const visiblePlanned = trajectoryData.planned.slice(0, currentDepthIndex + 1);
-  const visibleActual = trajectoryData.actual.slice(0, currentDepthIndex + 1);
+  const loadTrajectory = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setActualSurveys([]);
+      setPlannedSurveys([]);
+      setError("");
+      return;
+    }
 
-  const currentActual = trajectoryData.actual[Math.min(currentDepthIndex, trajectoryData.actual.length - 1)];
-  const currentPlanned = trajectoryData.planned[Math.min(currentDepthIndex, trajectoryData.planned.length - 1)];
-  
-  const crossTrackError = Math.sqrt(
-    Math.pow(currentActual.northing - currentPlanned.northing, 2) +
-    Math.pow(currentActual.easting - currentPlanned.easting, 2)
+    setLoading(true);
+    setError("");
+
+    try {
+      const [actual, plan] = await Promise.all([
+        getSurveys(token, { sessionId: activeMwdSessionId, stationType: "actual" }),
+        getSurveys(token, { sessionId: activeMwdSessionId, stationType: "plan" }),
+      ]);
+      setActualSurveys(actual);
+      setPlannedSurveys(plan);
+    } catch (nextError) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load trajectory surveys.", nextError);
+      }
+      setActualSurveys([]);
+      setPlannedSurveys([]);
+      setError("Gagal memuat data dari backend.");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
+  useEffect(() => {
+    void loadTrajectory();
+  }, [loadTrajectory]);
+
+  const trajectoryData = useMemo<TrajectoryData>(
+    () => ({
+      actual: actualSurveys.map(surveyToTrajectoryPoint),
+      planned: plannedSurveys.map(surveyToTrajectoryPoint),
+    }),
+    [actualSurveys, plannedSurveys]
   );
 
-  const deltaTVD = Math.abs(currentActual.tvd - currentPlanned.tvd);
-  const deltaInc = Math.abs(currentActual.inclination - currentPlanned.inclination);
-  const deltaAzi = Math.abs(currentActual.azimuth - currentPlanned.azimuth);
+  const hasActualTrajectory = trajectoryData.actual.length > 0;
+  const currentDepthIndex = hasActualTrajectory
+    ? Math.min(Math.floor((depthSlider / 100) * (trajectoryData.actual.length - 1)), trajectoryData.actual.length - 1)
+    : 0;
+  const visiblePlanned = trajectoryData.planned.slice(0, Math.min(currentDepthIndex + 1, trajectoryData.planned.length));
+  const visibleActual = trajectoryData.actual.slice(0, currentDepthIndex + 1);
+  const currentActual = trajectoryData.actual[currentDepthIndex];
+  const currentPlanned = trajectoryData.planned[Math.min(currentDepthIndex, Math.max(trajectoryData.planned.length - 1, 0))];
 
-  const handleSnapshot = () => {
-    toast.success('Snapshot saved for report');
-  };
-
-  const handleExport = () => {
-    toast.success('Trajectory data exported');
-  };
+  const crossTrackError =
+    currentActual && currentPlanned
+      ? Math.sqrt((currentActual.northing - currentPlanned.northing) ** 2 + (currentActual.easting - currentPlanned.easting) ** 2)
+      : null;
+  const deltaTVD = currentActual && currentPlanned ? Math.abs(currentActual.tvd - currentPlanned.tvd) : null;
+  const deltaInc = currentActual && currentPlanned ? Math.abs(currentActual.inclination - currentPlanned.inclination) : null;
+  const deltaAzi = currentActual && currentPlanned ? Math.abs(currentActual.azimuth - currentPlanned.azimuth) : null;
 
   const planViewData = {
-    planned: visiblePlanned.map(p => ({ x: p.easting, y: p.northing, md: p.md })),
-    actual: visibleActual.map(a => ({ x: a.easting, y: a.northing, md: a.md }))
+    planned: visiblePlanned.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
+    actual: visibleActual.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
   };
+
+  const handleSnapshot = () => toast.message("Endpoint backend untuk fitur ini belum tersedia.");
+  const handleExport = () => toast.message("Endpoint backend untuk fitur ini belum tersedia.");
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h1 className="text-3xl font-bold">Trajectory Analysis</h1>
-            <p className="text-muted-foreground">
-              Planned vs Actual wellbore trajectory - Vertical rig view
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" asChild>
-              <Link href="/trajectory/well-plot">Well Plots</Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleSnapshot}>
-              <Camera className="size-4 mr-2" />
-              Snapshot
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="size-4 mr-2" />
-              Export
-            </Button>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold">Trajectory Analysis</h1>
+          <p className="text-muted-foreground">Planned vs actual trajectory from backend surveys.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" asChild>
+            <Link href="/trajectory/well-plot">Well Plots</Link>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void loadTrajectory()} disabled={loading}>
+            <RefreshCw className="mr-2 size-4" />
+            Retry
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSnapshot}>
+            <Camera className="mr-2 size-4" />
+            Snapshot
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="mr-2 size-4" />
+            Export
+          </Button>
         </div>
       </div>
 
-      {/* Metrics Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Current MD</div>
-          <div className="text-2xl font-mono font-semibold">{currentActual.md.toFixed(1)}</div>
-          <div className="text-xs text-muted-foreground">m</div>
+      {!activeMwdSessionId ? (
+        <Card className="p-6 text-sm text-muted-foreground">Pilih job/session sebelum membuka trajectory.</Card>
+      ) : error ? (
+        <Card className="space-y-3 border-destructive/40 p-6">
+          <div className="font-semibold text-destructive">Gagal memuat data dari backend.</div>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <Button variant="outline" onClick={() => void loadTrajectory()}>Retry</Button>
         </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Current TVD</div>
-          <div className="text-2xl font-mono font-semibold">{currentActual.tvd.toFixed(1)}</div>
-          <div className="text-xs text-muted-foreground">m</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Inclination</div>
-          <div className="text-2xl font-mono font-semibold">{currentActual.inclination.toFixed(1)}</div>
-          <div className="text-xs text-muted-foreground">°</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Azimuth</div>
-          <div className="text-2xl font-mono font-semibold">{currentActual.azimuth.toFixed(1)}</div>
-          <div className="text-xs text-muted-foreground">°</div>
-        </Card>
-
-        <Card className={`p-4 ${crossTrackError > 10 ? 'border-yellow-500/50 bg-yellow-500/5' : ''}`}>
-          <div className="text-xs text-muted-foreground mb-1">Cross-track Error</div>
-          <div className="text-2xl font-mono font-semibold">{crossTrackError.toFixed(2)}</div>
-          <div className="text-xs text-muted-foreground">m</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Δ TVD</div>
-          <div className="text-2xl font-mono font-semibold">{deltaTVD.toFixed(2)}</div>
-          <div className="text-xs text-muted-foreground">m</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Δ Inc</div>
-          <div className="text-2xl font-mono font-semibold">{deltaInc.toFixed(2)}</div>
-          <div className="text-xs text-muted-foreground">°</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground mb-1">Δ Azi</div>
-          <div className="text-2xl font-mono font-semibold">{deltaAzi.toFixed(2)}</div>
-          <div className="text-xs text-muted-foreground">°</div>
-        </Card>
-      </div>
-
-      {/* Depth Slider */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold">Depth Position</h3>
-            <p className="text-sm text-muted-foreground">
-              Slide to view trajectory at different depths
-            </p>
+      ) : loading ? (
+        <Card className="p-6 text-sm text-muted-foreground">Loading trajectory survey...</Card>
+      ) : !hasActualTrajectory ? (
+        <Card className="p-6 text-sm text-muted-foreground">Belum ada survey untuk session ini.</Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
+            <MetricCard label="Current MD" value={formatValue(currentActual.md)} unit="m" />
+            <MetricCard label="Current TVD" value={formatValue(currentActual.tvd)} unit="m" />
+            <MetricCard label="Inclination" value={formatValue(currentActual.inclination)} unit="deg" />
+            <MetricCard label="Azimuth" value={formatValue(currentActual.azimuth)} unit="deg" />
+            <MetricCard label="Cross-track Error" value={crossTrackError === null ? "-" : formatValue(crossTrackError, 2)} unit="m" />
+            <MetricCard label="Delta TVD" value={deltaTVD === null ? "-" : formatValue(deltaTVD, 2)} unit="m" />
+            <MetricCard label="Delta Inc" value={deltaInc === null ? "-" : formatValue(deltaInc, 2)} unit="deg" />
+            <MetricCard label="Delta Azi" value={deltaAzi === null ? "-" : formatValue(deltaAzi, 2)} unit="deg" />
           </div>
-          <Badge variant="secondary" className="text-sm">
-            {currentActual.md.toFixed(1)} m MD
-          </Badge>
-        </div>
-        <Slider
-          value={[depthSlider]}
-          onValueChange={(value) => setDepthSlider(value[0])}
-          max={100}
-          step={1}
-          className="w-full"
-        />
-        <div className="flex justify-between text-xs text-muted-foreground mt-2">
-          <span>Surface</span>
-          <span>Current: {depthSlider}%</span>
-          <span>TD: {trajectoryData.planned[trajectoryData.planned.length - 1].md.toFixed(0)} m</span>
-        </div>
-      </Card>
 
-      {/* Trajectory Views */}
-      <Tabs value={view} onValueChange={(v) => setView(v as any)} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
-          <TabsTrigger value="plan">Plan View</TabsTrigger>
-          <TabsTrigger value="3d">3D View</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="vertical" className="mt-6">
-          <div className="grid lg:grid-cols-[350px_1fr] gap-6">
-            {/* Vertical Trajectory Display */}
-            <VerticalTrajectory
-              data={trajectoryData}
-              currentDepthPercent={depthSlider}
-              height={600}
-            />
-
-            {/* Target Waypoints */}
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4">Target Waypoints</h3>
-              <div className="space-y-4">
-                {[
-                  { name: 'Kickoff Point (KOP)', md: 1000, tvd: 999.5, status: 'completed' },
-                  { name: 'Build Section', md: 2500, tvd: 2470, status: 'completed' },
-                  { name: 'Landing Point', md: 3500, tvd: 3385, status: 'current' },
-                  { name: 'Target Depth (TD)', md: 4500, tvd: 4270, status: 'upcoming' }
-                ].map(target => (
-                  <div 
-                    key={target.name}
-                    className={`p-4 rounded-lg border ${
-                      target.status === 'current' 
-                        ? 'border-primary bg-primary/5' 
-                        : target.status === 'completed'
-                        ? 'border-green-500/50 bg-green-500/5'
-                        : 'border-border'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium">{target.name}</h4>
-                      <Badge variant={
-                        target.status === 'completed' ? 'secondary' :
-                        target.status === 'current' ? 'default' : 'outline'
-                      }>
-                        {target.status === 'completed' && '✓ '}
-                        {target.status}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">MD:</span>
-                        <span className="font-mono ml-2">{target.md} m</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">TVD:</span>
-                        <span className="font-mono ml-2">{target.tvd} m</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Progress Summary */}
-              <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-                <h4 className="font-medium mb-2">Progress Summary</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Drilled</span>
-                    <span className="font-mono">{currentActual.md.toFixed(0)} / 4500 m</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Progress</span>
-                    <span className="font-mono">{((currentActual.md / 4500) * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Remaining</span>
-                    <span className="font-mono">{(4500 - currentActual.md).toFixed(0)} m</span>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="plan" className="mt-6">
           <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold">Plan View (Top-down)</h3>
-                <p className="text-sm text-muted-foreground">
-                  Northing vs Easting - Bird's eye view of wellbore path
-                </p>
+                <h3 className="font-semibold">Depth Position</h3>
+                <p className="text-sm text-muted-foreground">Slide to view backend trajectory at different survey stations.</p>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-blue-500" />
-                  <span className="text-sm">Planned</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span className="text-sm">Actual</span>
-                </div>
-              </div>
+              <Badge variant="secondary" className="text-sm">{formatValue(currentActual.md)} m MD</Badge>
             </div>
-            <ResponsiveContainer width="100%" height={500}>
-              <ScatterChart>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis 
-                  type="number" 
-                  dataKey="x" 
-                  name="Easting"
-                  label={{ value: 'Easting (m)', position: 'bottom' }}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <YAxis 
-                  type="number" 
-                  dataKey="y" 
-                  name="Northing"
-                  label={{ value: 'Northing (m)', angle: -90, position: 'left' }}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }}
-                  formatter={(value: number, name: string) => [value.toFixed(2) + ' m', name]}
-                />
-                <Legend />
-                <Scatter 
-                  name="Planned Path" 
-                  data={planViewData.planned} 
-                  fill="#3b82f6"
-                  line={{ stroke: '#3b82f6', strokeWidth: 2 }}
-                  shape="circle"
-                />
-                <Scatter 
-                  name="Actual Path" 
-                  data={planViewData.actual} 
-                  fill="#10b981"
-                  line={{ stroke: '#10b981', strokeWidth: 2 }}
-                  shape="circle"
-                />
-              </ScatterChart>
-            </ResponsiveContainer>
+            <Slider value={[depthSlider]} onValueChange={(value) => setDepthSlider(value[0] ?? 100)} max={100} step={1} />
+            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+              <span>Start</span>
+              <span>Current: {depthSlider}%</span>
+              <span>Last: {formatValue(trajectoryData.actual.at(-1)?.md ?? currentActual.md, 0)} m</span>
+            </div>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="3d" className="mt-6">
-          <Card className="p-6">
-            <div className="flex flex-col items-center justify-center h-[500px] text-center">
-              <Maximize2 className="size-16 text-muted-foreground mb-4" />
-              <h3 className="font-semibold mb-2">3D Visualization</h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Interactive 3D trajectory visualization would be rendered here using a WebGL library.
-                This would show the wellbore path in three dimensions with rotation and zoom controls.
-              </p>
-              <Button variant="outline" className="mt-4">
-                <Target className="size-4 mr-2" />
-                Load 3D Viewer
-              </Button>
-            </div>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          <Tabs value={view} onValueChange={(value) => setView(value as "vertical" | "plan" )}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
+              <TabsTrigger value="plan">Plan View</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="vertical" className="mt-6">
+              <div className="grid gap-6 lg:grid-cols-[350px_1fr]">
+                <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={600} />
+                <Card className="p-6">
+                  <h3 className="mb-4 font-semibold">Survey Summary</h3>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricTile label="Actual stations" value={String(trajectoryData.actual.length)} />
+                    <MetricTile label="Plan stations" value={String(trajectoryData.planned.length)} />
+                    <MetricTile label="First actual MD" value={`${formatValue(trajectoryData.actual[0]?.md ?? 0)} m`} />
+                    <MetricTile label="Last actual MD" value={`${formatValue(trajectoryData.actual.at(-1)?.md ?? 0)} m`} />
+                  </div>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="plan" className="mt-6">
+              <Card className="p-6">
+                <ResponsiveContainer width="100%" height={500}>
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis type="number" dataKey="x" name="Easting" label={{ value: "Easting (m)", position: "bottom" }} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis type="number" dataKey="y" name="Northing" label={{ value: "Northing (m)", angle: -90, position: "left" }} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)} m`, name]} />
+                    <Legend />
+                    <Scatter name="Planned Path" data={planViewData.planned} fill="#3b82f6" line={{ stroke: "#3b82f6", strokeWidth: 2 }} />
+                    <Scatter name="Actual Path" data={planViewData.actual} fill="#10b981" line={{ stroke: "#10b981", strokeWidth: 2 }} />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="3d" className="mt-6">
+              <Card className="p-6">
+                <div className="flex h-[500px] flex-col items-center justify-center text-center">
+                  <Maximize2 className="mb-4 size-16 text-muted-foreground" />
+                  <h3 className="mb-2 font-semibold">3D Visualization</h3>
+                  <p className="max-w-md text-sm text-muted-foreground">Endpoint backend untuk fitur ini belum tersedia.</p>
+                  <Button variant="outline" className="mt-4" disabled>
+                    <Target className="mr-2 size-4" />
+                    Load 3D Viewer
+                  </Button>
+                </div>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   );
 };
+
+function MetricCard({ label, value, unit }: { label: string; value: string; unit: string }) {
+  return (
+    <Card className="p-4">
+      <div className="mb-1 text-xs text-muted-foreground">{label}</div>
+      <div className="text-2xl font-semibold font-mono">{value}</div>
+      <div className="text-xs text-muted-foreground">{unit}</div>
+    </Card>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 font-mono text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
 
 export default TrajectoryPage;

@@ -2,8 +2,38 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+function normalizeNumberInputValue(value: string) {
+  if (!value) return value;
+
+  const sign = value.startsWith("-") ? "-" : "";
+  const unsignedValue = sign ? value.slice(1) : value;
+
+  if (!unsignedValue || unsignedValue === "0" || unsignedValue.startsWith("0.")) {
+    return value;
+  }
+
+  if (!/^0+\d/.test(unsignedValue)) {
+    return value;
+  }
+
+  const normalized = unsignedValue.replace(/^0+(?=\d)/, "");
+  return `${sign}${normalized || "0"}`;
+}
+
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, onChange, ...props }, ref) => {
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (type === "number") {
+        const normalizedValue = normalizeNumberInputValue(event.currentTarget.value);
+
+        if (normalizedValue !== event.currentTarget.value) {
+          event.currentTarget.value = normalizedValue;
+        }
+      }
+
+      onChange?.(event);
+    };
+
     return (
       <input
         type={type}
@@ -12,6 +42,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           className,
         )}
         ref={ref}
+        onChange={handleChange}
         {...props}
       />
     );

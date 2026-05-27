@@ -1,4 +1,3 @@
-import { mockPlotConfigurations } from "@/data/plotting-data";
 import { apiRequest } from "@/lib/api-client";
 import { CurveConfig, PlotConfiguration, TrackConfig } from "@/types/plotting";
 
@@ -57,6 +56,32 @@ const configKeys = [
   "templateConfig",
   "template_config",
 ];
+
+const defaultGeneralSettings: PlotConfiguration["general"] = {
+  headerStyle: "Standard",
+  fileFormat: "PDF",
+  multiPageOutput: false,
+  measuredDepthStart: 0,
+  measuredDepthEnd: 0,
+  useTvd: false,
+  endByTvd: false,
+  depthScale: "MD",
+  majorTicInterval: 100,
+  minorTicInterval: 10,
+  stepTicInterval: 10,
+  depthCorrection: "MD",
+  surveysInTrack: false,
+  surveyReportAtEnd: false,
+  printLabels: false,
+};
+
+const defaultAzimuthalSettings: PlotConfiguration["azimuthal"] = {
+  maxValue: 360,
+  imageContrast: "Static",
+  highDefinition: false,
+  colorMap: "Default",
+  slideColor: "#2563eb",
+};
 
 function isRecord(value: unknown): value is BackendRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -274,12 +299,10 @@ export function backendTemplateToPlotConfig(template: BackendPlotTemplate): Plot
   const config = readTemplateConfig(template);
   if (!config) return null;
 
-  const fallback = mockPlotConfigurations[0];
   const id = readString(template, idKeys) ?? readString(config, idKeys);
   const name =
     readString(template, nameKeys) ??
-    readString(config, ["name", "title"]) ??
-    fallback.name;
+    readString(config, ["name", "title"]);
 
   if (!id || !name) return null;
 
@@ -292,7 +315,6 @@ export function backendTemplateToPlotConfig(template: BackendPlotTemplate): Plot
   if (tracks.length === 0) return null;
 
   return {
-    ...fallback,
     id,
     name,
     sessionId: readString(template, sessionIdKeys) ?? readString(config, sessionIdKeys),
@@ -300,21 +322,21 @@ export function backendTemplateToPlotConfig(template: BackendPlotTemplate): Plot
     isDefault: readBoolean(template, defaultKeys) ?? readBoolean(config, defaultKeys) ?? false,
     header: isRecord(config.header)
       ? (config.header as unknown as PlotConfiguration["header"])
-      : fallback.header,
+      : undefined,
     labels: Array.isArray(config.labels)
       ? (config.labels as unknown as PlotConfiguration["labels"])
-      : fallback.labels,
+      : [],
     logoDataUrl: readString(config, ["logoDataUrl", "logo_data_url"]),
     general: isRecord(config.general)
       ? (config.general as unknown as PlotConfiguration["general"])
-      : fallback.general,
+      : defaultGeneralSettings,
     pdfItems: Array.isArray(config.pdfItems)
       ? (config.pdfItems as unknown as PlotConfiguration["pdfItems"])
       : [],
     tracks,
     azimuthal: isRecord(config.azimuthal)
       ? (config.azimuthal as unknown as PlotConfiguration["azimuthal"])
-      : fallback.azimuthal,
+      : defaultAzimuthalSettings,
   };
 }
 

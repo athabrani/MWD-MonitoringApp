@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/context/AuthContext";
-import { mockAuditLogs, mockSystemHealth } from "@/data/mock-data";
+import { SystemHealthPanel } from "@/components/system-health-panel";
 import { AdminRoleListItem, fetchAdminRoles } from "@/lib/admin-roles-api";
 import {
   AdminUserListItem,
@@ -73,7 +73,6 @@ const emptyEditUserForm: UpdateAdminUserInput = {
 
 export const AdminPage: React.FC = () => {
   const { user, token, isLoading } = useAuth();
-  const systemHealth = mockSystemHealth;
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [deleteUserOpen, setDeleteUserOpen] = useState(false);
@@ -132,9 +131,10 @@ export const AdminPage: React.FC = () => {
       const users = await fetchAdminUsers(token);
       setAdminUsers(users);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to load backend users.";
-      setUsersError(message);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load backend users.", error);
+      }
+      setUsersError("Gagal memuat data dari backend.");
     } finally {
       setUsersLoading(false);
     }
@@ -154,9 +154,10 @@ export const AdminPage: React.FC = () => {
         roleId: prev.roleId || roles[0]?.id || 0,
       }));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to load backend roles.";
-      setRolesError(message);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load backend roles.", error);
+      }
+      setRolesError("Gagal memuat data dari backend.");
     } finally {
       setRolesLoading(false);
     }
@@ -311,13 +312,11 @@ export const AdminPage: React.FC = () => {
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-4">
           <div className="mb-1 text-sm text-muted-foreground">Server Status</div>
-          <Badge variant={systemHealth.serverStatus === "healthy" ? "default" : "destructive"}>
-            {systemHealth.serverStatus}
-          </Badge>
+          <Badge variant="outline">Endpoint backend untuk fitur ini belum tersedia.</Badge>
         </Card>
         <Card className="p-4">
           <div className="mb-1 text-sm text-muted-foreground">Uptime</div>
-          <div className="text-2xl font-bold">{systemHealth.uptime}%</div>
+          <div className="text-2xl font-bold">-</div>
         </Card>
         <Card className="p-4">
           <div className="mb-1 text-sm text-muted-foreground">Active Users</div>
@@ -416,7 +415,7 @@ export const AdminPage: React.FC = () => {
                       colSpan={6}
                       className="py-8 text-center text-sm text-muted-foreground"
                     >
-                      No backend users found.
+                      Gagal memuat data dari backend.
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -510,7 +509,7 @@ export const AdminPage: React.FC = () => {
                 {!rolesLoading && adminRoles.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
-                      No backend roles found.
+                      Gagal memuat data dari backend.
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -548,59 +547,22 @@ export const AdminPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mockAuditLogs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell className="font-mono text-sm">
-                      {format(log.timestamp, "PPpp")}
-                    </TableCell>
-                    <TableCell>{log.userName}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{log.action}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {log.details}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                    Endpoint backend untuk fitur ini belum tersedia.
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </Card>
         </TabsContent>
 
         <TabsContent value="system" className="mt-6">
-          <Card className="p-6">
-            <h3 className="mb-4 font-semibold">System Health Dashboard</h3>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-lg border p-4">
-                <div className="mb-2 text-sm text-muted-foreground">Gateway Status</div>
-                <Badge variant={systemHealth.gatewayStatus === "healthy" ? "default" : "destructive"}>
-                  {systemHealth.gatewayStatus}
-                </Badge>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="mb-2 text-sm text-muted-foreground">Primary Feed</div>
-                <Badge variant={systemHealth.primaryFeedStatus === "healthy" ? "default" : "destructive"}>
-                  {systemHealth.primaryFeedStatus}
-                </Badge>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="mb-2 text-sm text-muted-foreground">Backup Feed</div>
-                <Badge variant={systemHealth.backupFeedStatus === "healthy" ? "default" : "destructive"}>
-                  {systemHealth.backupFeedStatus}
-                </Badge>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="mb-2 text-sm text-muted-foreground">Last Update</div>
-                <div className="font-mono text-sm">
-                  {format(systemHealth.lastUpdate, "PPpp")}
-                </div>
-              </div>
-            </div>
-          </Card>
+          <SystemHealthPanel
+            mode="admin"
+            title="System Health Dashboard"
+            description="Admin troubleshooting view for API health, active session, serial bridge, ESP gateway, and realtime WebSocket state."
+          />
         </TabsContent>
       </Tabs>
 

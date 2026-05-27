@@ -44,7 +44,7 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
   timeWindow = '15min',
   onTimeWindowChange,
   disableTimeWindowFilter = false,
-  emptyMessage = 'No chart data available.'
+  emptyMessage = 'Belum ada data MWD untuk session ini.'
 }) => {
   const [selectedParams, setSelectedParams] = useState<string[]>(
     defaultParameters.length > 0 ? defaultParameters : [availableParameters[0]?.key]
