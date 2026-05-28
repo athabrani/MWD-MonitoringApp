@@ -15,6 +15,22 @@ type WebSocketMessage = {
 
 const clients = new Set<WebSocket>();
 
+const safeJsonReplacer = (_key: string, value: unknown) => {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    const constructorName = value.constructor?.name;
+
+    if (constructorName === "Decimal") {
+      return value.toString();
+    }
+  }
+
+  return value;
+};
+
 const createMessage = (
   event: string,
   payload: WebSocketPayload,
@@ -25,7 +41,7 @@ const createMessage = (
     timestamp: new Date().toISOString(),
   };
 
-  return JSON.stringify(message);
+  return JSON.stringify(message, safeJsonReplacer);
 };
 
 const sendToClient = (

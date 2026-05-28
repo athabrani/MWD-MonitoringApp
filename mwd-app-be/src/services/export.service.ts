@@ -67,6 +67,13 @@ type SurveyExportRow = {
   updatedAt: Date;
 };
 
+type WitsValueExportRow = {
+  measuredAt: Date;
+  depthMd: unknown;
+  value: unknown;
+  rawValue: unknown;
+};
+
 export const buildExportFileName = (
   sessionCode: string,
   format: "json" | "csv",
@@ -84,6 +91,17 @@ export const buildSurveyExportFileName = (
   const safeStationType = stationType.replace(/[^a-zA-Z0-9_-]/g, "_");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${safeSessionCode}_survey_${safeStationType}_${timestamp}.csv`;
+};
+
+export const buildWitsExportFileName = (
+  sessionCode: string,
+  witsId: string,
+  label: string,
+) => {
+  const safeSessionCode = sessionCode.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${safeSessionCode}_${witsId}_${safeLabel}_${timestamp}.csv`;
 };
 
 export const serializeHistoricalDataAsJson = (rows: ExportRow[]) => {
@@ -173,6 +191,28 @@ export const serializeSurveyStationsAsCsv = (rows: SurveyExportRow[]) => {
       row.notes,
       row.createdAt,
       row.updatedAt,
+    ]
+      .map(escapeCsv)
+      .join(","),
+  );
+
+  return [header.join(","), ...lines].join("\n");
+};
+
+const formatCsvDateTime = (date: Date) => {
+  return date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+};
+
+export const serializeWitsValuesAsCsv = (
+  rows: WitsValueExportRow[],
+  valueHeader: string,
+) => {
+  const header = ["Time", "Depth", valueHeader];
+  const lines = rows.map((row) =>
+    [
+      formatCsvDateTime(row.measuredAt),
+      row.depthMd,
+      row.value ?? row.rawValue,
     ]
       .map(escapeCsv)
       .join(","),

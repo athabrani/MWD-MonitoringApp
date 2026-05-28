@@ -79,6 +79,19 @@ type PlotRow = {
   values: Record<string, number | null>;
 };
 
+type SurveyTableRow = {
+  measuredDepth: number;
+  inclination: number;
+  azimuth: number;
+  tvd: number | null;
+  northing: number | null;
+  easting: number | null;
+  verticalSection: number | null;
+  doglegSeverity: number | null;
+  buildRate: number | null;
+  turnRate: number | null;
+};
+
 type PdfPoint = {
   x: number;
   y: number;
@@ -183,6 +196,8 @@ const DEFAULT_TEMPLATE: PlotTemplateConfig = {
 
 const db = prisma as unknown as {
   mWDData: { findMany: (args: unknown) => Promise<Record<string, unknown>[]> };
+  surveyStation: { findMany: (args: unknown) => Promise<Record<string, unknown>[]> };
+  witsConfig: { findMany: (args: unknown) => Promise<Record<string, unknown>[]> };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -1143,6 +1158,103 @@ const collectCurveKeys = (tracks: PlotTrack[]) => {
   ) as MeasurementField[];
 };
 
+const isWitsIdKey = (value: string) => {
+  return /^\d{4}$/.test(value.trim());
+};
+
+const resolveWitsCurveKeys = async (config: PlotTemplateConfig) => {
+  const fieldNames = new Set<string>(MWD_MEASUREMENT_FIELDS);
+  const witsIds = Array.from(
+    new Set(
+      config.tracks.flatMap((track) =>
+        track.curves
+          .map((curve) => curve.key.trim())
+          .filter(isWitsIdKey),
+      ),
+    ),
+  );
+
+  if (witsIds.length === 0) {
+    return config;
+  }
+
+  const configs = await db.witsConfig.findMany({
+    where: {
+      witsId: { in: witsIds },
+    },
+    select: {
+      witsId: true,
+      name: true,
+      units: true,
+      mappedField: true,
+      plotScaleLeft: true,
+      plotScaleRight: true,
+      lineColor: true,
+    },
+  });
+  const configByWitsId = new Map(
+    configs.map((item) => [String(item.witsId), item]),
+  );
+
+  return {
+    ...config,
+    tracks: config.tracks.map((track) => ({
+      ...track,
+      curves: track.curves.map((curve) => {
+        const witsConfig = configByWitsId.get(curve.key);
+        const mappedField =
+          typeof witsConfig?.mappedField === "string"
+            ? witsConfig.mappedField
+            : "";
+
+        if (!fieldNames.has(mappedField)) {
+          return curve;
+        }
+
+        const nextCurve: PlotCurve = {
+          ...curve,
+          key: mappedField,
+        };
+        const label =
+          curve.label ??
+          (typeof witsConfig?.name === "string" ? witsConfig.name : curve.key);
+        const unit =
+          curve.unit ??
+          (typeof witsConfig?.units === "string" ? witsConfig.units : undefined);
+        const min = curve.min ?? toFiniteNumber(witsConfig?.plotScaleLeft);
+        const max = curve.max ?? toFiniteNumber(witsConfig?.plotScaleRight);
+        const color =
+          curve.color ??
+          (typeof witsConfig?.lineColor === "string"
+            ? witsConfig.lineColor
+            : undefined);
+
+        if (label !== undefined) {
+          nextCurve.label = label;
+        }
+
+        if (unit !== undefined) {
+          nextCurve.unit = unit;
+        }
+
+        if (min !== null && min !== undefined) {
+          nextCurve.min = min;
+        }
+
+        if (max !== null && max !== undefined) {
+          nextCurve.max = max;
+        }
+
+        if (color !== undefined) {
+          nextCurve.color = color;
+        }
+
+        return nextCurve;
+      }),
+    })),
+  };
+};
+
 const fetchPlotRows = async (
   input: PdfPlotInput,
   curveKeys: MeasurementField[],
@@ -1198,6 +1310,70 @@ const fetchPlotRows = async (
     })
     .filter((row): row is PlotRow => row !== null)
     .sort((left, right) => left.depth - right.depth);
+};
+
+const fetchSurveyTableRows = async (input: PdfPlotInput) => {
+  const depthFilter: Record<string, number> = {};
+
+  if (input.depthMin !== undefined) {
+    depthFilter.gte = input.depthMin;
+  }
+
+  if (input.depthMax !== undefined) {
+    depthFilter.lte = input.depthMax;
+  }
+
+  const rows = await db.surveyStation.findMany({
+    where: {
+      sessionId: input.sessionId,
+      stationType: "actual",
+      ...(Object.keys(depthFilter).length > 0
+        ? { measuredDepth: depthFilter }
+        : {}),
+    },
+    orderBy: [{ measuredDepth: "asc" }, { id: "asc" }],
+    select: {
+      measuredDepth: true,
+      inclination: true,
+      azimuth: true,
+      tvd: true,
+      northing: true,
+      easting: true,
+      verticalSection: true,
+      doglegSeverity: true,
+      buildRate: true,
+      turnRate: true,
+    },
+  });
+
+  return rows
+    .map((row): SurveyTableRow | null => {
+      const measuredDepth = toFiniteNumber(row.measuredDepth);
+      const inclination = toFiniteNumber(row.inclination);
+      const azimuth = toFiniteNumber(row.azimuth);
+
+      if (
+        measuredDepth === null ||
+        inclination === null ||
+        azimuth === null
+      ) {
+        return null;
+      }
+
+      return {
+        measuredDepth,
+        inclination,
+        azimuth,
+        tvd: toFiniteNumber(row.tvd),
+        northing: toFiniteNumber(row.northing),
+        easting: toFiniteNumber(row.easting),
+        verticalSection: toFiniteNumber(row.verticalSection),
+        doglegSeverity: toFiniteNumber(row.doglegSeverity),
+        buildRate: toFiniteNumber(row.buildRate),
+        turnRate: toFiniteNumber(row.turnRate),
+      };
+    })
+    .filter((row): row is SurveyTableRow => row !== null);
 };
 
 const findNearestRow = (rows: PlotRow[], depth: number) => {
@@ -1483,6 +1659,124 @@ const drawPlotPage = (
   return builder.build();
 };
 
+const formatSurveyValue = (value: number | null, decimals = 2) => {
+  if (value === null) {
+    return "";
+  }
+
+  return value.toFixed(decimals).replace(/0+$/g, "").replace(/\.$/g, "");
+};
+
+const drawSurveyCell = (
+  builder: PdfPageBuilder,
+  value: string,
+  x: number,
+  topY: number,
+  width: number,
+  height: number,
+  options: {
+    fontSize?: number;
+    bold?: boolean;
+    align?: "left" | "center";
+  } = {},
+) => {
+  const fontSize = options.fontSize ?? 6.5;
+  const text = truncate(value, Math.max(4, Math.floor((width - 4) / (fontSize * 0.45))));
+  const textWidth = estimateTextWidth(text, fontSize);
+  const textX =
+    options.align === "center"
+      ? x + Math.max(2, (width - textWidth) / 2)
+      : x + 3;
+
+  builder.rect(x, topY, width, height, "#777777", 0.25);
+  builder.text(text, textX, topY + Math.max(3, (height - fontSize) / 2), fontSize);
+
+  if (options.bold) {
+    builder.line(x + 1, topY + height - 2, x + width - 1, topY + height - 2, "#222222", 0.45);
+  }
+};
+
+const drawSurveyTablePage = (
+  input: PdfPlotInput,
+  rows: SurveyTableRow[],
+  pageRows: SurveyTableRow[],
+  pageIndex: number,
+  pageCount: number,
+  width: number,
+  height: number,
+) => {
+  const builder = new PdfPageBuilder(width, height);
+  const marginLeft = 24;
+  const marginRight = 22;
+  const tableTop = 82;
+  const rowHeight = 17;
+  const tableWidth = width - marginLeft - marginRight;
+  const headers = [
+    "MD",
+    "Inc",
+    "Azi",
+    "TVD",
+    "North",
+    "East",
+    "V.Sec",
+    "DLS",
+    "Build",
+    "Turn",
+  ];
+  const columnWeights = [1.08, 0.9, 0.9, 1, 1, 1, 1, 0.92, 0.92, 0.92];
+  const totalWeight = columnWeights.reduce((total, value) => total + value, 0);
+  const columnWidths = columnWeights.map((weight) => (tableWidth * weight) / totalWeight);
+  const title = "Survey Data";
+  const subtitle = `${input.wellName || input.sessionCode} | Actual survey stations`;
+
+  builder.text(title, marginLeft, 30, 15);
+  builder.text(subtitle, marginLeft, 50, 8);
+  builder.text(`Rows ${rows.length} | Page ${pageIndex + 1}/${pageCount}`, width - 128, 50, 8);
+
+  let x = marginLeft;
+
+  for (const [index, header] of headers.entries()) {
+    const columnWidth = columnWidths[index] ?? 48;
+    drawSurveyCell(builder, header, x, tableTop, columnWidth, rowHeight, {
+      fontSize: 6.8,
+      bold: true,
+      align: "center",
+    });
+    x += columnWidth;
+  }
+
+  for (const [rowIndex, row] of pageRows.entries()) {
+    const y = tableTop + rowHeight * (rowIndex + 1);
+    const values = [
+      formatSurveyValue(row.measuredDepth, 2),
+      formatSurveyValue(row.inclination, 2),
+      formatSurveyValue(row.azimuth, 2),
+      formatSurveyValue(row.tvd, 2),
+      formatSurveyValue(row.northing, 2),
+      formatSurveyValue(row.easting, 2),
+      formatSurveyValue(row.verticalSection, 2),
+      formatSurveyValue(row.doglegSeverity, 2),
+      formatSurveyValue(row.buildRate, 2),
+      formatSurveyValue(row.turnRate, 2),
+    ];
+
+    x = marginLeft;
+
+    for (const [columnIndex, value] of values.entries()) {
+      const columnWidth = columnWidths[columnIndex] ?? 48;
+      drawSurveyCell(builder, value, x, y, columnWidth, rowHeight, {
+        fontSize: 6.4,
+        align: "center",
+      });
+      x += columnWidth;
+    }
+  }
+
+  builder.text("Survey table appended after generated MWD plot.", marginLeft, height - 34, 7);
+
+  return builder.build();
+};
+
 const sanitizeFileName = (value: string) => {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
 };
@@ -1507,9 +1801,11 @@ export const buildPdfPlot = async (input: PdfPlotInput) => {
   }
 
   config = mergeTemplateConfig(config, input.template);
+  config = await resolveWitsCurveKeys(config);
 
   const curveKeys = collectCurveKeys(config.tracks);
   const rows = await fetchPlotRows(input, curveKeys);
+  const surveyRows = await fetchSurveyTableRows(input);
   const depthValues = rows.map((row) => row.depth);
   const firstDepth =
     input.depthMin ?? depthValues[0] ?? 0;
@@ -1552,12 +1848,38 @@ export const buildPdfPlot = async (input: PdfPlotInput) => {
     );
   }
 
+  const surveyRowsPerPage = Math.max(1, Math.floor((height - 120) / 17) - 1);
+  const surveyPageCount =
+    surveyRows.length > 0
+      ? Math.ceil(surveyRows.length / surveyRowsPerPage)
+      : 0;
+
+  for (let pageIndex = 0; pageIndex < surveyPageCount; pageIndex += 1) {
+    const pageRows = surveyRows.slice(
+      pageIndex * surveyRowsPerPage,
+      (pageIndex + 1) * surveyRowsPerPage,
+    );
+
+    document.addPage(
+      drawSurveyTablePage(
+        input,
+        surveyRows,
+        pageRows,
+        pageIndex,
+        surveyPageCount,
+        width,
+        height,
+      ),
+    );
+  }
+
   const fileName = `${sanitizeFileName(input.sessionCode)}_pdf_plot.pdf`;
 
   return {
     content: document.build(),
     fileName,
     rowCount: rows.length,
-    pageCount,
+    surveyRowCount: surveyRows.length,
+    pageCount: pageCount + surveyPageCount,
   };
 };

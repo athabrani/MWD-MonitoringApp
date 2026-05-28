@@ -3,6 +3,7 @@ import {
   GatewayIngestError,
   ingestGatewayPayloads,
 } from "./gateway-ingest.service.js";
+import { broadcastMWDData } from "./websocket.service.js";
 import {
   type ParsedSerialWitsBlock,
   SerialWitsStreamParser,
@@ -555,6 +556,13 @@ const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>
       console.log(
         `[Serial GW] Ingested ${createdItems.length} MWD row(s) from ${options.path}: ${payloadText}`,
       );
+
+      for (const item of createdItems) {
+        broadcastMWDData({
+          source: options.source,
+          ...item,
+        });
+      }
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {
         runtimeStatus.lastError = error.message;
@@ -637,6 +645,13 @@ const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>
       console.log(
         `[Serial GW] Ingested ${createdItems.length} MWD row(s) from ${options.path}: WITS ${Object.keys(block.values).join(", ")}`,
       );
+
+      for (const item of createdItems) {
+        broadcastMWDData({
+          source: options.source,
+          ...item,
+        });
+      }
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {
         runtimeStatus.lastError = error.message;

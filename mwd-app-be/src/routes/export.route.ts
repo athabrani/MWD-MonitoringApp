@@ -6,6 +6,7 @@ import {
   exportSurveyData,
   exportSurveyDataAsExcel,
   exportSurveyDataAsPdf,
+  exportWitsData,
   getExportRecords,
 } from "../controllers/export.controller.js";
 import { authenticate, authorize } from "../middlewares/auth.middleware.js";
@@ -15,6 +16,7 @@ const router = Router();
 router.use(authenticate, authorize("admin", "engineer"));
 
 router.post("/historical", exportHistoricalData);
+router.post("/wits", exportWitsData);
 router.post("/surveys", exportSurveyData);
 router.post("/las", exportLasData);
 router.post("/pdf-plot", exportPdfPlot);

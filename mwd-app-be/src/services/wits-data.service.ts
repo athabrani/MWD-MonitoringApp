@@ -56,6 +56,16 @@ export type WitsAlarmFilters = {
   limit?: number;
 };
 
+export type WitsDataExportFilters = {
+  sessionId: number;
+  witsId: string;
+  measuredFrom?: Date;
+  measuredTo?: Date;
+  depthMin?: number;
+  depthMax?: number;
+  sampleMode?: "all" | "first_per_depth";
+};
+
 const witsDataValueSelect = {
   id: true,
   sessionId: true,
@@ -387,6 +397,79 @@ export const getWitsDataValues = async (
     take: normalizeLimit(filters.limit),
     select: witsDataValueSelect,
   });
+};
+
+export const getWitsDataValuesForExport = async (
+  filters: WitsDataExportFilters,
+  db: PrismaDbClient = prisma,
+) => {
+  const where: Record<string, unknown> = {
+    sessionId: filters.sessionId,
+    witsId: filters.witsId,
+  };
+  const measuredAt = getMeasuredAtWhere(filters);
+  const depthMd = getDepthWhere(filters);
+
+  if (measuredAt) {
+    where.measuredAt = measuredAt;
+  }
+
+  if (depthMd) {
+    where.depthMd = depthMd;
+  }
+
+  const rows = await client(db).witsDataValue.findMany({
+    where,
+    orderBy: [
+      { depthMd: "asc" },
+      { measuredAt: "asc" },
+      { id: "asc" },
+    ],
+    select: {
+      id: true,
+      measuredAt: true,
+      depthMd: true,
+      rawValue: true,
+      value: true,
+      witsConfig: {
+        select: {
+          witsId: true,
+          name: true,
+          units: true,
+        },
+      },
+    },
+  }) as Array<{
+    id: bigint;
+    measuredAt: Date;
+    depthMd: unknown;
+    rawValue: unknown;
+    value: unknown;
+    witsConfig: { witsId: string; name: string; units: string | null } | null;
+  }>;
+
+  if (filters.sampleMode !== "first_per_depth") {
+    return rows;
+  }
+
+  const seenDepths = new Set<string>();
+  const sampled = [];
+
+  for (const row of rows) {
+    const depthKey =
+      row.depthMd === null || row.depthMd === undefined
+        ? `no-depth-${row.id.toString()}`
+        : row.depthMd.toString();
+
+    if (seenDepths.has(depthKey)) {
+      continue;
+    }
+
+    seenDepths.add(depthKey);
+    sampled.push(row);
+  }
+
+  return sampled;
 };
 
 export const getWitsAlarmEvents = async (

@@ -140,10 +140,10 @@ export const createSession = async (input: SessionInput) => {
 export const getAllSessions = async (userId?: number) => {
   const args: {
     where?: { userId: number };
-    orderBy: { id: "asc" };
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }];
     select: typeof sessionSelect;
   } = {
-    orderBy: { id: "asc" },
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }],
     select: sessionSelect,
   };
 

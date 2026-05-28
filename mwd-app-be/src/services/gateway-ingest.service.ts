@@ -343,9 +343,8 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
 
       if (!isNewDepthSnapshot(syncInfo.latestDepthMd, depthBasis)) {
         console.log(
-          `[Gateway Ingest] Depth snapshot skipped for session ${sessionId}; depth did not advance.`,
+          `[Gateway Ingest] Depth did not advance for session ${sessionId}; storing row for time-series data.`,
         );
-        continue;
       }
 
       const input: {

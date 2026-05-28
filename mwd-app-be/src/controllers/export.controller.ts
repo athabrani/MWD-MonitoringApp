@@ -4,6 +4,8 @@ import * as historicalDataService from '../services/historical-data.service.js'
 import * as sessionService from '../services/mwd-session.service.js'
 import * as exportRecordService from '../services/export-record.service.js'
 import * as surveyService from '../services/survey.service.js'
+import * as witsConfigService from '../services/wits-config.service.js'
+import * as witsDataService from '../services/wits-data.service.js'
 import { buildLasExport } from '../services/las-export.service.js'
 import { buildPdfPlot } from '../services/pdf-plot.service.js'
 import { buildSurveyExcelExport } from '../services/survey-excel-export.service.js'
@@ -11,10 +13,13 @@ import { buildSurveyPdfExport } from '../services/survey-pdf-export.service.js'
 import {
   buildExportFileName,
   buildSurveyExportFileName,
+  buildWitsExportFileName,
   serializeHistoricalDataAsCsv,
   serializeHistoricalDataAsJson,
   serializeSurveyStationsAsCsv,
+  serializeWitsValuesAsCsv,
 } from '../services/export.service.js'
+import { normalizeWitsId } from '../utils/mwd-measurements.js'
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
@@ -113,6 +118,11 @@ const parseOptionalInteger = (value: unknown) => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const parseWitsId = (value: unknown) => {
+  const witsId = normalizeWitsId(value)
+  return witsId && /^\d{4}$/.test(witsId) ? witsId : null
 }
 
 export const exportHistoricalData = async (req: Request, res: Response) => {
@@ -219,6 +229,107 @@ export const exportHistoricalData = async (req: Request, res: Response) => {
         ? 'application/json; charset=utf-8'
         : 'text/csv; charset=utf-8',
     )
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.status(200).send(body)
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : 'Internal server error'
+    res.status(500).json({ message })
+  }
+}
+
+export const exportWitsData = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as AuthenticatedRequest).user
+
+    if (!authUser) {
+      return res.status(401).json({ message: 'Unauthorized' })
+    }
+
+    const sessionId = parsePositiveInt(req.body?.sessionId)
+    const witsId = parseWitsId(req.body?.witsId)
+    const measuredFrom = parseOptionalDate(req.body?.measuredFrom)
+    const measuredTo = parseOptionalDate(req.body?.measuredTo)
+    const depthMin = parsePositiveNumber(
+      req.body?.depthMin ?? req.body?.startDepth,
+    )
+    const depthMax = parsePositiveNumber(
+      req.body?.depthMax ?? req.body?.endDepth,
+    )
+    const sampleMode =
+      req.body?.sampleMode === 'first_per_depth' ? 'first_per_depth' : 'all'
+
+    if (sessionId === null) {
+      return res.status(400).json({ message: 'Valid sessionId is required' })
+    }
+
+    if (witsId === null) {
+      return res.status(400).json({ message: 'witsId must be a 4 digit WITS ID' })
+    }
+
+    if (measuredFrom === 'invalid') {
+      return res
+        .status(400)
+        .json({ message: 'measuredFrom must be a valid date' })
+    }
+
+    if (measuredTo === 'invalid') {
+      return res
+        .status(400)
+        .json({ message: 'measuredTo must be a valid date' })
+    }
+
+    if (
+      (req.body?.depthMin !== undefined || req.body?.startDepth !== undefined) &&
+      depthMin === null
+    ) {
+      return res
+        .status(400)
+        .json({ message: 'startDepth/depthMin must be a non-negative number' })
+    }
+
+    if (
+      (req.body?.depthMax !== undefined || req.body?.endDepth !== undefined) &&
+      depthMax === null
+    ) {
+      return res
+        .status(400)
+        .json({ message: 'endDepth/depthMax must be a non-negative number' })
+    }
+
+    const session = await sessionService.getSessionById(sessionId)
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' })
+    }
+
+    const config = await witsConfigService.getWitsConfigByWitsId(witsId)
+    const rows = await witsDataService.getWitsDataValuesForExport({
+      sessionId,
+      witsId,
+      sampleMode,
+      ...(measuredFrom !== undefined ? { measuredFrom } : {}),
+      ...(measuredTo !== undefined ? { measuredTo } : {}),
+      ...(depthMin !== null ? { depthMin } : {}),
+      ...(depthMax !== null ? { depthMax } : {}),
+    })
+    const configName =
+      isRecord(config) && typeof config.name === 'string'
+        ? config.name
+        : undefined
+    const valueLabel = configName ?? rows[0]?.witsConfig?.name ?? witsId
+    const body = serializeWitsValuesAsCsv(rows, valueLabel)
+    const fileName = buildWitsExportFileName(session.sessionCode, witsId, valueLabel)
+
+    await exportRecordService.createExportRecord({
+      sessionId,
+      exportedById: authUser.userId,
+      fileName,
+      fileType: 'wits_csv',
+      rowCount: rows.length,
+    })
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
     res.status(200).send(body)
   } catch (error: unknown) {
