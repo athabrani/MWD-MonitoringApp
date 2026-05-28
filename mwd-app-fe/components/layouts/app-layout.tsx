@@ -14,13 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -1114,9 +1107,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     reconnect,
     settings,
     updateSettings,
-    activeMwdSessionId,
-    setActiveMwdSessionId,
-    mwdSessions,
+    activeMwdSession,
     mwdSessionsLoading,
     refreshMwdSessions,
   } = useApp();
@@ -1141,6 +1132,15 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   );
 
   const activeAlarms = 3;
+  const activeSessionLabel = mwdSessionsLoading
+    ? "Loading session..."
+    : activeMwdSession?.name ||
+      activeMwdSession?.sessionCode ||
+      activeMwdSession?.wellName ||
+      "No active session";
+  const activeSessionDetail = activeMwdSession
+    ? [activeMwdSession.wellName, activeMwdSession.rigName].filter(Boolean).join(" / ") || activeMwdSession.id
+    : "Current session context";
 
   const toggleTheme = () => {
     updateSettings({
@@ -1207,40 +1207,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 Real-time drilling data
               </p>
             </div>
-            <div className="flex min-w-0 items-center gap-2 md:max-w-[360px]">
-              <Select
-                value={activeMwdSessionId}
-                onValueChange={setActiveMwdSessionId}
-                disabled={mwdSessionsLoading || mwdSessions.length === 0}
-              >
-                <SelectTrigger className="h-9 min-w-[180px] flex-1 bg-background/90 text-xs md:w-[280px] md:flex-none">
-                  <SelectValue
-                    placeholder={
-                      mwdSessionsLoading
-                        ? "Loading sessions..."
-                        : "Select session"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {mwdSessions.map((session) => (
-                    <SelectItem key={session.id} value={session.id}>
-                      {session.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 w-9 shrink-0 p-0"
-                onClick={() => void refreshMwdSessions()}
-                disabled={mwdSessionsLoading}
-                title="Refresh MWD sessions"
-              >
-                <RefreshCw className={cn("size-3.5", mwdSessionsLoading && "animate-spin")} />
-              </Button>
+            <div className="min-w-0 rounded-xl border border-border/70 bg-background/70 px-3 py-2 md:max-w-[360px]">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Current session
+              </div>
+              <div className="truncate text-sm font-semibold">{activeSessionLabel}</div>
+              <div className="truncate text-xs text-muted-foreground">{activeSessionDetail}</div>
             </div>
           </div>
 
@@ -1257,6 +1229,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             <div className="hidden h-8 w-px bg-border/70 xl:block" />
 
             <div className="hidden items-center gap-2 xl:flex">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => void refreshMwdSessions()}
+                disabled={mwdSessionsLoading}
+                title="Refresh current session"
+              >
+                <RefreshCw className={cn("size-5", mwdSessionsLoading && "animate-spin")} />
+              </Button>
+
               <Button
                 variant="ghost"
                 size="icon"
