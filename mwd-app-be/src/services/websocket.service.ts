@@ -147,6 +147,10 @@ export const broadcastESPGatewayStatus = (status: WebSocketPayload) => {
   broadcast("esp-gateway-status", status);
 };
 
+export const broadcastGatewayRawPacket = (packet: WebSocketPayload) => {
+  broadcast("gateway-raw-packet", packet);
+};
+
 export const broadcastWITSData = (data: WebSocketPayload) => {
   broadcast("wits-data", data);
 };

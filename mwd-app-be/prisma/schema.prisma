@@ -121,11 +121,40 @@ model MWDSession {
   depthTrackingState DepthTrackingState?
   depthTrackingSamples DepthTrackingSample[]
   witsOutputMessages WitsOutputMessage[]
+  gatewayRawPacketLogs GatewayRawPacketLog[]
 
   @@index([userId])
   @@index([connectionStatusId])
   @@index([startedAt])
   @@map("MWD_Session")
+}
+
+model GatewayRawPacketLog {
+  id               BigInt   @id @default(autoincrement())
+  sessionId        Int?
+  channel          String   @db.VarChar(30)
+  source           String   @db.VarChar(100)
+  messageType      String?  @db.VarChar(50)
+  rawMessage       String   @db.Text
+  payload          Json?
+  sequence         String?  @db.VarChar(100)
+  rssi             Decimal? @db.Decimal(10, 4)
+  snr              Decimal? @db.Decimal(10, 4)
+  receivedAt       DateTime @default(now())
+  ingested         Boolean  @default(false)
+  selectedByFusion Boolean  @default(false)
+  reason           String?  @db.Text
+  createdAt        DateTime @default(now())
+
+  session MWDSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([sessionId])
+  @@index([channel])
+  @@index([source])
+  @@index([messageType])
+  @@index([receivedAt])
+  @@index([selectedByFusion])
+  @@map("Gateway_Raw_Packet_Log")
 }
 
 model ExportRecord {

@@ -1,9 +1,7 @@
 import * as connectionStatusService from "./connection-status.service.js";
-import {
-  GatewayIngestError,
-  ingestGatewayPayloads,
-} from "./gateway-ingest.service.js";
-import { broadcastMWDData } from "./websocket.service.js";
+import { GatewayIngestError } from "./gateway-ingest.service.js";
+import { submitGatewayCandidate } from "./gateway-fusion.service.js";
+import { createGatewayRawPacketLog } from "./gateway-raw-packet-log.service.js";
 import {
   type ParsedSerialWitsBlock,
   SerialWitsStreamParser,
@@ -473,6 +471,17 @@ const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>
 
     const { metadata, payloadText } = extractSerialParts(line);
     updateSignalStatus(metadata, line);
+    const rawPacketLog = await createGatewayRawPacketLog({
+      channel: "serial",
+      source: options.source,
+      ...(options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
+      messageType: line.startsWith("STATS|") ? "stats" : "raw",
+      rawMessage: line,
+      ...(payloadText ? { payload: { payload: payloadText } } : {}),
+      sequence: metadata.SEQ ?? null,
+      rssi: metadata.RSSI ?? null,
+      snr: metadata.SNR ?? null,
+    });
 
     if (!payloadText) {
       logIgnoredLine(`[Serial GW] Signal/status only: ${line}`);
@@ -549,19 +558,23 @@ const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>
     }
 
     try {
-      const createdItems = await ingestGatewayPayloads(gatewayPayload);
-      runtimeStatus.ingestedCount += createdItems.length;
-      runtimeStatus.lastIngestedAt = new Date().toISOString();
-      runtimeStatus.lastError = null;
-      console.log(
-        `[Serial GW] Ingested ${createdItems.length} MWD row(s) from ${options.path}: ${payloadText}`,
-      );
+      const result = await submitGatewayCandidate({
+        channel: "serial",
+        source: options.source,
+        payload: gatewayPayload,
+        ...(rawPacketLog ? { rawPacketLogId: rawPacketLog.id } : {}),
+      });
 
-      for (const item of createdItems) {
-        broadcastMWDData({
-          source: options.source,
-          ...item,
-        });
+      if (result.selected) {
+        runtimeStatus.ingestedCount += result.createdItems.length;
+        runtimeStatus.lastIngestedAt = new Date().toISOString();
+        runtimeStatus.lastError = null;
+        console.log(
+          `[Serial GW] Selected ${result.createdItems.length} MWD row(s) from ${options.path}: ${payloadText}`,
+        );
+      } else {
+        runtimeStatus.ignoredCount += 1;
+        console.log(`[Serial GW] Candidate skipped: ${result.reason}.`);
       }
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {
@@ -638,19 +651,34 @@ const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>
     }
 
     try {
-      const createdItems = await ingestGatewayPayloads(gatewayPayload);
-      runtimeStatus.ingestedCount += createdItems.length;
-      runtimeStatus.lastIngestedAt = new Date().toISOString();
-      runtimeStatus.lastError = null;
-      console.log(
-        `[Serial GW] Ingested ${createdItems.length} MWD row(s) from ${options.path}: WITS ${Object.keys(block.values).join(", ")}`,
-      );
+      const rawPacketLog = await createGatewayRawPacketLog({
+        channel: "serial",
+        source: options.source,
+        ...(options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
+        messageType: "wits-block",
+        rawMessage: block.rawBlock,
+        payload: { wits: block.values },
+        sequence: runtimeStatus.signal.sequence,
+        rssi: runtimeStatus.signal.rssi,
+        snr: runtimeStatus.signal.snr,
+      });
+      const result = await submitGatewayCandidate({
+        channel: "serial",
+        source: options.source,
+        payload: gatewayPayload,
+        ...(rawPacketLog ? { rawPacketLogId: rawPacketLog.id } : {}),
+      });
 
-      for (const item of createdItems) {
-        broadcastMWDData({
-          source: options.source,
-          ...item,
-        });
+      if (result.selected) {
+        runtimeStatus.ingestedCount += result.createdItems.length;
+        runtimeStatus.lastIngestedAt = new Date().toISOString();
+        runtimeStatus.lastError = null;
+        console.log(
+          `[Serial GW] Selected ${result.createdItems.length} MWD row(s) from ${options.path}: WITS ${Object.keys(block.values).join(", ")}`,
+        );
+      } else {
+        runtimeStatus.ignoredCount += 1;
+        console.log(`[Serial GW] Candidate skipped: ${result.reason}.`);
       }
     } catch (error: unknown) {
       if (error instanceof GatewayIngestError) {

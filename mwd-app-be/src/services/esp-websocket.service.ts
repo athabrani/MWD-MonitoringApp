@@ -1,11 +1,9 @@
 import * as connectionStatusService from './connection-status.service.js'
-import {
-  GatewayIngestError,
-  ingestGatewayPayloads,
-} from './gateway-ingest.service.js'
+import { GatewayIngestError } from './gateway-ingest.service.js'
+import { submitGatewayCandidate } from './gateway-fusion.service.js'
+import { createGatewayRawPacketLog } from './gateway-raw-packet-log.service.js'
 import { parseSerialWitsBlock } from '../utils/serial-wits-parser.js'
 import {
-  broadcastMWDData,
   broadcastESPGatewayStatus,
 } from './websocket.service.js'
 
@@ -505,14 +503,44 @@ export const startEspWebSocketGateway = () => {
     runtimeStatus.lastMessageType = messageType
     runtimeStatus.lastRawMessage = rawMessage
 
+    const packet =
+      typeof message.data === 'string' ? unwrapLoRaPacket(message.data) : null
+    updateSignalStatus(packet?.metadata ?? {}, message, rawMessage)
+
+    const sessionIdForLog =
+      isRecord(message.data) && message.data.sessionId !== undefined
+        ? parsePositiveInt(message.data.sessionId)
+        : defaultSessionId
+    const rawMessageRssi =
+      rawMessage.match(/RSSI\s*=\s*([-+]?\d+(?:\.\d+)?)/i)?.[1] ?? null
+    const rawMessageSnr =
+      rawMessage.match(/SNR\s*=\s*([-+]?\d+(?:\.\d+)?)/i)?.[1] ?? null
+    const packetRssi = packet?.metadata.RSSI ?? null
+    const packetSnr = packet?.metadata.SNR ?? null
+    const messageRssi =
+      typeof message.rssi === 'string' || typeof message.rssi === 'number'
+        ? message.rssi
+        : null
+    const messageSnr =
+      typeof message.snr === 'string' || typeof message.snr === 'number'
+        ? message.snr
+        : null
+    const rawPacketLog = await createGatewayRawPacketLog({
+      channel: 'websocket',
+      source,
+      ...(sessionIdForLog !== null ? { sessionId: sessionIdForLog } : {}),
+      messageType,
+      rawMessage,
+      ...(packet?.payload ? { payload: { payload: packet.payload } } : {}),
+      sequence: packet?.metadata.SEQ ?? null,
+      rssi: messageRssi ?? packetRssi ?? rawMessageRssi,
+      snr: messageSnr ?? packetSnr ?? rawMessageSnr,
+    })
+
     if (!ingestTypes.has(messageType)) {
       runtimeStatus.ignoredCount += 1
       return
     }
-
-    const packet =
-      typeof message.data === 'string' ? unwrapLoRaPacket(message.data) : null
-    updateSignalStatus(packet?.metadata ?? {}, message, rawMessage)
 
     const gatewayPayload = toGatewayPayload(message, defaultSessionId)
 
@@ -535,20 +563,25 @@ export const startEspWebSocketGateway = () => {
     }
 
     try {
-      const createdItems = await ingestGatewayPayloads(gatewayPayload)
-      runtimeStatus.ingestedCount += createdItems.length
-      runtimeStatus.lastIngestedAt = new Date().toISOString()
-      runtimeStatus.lastError = null
-      console.log(
-        `[ESP WS] Ingested ${createdItems.length} MWD row(s) from ${messageType}.`,
-      )
+      const result = await submitGatewayCandidate({
+        channel: 'websocket',
+        source,
+        payload: gatewayPayload,
+        ...(rawPacketLog ? { rawPacketLogId: rawPacketLog.id } : {}),
+      })
 
-      // Broadcast ingested MWD data to frontend via native WebSocket
-      for (const item of createdItems) {
-        broadcastMWDData({
-          source: source,
-          ...item,
-        })
+      if (result.selected) {
+        runtimeStatus.ingestedCount += result.createdItems.length
+        runtimeStatus.lastIngestedAt = new Date().toISOString()
+        runtimeStatus.lastError = null
+        console.log(
+          `[ESP WS] Selected ${result.createdItems.length} MWD row(s) from ${messageType}.`,
+        )
+      } else {
+        runtimeStatus.ignoredCount += 1
+        console.log(
+          `[ESP WS] Candidate skipped: ${result.reason}.`,
+        )
       }
 
       // Broadcast updated gateway status
