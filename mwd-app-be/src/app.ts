@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import auditLogRoutes from "./routes/audit-log.route.js";
 import authRoutes from "./routes/auth.route.js";
 import connectionStatusRoutes from "./routes/connection-status.route.js";
 import depthTrackingRoutes from "./routes/depth-tracking.route.js";
@@ -101,6 +102,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/audit-logs", auditLogRoutes);
 app.use("/api/connection-status", connectionStatusRoutes);
 app.use("/api/depth-tracking", depthTrackingRoutes);
 app.use("/api/reports", emailReportRoutes);

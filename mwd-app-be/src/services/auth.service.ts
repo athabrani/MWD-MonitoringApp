@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
+import { createAuditLog } from "./audit-log.service.js";
 import { normalizeRoleName } from "../utils/roles.js";
 
 type JwtPayload = {
@@ -49,6 +50,17 @@ export const login = async (identifier: string, password: string) => {
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
+  });
+
+  await createAuditLog({
+    userId: user.id,
+    action: "login",
+    details: `User ${user.username} logged in`,
+    metadata: {
+      username: user.username,
+      email: user.email,
+      role: user.role.name,
+    },
   });
 
   const payload: JwtPayload = {
