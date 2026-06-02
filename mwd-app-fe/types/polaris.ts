@@ -135,6 +135,9 @@ export interface WitsIdAlarmSettings {
   alarmEnabled: boolean;
   alarmLow: number;
   alarmHigh: number;
+  alarmEnabledFromBackend?: boolean;
+  alarmLowFromBackend?: boolean;
+  alarmHighFromBackend?: boolean;
 }
 
 export interface WitsIdDataSourceSettings {

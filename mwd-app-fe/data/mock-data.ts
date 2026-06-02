@@ -4,7 +4,6 @@ import {
   KPIData, 
   Event, 
   TrajectoryData,
-  SystemHealth,
   AuditLog,
   ChartDataPoint,
   ToolfaceData
@@ -293,18 +292,6 @@ export const generateMockChartData = (hours: number = 1): ChartDataPoint[] => {
   }
   
   return data;
-};
-
-// Mock System Health
-export const mockSystemHealth: SystemHealth = {
-  serverStatus: 'healthy',
-  gatewayStatus: 'healthy',
-  primaryFeedStatus: 'healthy',
-  backupFeedStatus: 'healthy',
-  uptime: 99.7,
-  errorRate: 0.3,
-  activeUsers: 12,
-  lastUpdate: new Date()
 };
 
 // Mock Audit Logs

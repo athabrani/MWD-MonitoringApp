@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useId, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrajectoryData, TrajectoryPoint } from '@/types';
@@ -13,53 +13,126 @@ interface VerticalTrajectoryProps {
   showLabels?: boolean;
 }
 
+type NormalizedTrajectoryPoint = TrajectoryPoint & {
+  renderTvd: number;
+  horizontalDisplacement: number;
+};
+
+function normalizeTvd(value: number) {
+  if (!Number.isFinite(value)) return null;
+
+  // Some backends store downward TVD as negative. Render depth-down consistently.
+  return value < 0 ? Math.abs(value) : value;
+}
+
+function normalizePoint(point: TrajectoryPoint): NormalizedTrajectoryPoint | null {
+  const renderTvd = normalizeTvd(point.tvd);
+  if (
+    renderTvd === null ||
+    !Number.isFinite(point.northing) ||
+    !Number.isFinite(point.easting)
+  ) {
+    return null;
+  }
+
+  return {
+    ...point,
+    renderTvd,
+    horizontalDisplacement: Math.sqrt(point.northing ** 2 + point.easting ** 2),
+  };
+}
+
 export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
   data,
   currentDepthPercent,
   height = 600,
   showLabels = true
 }) => {
-  const padding = { top: 40, right: 60, bottom: 40, left: 80 };
-  const width = 300;
+  const clipId = useId().replace(/:/g, '');
+  const padding = { top: 48, right: 44, bottom: 48, left: 72 };
+  const width = 340;
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
+  const plotLeft = padding.left;
+  const plotRight = width - padding.right;
+  const plotTop = padding.top;
+  const plotBottom = height - padding.bottom;
+  const normalizedPlanned = useMemo(
+    () => data.planned.map(normalizePoint).filter((point): point is NormalizedTrajectoryPoint => Boolean(point)),
+    [data.planned]
+  );
+  const normalizedActual = useMemo(
+    () => data.actual.map(normalizePoint).filter((point): point is NormalizedTrajectoryPoint => Boolean(point)),
+    [data.actual]
+  );
+  const allPoints = useMemo(
+    () => [...normalizedPlanned, ...normalizedActual],
+    [normalizedActual, normalizedPlanned]
+  );
+  const hasNegativeTvd = useMemo(
+    () => [...data.planned, ...data.actual].some((point) => Number.isFinite(point.tvd) && point.tvd < 0),
+    [data.actual, data.planned]
+  );
 
   // Calculate visible data based on slider
-  const currentIndex = Math.floor((currentDepthPercent / 100) * data.actual.length);
-  const visibleActual = data.actual.slice(0, currentIndex + 1);
-  const visiblePlanned = data.planned.slice(0, Math.min(currentIndex + 1, data.planned.length));
+  const currentIndex = Math.max(
+    0,
+    Math.min(
+      Math.floor((currentDepthPercent / 100) * Math.max(normalizedActual.length - 1, 0)),
+      Math.max(normalizedActual.length - 1, 0)
+    )
+  );
+  const visibleActual = normalizedActual.slice(0, currentIndex + 1);
+  const visiblePlanned = normalizedPlanned.slice(0, Math.min(currentIndex + 1, normalizedPlanned.length));
 
   // Get bounds
   const { minTVD, maxTVD, minHD, maxHD } = useMemo(() => {
-    const allPoints = [...data.planned, ...data.actual];
-    const tvdValues = allPoints.map(p => p.tvd);
-    const hdValues = allPoints.map(p => Math.sqrt(p.northing ** 2 + p.easting ** 2));
-    
+    if (allPoints.length === 0) {
+      return {
+        minTVD: 0,
+        maxTVD: 100,
+        minHD: 0,
+        maxHD: 100,
+      };
+    }
+
+    const tvdValues = allPoints.map((p) => p.renderTvd);
+    const hdValues = allPoints.map((p) => p.horizontalDisplacement);
+    const rawMinTVD = Math.min(0, ...tvdValues);
+    const rawMaxTVD = Math.max(...tvdValues, 1);
+    const rawMaxHD = Math.max(...hdValues, 1);
+    const tvdRange = Math.max(rawMaxTVD - rawMinTVD, 1);
+    const tvdPadding = Math.max(tvdRange * 0.05, 10);
+    const hdPadding = Math.max(rawMaxHD * 0.12, 25);
+
     return {
-      minTVD: 0,
-      maxTVD: Math.max(...tvdValues) * 1.1,
+      minTVD: Math.max(0, rawMinTVD - tvdPadding),
+      maxTVD: rawMaxTVD + tvdPadding,
       minHD: 0,
-      maxHD: Math.max(...hdValues) * 1.1
+      maxHD: rawMaxHD + hdPadding,
     };
-  }, [data]);
+  }, [allPoints]);
+
+  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
   // Scale functions
   const scaleY = (tvd: number) => {
-    return padding.top + (tvd / maxTVD) * chartHeight;
+    const ratio = (tvd - minTVD) / Math.max(maxTVD - minTVD, 1);
+    return plotTop + ratio * chartHeight;
   };
 
   const scaleX = (hd: number) => {
-    return padding.left + (hd / maxHD) * chartWidth;
+    const ratio = (hd - minHD) / Math.max(maxHD - minHD, 1);
+    return plotLeft + ratio * chartWidth;
   };
 
   // Generate path for trajectory
-  const generatePath = (points: TrajectoryPoint[]) => {
+  const generatePath = (points: NormalizedTrajectoryPoint[]) => {
     if (points.length === 0) return '';
     
     return points.map((p, i) => {
-      const hd = Math.sqrt(p.northing ** 2 + p.easting ** 2);
-      const x = scaleX(hd);
-      const y = scaleY(p.tvd);
+      const x = scaleX(p.horizontalDisplacement);
+      const y = scaleY(p.renderTvd);
       return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
     }).join(' ');
   };
@@ -69,29 +142,27 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
 
   // Current position
   const currentActual = visibleActual[visibleActual.length - 1];
-  const currentHD = currentActual ? Math.sqrt(currentActual.northing ** 2 + currentActual.easting ** 2) : 0;
+  const currentHD = currentActual?.horizontalDisplacement ?? 0;
 
-  // Waypoints/targets
-  const waypoints = [
-    { name: 'KOP', md: 1000, tvd: 999.5 },
-    { name: 'Build', md: 2500, tvd: 2470 },
-    { name: 'Landing', md: 3500, tvd: 3385 },
-    { name: 'TD', md: 4500, tvd: 4270 }
-  ];
+  const targetPoint = normalizedPlanned.at(-1);
+  const targetTvd = targetPoint?.renderTvd;
 
   // Depth ticks
   const depthTicks = [];
-  const tickInterval = 500;
+  const tickInterval = Math.max(100, Math.ceil(maxTVD / 5 / 100) * 100);
   for (let d = 0; d <= maxTVD; d += tickInterval) {
     depthTicks.push(d);
   }
 
   return (
-    <Card className="p-4">
+    <Card className="overflow-hidden p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold">Vertical Section</h3>
           <p className="text-sm text-muted-foreground">TVD vs Horizontal Displacement</p>
+          {hasNegativeTvd ? (
+            <p className="text-xs text-muted-foreground">Negative TVD values are rendered as depth-down absolute values.</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -105,42 +176,57 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
         </div>
       </div>
 
-      <svg width={width} height={height} className="overflow-visible">
+      {allPoints.length === 0 ? (
+        <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">
+          Belum ada survey trajectory untuk ditampilkan.
+        </div>
+      ) : (
+      <div className="relative w-full overflow-hidden rounded-xl">
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="block overflow-hidden"
+      >
         {/* Background grid */}
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-border/30" />
           </pattern>
+          <clipPath id={clipId}>
+            <rect x={plotLeft} y={plotTop} width={chartWidth} height={chartHeight} />
+          </clipPath>
         </defs>
-        <rect x={padding.left} y={padding.top} width={chartWidth} height={chartHeight} fill="url(#grid)" />
+        <rect x={plotLeft} y={plotTop} width={chartWidth} height={chartHeight} fill="url(#grid)" />
 
         {/* Surface line */}
         <line
-          x1={padding.left}
-          y1={padding.top}
-          x2={width - padding.right}
-          y2={padding.top}
+          x1={plotLeft}
+          y1={plotTop}
+          x2={plotRight}
+          y2={plotTop}
           stroke="currentColor"
           strokeWidth="3"
           className="text-amber-600"
         />
-        <text x={padding.left + 5} y={padding.top - 8} className="text-xs fill-amber-600 font-medium">
+        <text x={plotLeft + 5} y={Math.max(16, plotTop - 10)} className="text-xs fill-amber-600 font-medium">
           Surface
         </text>
 
         {/* Rig symbol at surface */}
-        <g transform={`translate(${padding.left - 15}, ${padding.top - 35})`}>
+        <g transform={`translate(${Math.max(8, plotLeft - 15)}, ${Math.max(8, plotTop - 35)})`}>
           <rect x="5" y="0" width="20" height="35" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-amber-600" />
           <line x1="0" y1="35" x2="30" y2="35" stroke="currentColor" strokeWidth="2" className="text-amber-600" />
-          <line x1="15" y1="0" x2="15" y2="-10" stroke="currentColor" strokeWidth="2" className="text-amber-600" />
+          <line x1="15" y1="0" x2="15" y2="-8" stroke="currentColor" strokeWidth="2" className="text-amber-600" />
         </g>
 
         {/* Y-axis (Depth) */}
         <line
-          x1={padding.left}
-          y1={padding.top}
-          x2={padding.left}
-          y2={height - padding.bottom}
+          x1={plotLeft}
+          y1={plotTop}
+          x2={plotLeft}
+          y2={plotBottom}
           stroke="currentColor"
           strokeWidth="1"
           className="text-border"
@@ -150,16 +236,16 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
         {depthTicks.map(depth => (
           <g key={depth}>
             <line
-              x1={padding.left - 5}
+              x1={plotLeft - 5}
               y1={scaleY(depth)}
-              x2={padding.left}
+              x2={plotLeft}
               y2={scaleY(depth)}
               stroke="currentColor"
               strokeWidth="1"
               className="text-muted-foreground"
             />
             <text
-              x={padding.left - 10}
+              x={plotLeft - 10}
               y={scaleY(depth) + 4}
               textAnchor="end"
               className="text-xs fill-muted-foreground"
@@ -180,8 +266,8 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
 
         {/* X-axis label */}
         <text
-          x={padding.left + chartWidth / 2}
-          y={height - 10}
+          x={plotLeft + chartWidth / 2}
+          y={height - 14}
           textAnchor="middle"
           className="text-xs fill-muted-foreground font-medium"
         >
@@ -189,35 +275,38 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
         </text>
 
         {/* Planned trajectory (dashed) */}
-        <path
-          d={plannedPath}
-          fill="none"
-          stroke="#3b82f6"
-          strokeWidth="2"
-          strokeDasharray="8 4"
-          opacity="0.7"
-        />
+        <g clipPath={`url(#${clipId})`}>
+          <path
+            d={plannedPath}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth="2"
+            strokeDasharray="8 4"
+            opacity="0.7"
+          />
 
-        {/* Actual trajectory (solid) */}
-        <path
-          d={actualPath}
-          fill="none"
-          stroke="#10b981"
-          strokeWidth="3"
-        />
+          {/* Actual trajectory (solid) */}
+          <path
+            d={actualPath}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="3"
+          />
+        </g>
 
         {/* Waypoint markers */}
-        {waypoints.map((wp, i) => {
-          const wpPlanned = data.planned.find(p => Math.abs(p.md - wp.md) < 50);
-          if (!wpPlanned) return null;
-          
-          const hd = Math.sqrt(wpPlanned.northing ** 2 + wpPlanned.easting ** 2);
-          const x = scaleX(hd);
-          const y = scaleY(wpPlanned.tvd);
-          const isPassed = currentActual && currentActual.md >= wp.md;
+        {normalizedPlanned.map((wpPlanned, index) => {
+          if (index !== 0 && index !== normalizedPlanned.length - 1) return null;
+
+          const label = index === 0 ? 'Plan Start' : 'Plan TD';
+          const x = scaleX(wpPlanned.horizontalDisplacement);
+          const y = scaleY(wpPlanned.renderTvd);
+          const labelX = clamp(x + 14, plotLeft + 4, plotRight - 56);
+          const labelY = clamp(y + 4, plotTop + 12, plotBottom - 6);
+          const isPassed = currentActual && currentActual.md >= wpPlanned.md;
           
           return (
-            <g key={wp.name}>
+            <g key={`${label}-${wpPlanned.md}`}>
               <circle
                 cx={x}
                 cy={y}
@@ -237,14 +326,14 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
               />
               {showLabels && (
                 <text
-                  x={x + 15}
-                  y={y + 4}
+                  x={labelX}
+                  y={labelY}
                   className={cn(
                     "text-xs font-medium",
                     isPassed ? 'fill-emerald-500' : 'fill-muted-foreground'
                   )}
                 >
-                  {wp.name}
+                  {label}
                 </text>
               )}
             </g>
@@ -252,12 +341,18 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
         })}
 
         {/* Current position marker (drill bit) */}
-        {currentActual && (
+        {currentActual && (() => {
+          const currentX = scaleX(currentHD);
+          const currentY = scaleY(currentActual.renderTvd);
+          const labelX = clamp(currentX + 15, plotLeft + 4, plotRight - 74);
+          const labelY = clamp(currentY - 12, plotTop + 4, plotBottom - 28);
+
+          return (
           <g>
             {/* Glow effect */}
             <circle
-              cx={scaleX(currentHD)}
-              cy={scaleY(currentActual.tvd)}
+              cx={currentX}
+              cy={currentY}
               r="12"
               fill="#ef4444"
               opacity="0.3"
@@ -265,16 +360,16 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
             {/* Drill bit icon */}
             <polygon
               points={`
-                ${scaleX(currentHD)},${scaleY(currentActual.tvd) + 10}
-                ${scaleX(currentHD) - 6},${scaleY(currentActual.tvd) - 4}
-                ${scaleX(currentHD) + 6},${scaleY(currentActual.tvd) - 4}
+                ${currentX},${clamp(currentY + 10, plotTop, plotBottom)}
+                ${clamp(currentX - 6, plotLeft, plotRight)},${clamp(currentY - 4, plotTop, plotBottom)}
+                ${clamp(currentX + 6, plotLeft, plotRight)},${clamp(currentY - 4, plotTop, plotBottom)}
               `}
               fill="#ef4444"
             />
             {/* Depth label */}
             <rect
-              x={scaleX(currentHD) + 15}
-              y={scaleY(currentActual.tvd) - 12}
+              x={labelX}
+              y={labelY}
               width="70"
               height="24"
               rx="4"
@@ -284,42 +379,49 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
               strokeWidth="1"
             />
             <text
-              x={scaleX(currentHD) + 50}
-              y={scaleY(currentActual.tvd) + 4}
+              x={labelX + 35}
+              y={labelY + 16}
               textAnchor="middle"
               className="text-xs fill-foreground font-mono font-semibold"
             >
-              {currentActual.tvd.toFixed(1)}m
+              {currentActual.renderTvd.toFixed(1)}m
             </text>
           </g>
-        )}
+          );
+        })()}
 
         {/* Target depth line */}
-        <line
-          x1={padding.left}
-          y1={scaleY(4270)}
-          x2={width - padding.right}
-          y2={scaleY(4270)}
-          stroke="#f59e0b"
-          strokeWidth="1"
-          strokeDasharray="4 4"
-        />
-        <text
-          x={width - padding.right - 5}
-          y={scaleY(4270) - 5}
-          textAnchor="end"
-          className="text-xs fill-amber-500 font-medium"
-        >
-          TD: 4270m TVD
-        </text>
+        {typeof targetTvd === 'number' && (
+          <>
+            <line
+              x1={plotLeft}
+              y1={scaleY(targetTvd)}
+              x2={plotRight}
+              y2={scaleY(targetTvd)}
+              stroke="#f59e0b"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+            />
+            <text
+              x={plotRight - 5}
+              y={clamp(scaleY(targetTvd) - 5, plotTop + 12, plotBottom - 4)}
+              textAnchor="end"
+              className="text-xs fill-amber-500 font-medium"
+            >
+              TD: {targetTvd.toFixed(1)}m TVD
+            </text>
+          </>
+        )}
       </svg>
+      </div>
+      )}
 
       {/* Current metrics */}
       {currentActual && (
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="bg-muted/50 rounded-lg p-2 text-center">
             <div className="text-xs text-muted-foreground">Current TVD</div>
-            <div className="text-lg font-mono font-semibold">{currentActual.tvd.toFixed(1)} m</div>
+            <div className="text-lg font-mono font-semibold">{currentActual.renderTvd.toFixed(1)} m</div>
           </div>
           <div className="bg-muted/50 rounded-lg p-2 text-center">
             <div className="text-xs text-muted-foreground">Current MD</div>

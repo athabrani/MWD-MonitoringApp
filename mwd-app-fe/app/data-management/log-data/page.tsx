@@ -409,7 +409,7 @@ export default function LogDataPage({
   }, [activeMwdSessionId, token]);
 
   const loadEditOperations = useCallback(async () => {
-    if (!token) {
+    if (!token || !canManageMwdData) {
       setEditOperations([]);
       setEditOperationsError("");
       return;
@@ -428,7 +428,7 @@ export default function LogDataPage({
     } finally {
       setEditOperationsLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [activeMwdSessionId, canManageMwdData, token]);
 
   useEffect(() => {
     void loadBackendLogData();
@@ -573,10 +573,14 @@ export default function LogDataPage({
     }, {});
   }, [records]);
 
-  const activeTool = LOG_EDITOR_TOOLS.find((tool) => tool.value === activeLogTab) ?? LOG_EDITOR_TOOLS[0];
+  const visibleLogEditorTools = canManageMwdData
+    ? LOG_EDITOR_TOOLS
+    : LOG_EDITOR_TOOLS.filter((tool) => tool.value === "edit");
+  const activeTool =
+    visibleLogEditorTools.find((tool) => tool.value === activeLogTab) ?? visibleLogEditorTools[0];
   const rangeValidationError = getRangeValidationError(selectedRange);
   const hasActiveEditSession = Boolean(activeMwdSessionId);
-  const canPreviewEditTools = Boolean(token) && hasActiveEditSession && !rangeValidationError;
+  const canPreviewEditTools = canManageMwdData && Boolean(token) && hasActiveEditSession && !rangeValidationError;
   const canPreviewRescaleTools = canPreviewEditTools && Boolean(selectedChannel);
   const canApplyEditTools = canPreviewEditTools && canManageMwdData;
   const canApplyRescaleTools = canPreviewRescaleTools && canManageMwdData;
@@ -675,6 +679,11 @@ export default function LogDataPage({
   };
 
   const openActionDialog = (action: LogDataActionDialog) => {
+    if (!canManageMwdData && action !== "export") {
+      toast.warning("Operator role can view log data only.");
+      return;
+    }
+
     if (selectedToolWitsIds.length === 0 && selectedChannel) {
       setSelectedToolWitsIds([selectedChannel.witsId]);
     }
@@ -1047,26 +1056,30 @@ export default function LogDataPage({
                 <ChevronDown className="ml-2 size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuLabel>Log Data Actions</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => openActionDialog("import")}>
-                <FileUp className="mr-2 size-4" />
-                Import data from CSV or LAS file
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openActionDialog("memory")}>
-                <GitCompare className="mr-2 size-4" />
-                Memory Correlation Editor
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openActionDialog("batch")}>
-                <Settings2 className="mr-2 size-4" />
-                Batch Settings Editor
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => openActionDialog("delete-range")} className="text-destructive">
-                <Trash2 className="mr-2 size-4" />
-                Delete Depth Range
-              </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Log Data Actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+              {canManageMwdData ? (
+                <>
+                  <DropdownMenuItem onClick={() => openActionDialog("import")}>
+                    <FileUp className="mr-2 size-4" />
+                    Import data from CSV or LAS file
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openActionDialog("memory")}>
+                    <GitCompare className="mr-2 size-4" />
+                    Memory Correlation Editor
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openActionDialog("batch")}>
+                    <Settings2 className="mr-2 size-4" />
+                    Batch Settings Editor
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => openActionDialog("delete-range")} className="text-destructive">
+                    <Trash2 className="mr-2 size-4" />
+                    Delete Depth Range
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               <DropdownMenuItem onClick={() => openActionDialog("export")}>
                 <Download className="mr-2 size-4" />
                 Export Data
@@ -1157,14 +1170,18 @@ export default function LogDataPage({
                       .join(" | ") || "-"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <ConfirmDeleteButton
-                      title="Delete MWD data row?"
-                      description={`MWD row ${record.id ?? "without id"} will be deleted. WITS data values are refreshed after deletion.`}
-                      size="sm"
-                      variant="ghost"
-                      disabled={!record.id || !canManageMwdData || mwdDeletingId === record.id}
-                      onConfirm={() => void handleDeleteMwdRecord(record)}
-                    />
+                    {canManageMwdData ? (
+                      <ConfirmDeleteButton
+                        title="Delete MWD data row?"
+                        description={`MWD row ${record.id ?? "without id"} will be deleted. WITS data values are refreshed after deletion.`}
+                        size="sm"
+                        variant="ghost"
+                        disabled={!record.id || mwdDeletingId === record.id}
+                        onConfirm={() => void handleDeleteMwdRecord(record)}
+                      />
+                    ) : (
+                      <Badge variant="outline">Read only</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -1275,7 +1292,13 @@ export default function LogDataPage({
           </div>
         ) : (
           <div className="space-y-4">
-            <Tabs value={activeLogTab} onValueChange={(value) => setActiveLogTab(value as LogEditorTool)} className="space-y-4">
+            <Tabs
+              value={canManageMwdData ? activeLogTab : "edit"}
+              onValueChange={(value) => {
+                if (canManageMwdData) setActiveLogTab(value as LogEditorTool);
+              }}
+              className="space-y-4"
+            >
             <Card className="rounded-2xl p-4">
               <div className="grid gap-3 md:grid-cols-[auto_72px_minmax(220px,1fr)_auto] md:items-center">
                 <Button size="sm" variant="outline" onClick={() => setLogDataViewMode("list")}>
@@ -1307,7 +1330,7 @@ export default function LogDataPage({
               </div>
 
               <TabsList className="mt-4 h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
-                {LOG_EDITOR_TOOLS.map((tool) => (
+                {visibleLogEditorTools.map((tool) => (
                   <TabsTrigger key={tool.value} value={tool.value}>
                     {tool.label}
                   </TabsTrigger>
@@ -1414,8 +1437,6 @@ export default function LogDataPage({
                 <LogDataMemoryImportPanel
                   selectedChannel={selectedChannel}
                   channels={allChannels}
-                  records={records}
-                  setRecords={setRecords}
                   onNavigate={onNavigate}
                 />
               </TabsContent>
@@ -1912,7 +1933,7 @@ export default function LogDataPage({
                 <Card className="rounded-2xl border-dashed p-4">
                   <h2 className="text-lg font-semibold">Batch operations</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    These actions scaffold the workflow surfaces required by Polaris-style log data management.
+                    Backend-connected edit tools remain available in their own tabs. Import and memory actions route to explicit backend or unavailable states.
                   </p>
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
                     {[
@@ -1924,12 +1945,22 @@ export default function LogDataPage({
                       <div key={actionLabel} className="rounded-xl border px-4 py-3">
                         <div className="font-medium">{actionLabel}</div>
                         <div className="mt-1 text-sm text-muted-foreground">
-                          Local placeholder action with UI routing ready for later backend integration.
+                          {actionLabel === "Memory Correlation Editor"
+                            ? "Open the dedicated backend memory workflow."
+                            : actionLabel === "Import data from CSV/LAS"
+                              ? "Blocked until a backend CSV/LAS import endpoint is available."
+                              : "Backend integration is not available from this batch surface yet."}
                         </div>
                         <Button
                           variant="outline"
                           className="mt-3"
-                          onClick={() => toast.message(`${actionLabel} is currently a UI placeholder`)}
+                          onClick={() => {
+                            if (actionLabel === "Memory Correlation Editor") {
+                              onNavigate?.("data-management-memory-import");
+                              return;
+                            }
+                            toast.message("Endpoint backend untuk fitur ini belum tersedia.");
+                          }}
                         >
                           Open
                         </Button>
@@ -1946,7 +1977,7 @@ export default function LogDataPage({
         )}
       </WorkspaceSection>
 
-      {logDataViewMode === "list" ? (
+      {logDataViewMode === "list" && canManageMwdData ? (
         <Card className="rounded-2xl p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -2008,13 +2039,16 @@ export default function LogDataPage({
         </Card>
       ) : null}
 
-      <Dialog open={activeActionDialog !== null} onOpenChange={(open) => !open && setActiveActionDialog(null)}>
+      <Dialog
+        open={activeActionDialog !== null && (canManageMwdData || activeActionDialog === "export")}
+        onOpenChange={(open) => !open && setActiveActionDialog(null)}
+      >
         {activeActionDialog === "import" ? (
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Import data from CSV or LAS file</DialogTitle>
               <DialogDescription>
-                Load a local CSV or LAS export into the active WITS channel workflow. Full backend import remains integration-ready.
+                CSV/LAS import requires a backend endpoint before operational data can be loaded into MWD/WITS storage.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -2028,23 +2062,27 @@ export default function LogDataPage({
                   onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Supported scaffold: CSV, LAS, or text exports. Selected channel: {selectedChannel?.witsId ?? "none"}.
+                  File selection is review-only. Selected channel: {selectedChannel?.witsId ?? "none"}.
                 </p>
               </div>
               {importFileName ? (
                 <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                  Ready to load <span className="font-medium">{importFileName}</span>
+                  Selected file: <span className="font-medium">{importFileName}</span>
                 </div>
               ) : null}
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Endpoint backend untuk import CSV/LAS belum tersedia. Frontend tidak membuat fallback local import.
+              </div>
             </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="outline">Close</Button>
               </DialogClose>
               <Button
-                onClick={() => toast.message(importFileName ? "Endpoint backend untuk fitur ini belum tersedia." : "Choose a CSV or LAS file first")}
+                disabled
+                title="CSV/LAS import endpoint is not available yet."
               >
-                Load File
+                Import endpoint unavailable
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2055,67 +2093,33 @@ export default function LogDataPage({
             <DialogHeader>
               <DialogTitle>Memory Correlation Editor</DialogTitle>
               <DialogDescription>
-                Select WITS IDs, define the working depth interval, then run local correlation-style operations.
+                Memory import and correlation are handled by the dedicated backend memory workflow.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <Card className="flex min-h-[280px] flex-col rounded-xl p-0 lg:min-h-0">
-                <div className="border-b px-3 py-2">
-                  <h3 className="font-semibold">WITS IDs</h3>
-                  <p className="text-sm text-muted-foreground">Multi-select friendly channel target list.</p>
+            <div className="grid min-h-0 gap-3 lg:grid-cols-2">
+              <Card className="rounded-xl p-4">
+                <h3 className="font-semibold">Backend memory workflow</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Use `/data-management/memory-import` for GET `/api/memory-files`, POST `/api/memory-files/import`, points review, dry-run correlation, and apply correlation.
+                </p>
+                <div className="mt-3 rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                  Current Log Data channel: {selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}.
                 </div>
-                <ScrollArea className="min-h-[220px] flex-1 lg:min-h-0">
-                  <div className="space-y-1.5 p-2">
-                    {allChannels.map((channel) => (
-                      <label key={channel.witsId} className="flex cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 hover:bg-muted/40">
-                        <Checkbox
-                          checked={selectedToolWitsIds.includes(channel.witsId)}
-                          onCheckedChange={() => toggleToolWitsId(channel.witsId)}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-mono text-sm font-semibold">{channel.witsId}</span>
-                          <span className="block truncate text-sm">{channel.label}</span>
-                          <span className="block text-xs text-muted-foreground">{channel.units || "No units"} | {channel.count} records</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </ScrollArea>
               </Card>
-              <div className="space-y-3">
-                <Card className="rounded-xl p-3">
-                  <h3 className="font-semibold">Depth interval</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                    <div className="space-y-2">
-                      <Label>Start</Label>
-                      <Input type="number" value={selectedRange.startDepth} onChange={(event) => updateSelectedRange("startDepth", Number(event.target.value))} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>End</Label>
-                      <Input type="number" value={selectedRange.endDepth} onChange={(event) => updateSelectedRange("endDepth", Number(event.target.value))} />
-                    </div>
-                  </div>
-                </Card>
-                <Card className="rounded-xl border-dashed p-3">
-                  <h3 className="font-semibold">Operation context</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {selectedToolChannels.length > 0
-                      ? `${selectedToolChannels.length} WITS ID selected. Current detail channel is ${selectedChannel?.witsId ?? "none"}.`
-                      : "Select at least one WITS ID before applying an operation."}
-                  </p>
-                  <div className="mt-3 grid gap-2">
-                    <Button variant="outline" onClick={handleDialogDeleteDepths}>Delete Depths</Button>
-                    <Button variant="outline" onClick={() => toast.message("Change Bit Spacing is a UI scaffold for backend integration")}>Change Bit Spacing</Button>
-                    <Button variant="outline" onClick={() => toast.message("Shift Times is a UI scaffold for backend integration")}>Shift Times</Button>
-                    <Button variant="outline" onClick={() => toast.message("Scale Data is available in the existing Move / Copy / Rescale tab")}>Scale Data</Button>
-                  </div>
-                </Card>
-              </div>
+              <Card className="rounded-xl border-dashed p-4">
+                <h3 className="font-semibold">Local placeholder removed</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  This dialog no longer runs local-only correlation, bit spacing, shift time, or copy-depth actions. Use backend edit tools in Log Data or the memory import page.
+                </p>
+              </Card>
             </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="outline">Close</Button>
               </DialogClose>
+              <Button onClick={() => onNavigate?.("data-management-memory-import")}>
+                Open Memory Import
+              </Button>
             </DialogFooter>
           </DialogContent>
         ) : null}

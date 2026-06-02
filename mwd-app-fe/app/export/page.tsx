@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Download, Calendar as CalendarIcon, FileSpreadsheet, FileJson } from 'lucide-react';
@@ -23,9 +24,78 @@ export const ExportPage: React.FC = () => {
   const { activeMwdSessionId, activeMwdSession } = useApp();
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(new Date());
+  const [depthMin, setDepthMin] = useState('');
+  const [depthMax, setDepthMax] = useState('');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
   const [exporting, setExporting] = useState(false);
   const canExport = user?.role === 'admin' || user?.role === 'engineer';
+
+  const readDepthFilter = (value: string, label: string) => {
+    if (!value.trim()) return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`${label} must be a valid number.`);
+    }
+    return parsed;
+  };
+
+  const buildHistoricalExportPayload = () => {
+    if (startDate && endDate && endDate < startDate) {
+      throw new Error('Start date must be before or equal to end date.');
+    }
+
+    const parsedDepthMin = readDepthFilter(depthMin, 'Depth min');
+    const parsedDepthMax = readDepthFilter(depthMax, 'Depth max');
+
+    if (
+      typeof parsedDepthMin === 'number' &&
+      typeof parsedDepthMax === 'number' &&
+      parsedDepthMin > parsedDepthMax
+    ) {
+      throw new Error('Depth min must be less than or equal to depth max.');
+    }
+
+    const payload: {
+      sessionId: string;
+      format: ExportFormat;
+      measuredFrom?: string;
+      measuredTo?: string;
+      depthMin?: number;
+      depthMax?: number;
+    } = {
+      sessionId: activeMwdSessionId,
+      format: exportFormat,
+    };
+
+    if (startDate) {
+      payload.measuredFrom = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth(),
+        startDate.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).toISOString();
+    }
+
+    if (endDate) {
+      payload.measuredTo = new Date(
+        endDate.getFullYear(),
+        endDate.getMonth(),
+        endDate.getDate(),
+        23,
+        59,
+        59,
+        999
+      ).toISOString();
+    }
+
+    if (typeof parsedDepthMin === 'number') payload.depthMin = parsedDepthMin;
+    if (typeof parsedDepthMax === 'number') payload.depthMax = parsedDepthMax;
+
+    return payload;
+  };
 
   const handleExport = async () => {
     if (!token) {
@@ -46,10 +116,7 @@ export const ExportPage: React.FC = () => {
     setExporting(true);
 
     try {
-      const blob = await exportHistorical(token, {
-        sessionId: activeMwdSessionId,
-        format: exportFormat,
-      });
+      const blob = await exportHistorical(token, buildHistoricalExportPayload());
       downloadBlob(blob, `historical-data.${exportFormat}`);
 
       toast.success('Historical export downloaded', {
@@ -80,7 +147,14 @@ export const ExportPage: React.FC = () => {
           {/* Date Range */}
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Start Date</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label>Measured From</Label>
+                {startDate ? (
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setStartDate(undefined)}>
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -105,7 +179,14 @@ export const ExportPage: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>End Date</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label>Measured To</Label>
+                {endDate ? (
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setEndDate(undefined)}>
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -160,6 +241,31 @@ export const ExportPage: React.FC = () => {
             </div>
           </div>
 
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="export-depth-min">Depth Min</Label>
+              <Input
+                id="export-depth-min"
+                type="number"
+                inputMode="decimal"
+                value={depthMin}
+                onChange={(event) => setDepthMin(event.target.value)}
+                placeholder="Optional start depth"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="export-depth-max">Depth Max</Label>
+              <Input
+                id="export-depth-max"
+                type="number"
+                inputMode="decimal"
+                value={depthMax}
+                onChange={(event) => setDepthMax(event.target.value)}
+                placeholder="Optional end depth"
+              />
+            </div>
+          </div>
+
           <Button onClick={() => void handleExport()} className="w-full" size="lg" disabled={exporting || !canExport}>
             <Download className="size-4 mr-2" />
             {exporting ? 'Exporting...' : 'Export Data'}
@@ -170,10 +276,11 @@ export const ExportPage: React.FC = () => {
       <Card className="p-6 bg-muted">
         <h4 className="font-medium mb-2">Export Guidelines</h4>
         <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-          <li>Date range filtering for export is a backend gap until /api/exports/historical supports measuredFrom/measuredTo</li>
+          <li>Date range and depth range are sent to /api/exports/historical when filled.</li>
+          <li>If both filter types are filled, backend should apply AND filtering.</li>
           <li>CSV format is best for data analysis in spreadsheets</li>
           <li>JSON format is ideal for programmatic access</li>
-          <li>Historical export sends only sessionId, format, depthMin, and depthMax when available</li>
+          <li>Empty filter fields are omitted from the export payload.</li>
         </ul>
       </Card>
     </div>

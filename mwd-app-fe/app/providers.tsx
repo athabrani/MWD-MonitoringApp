@@ -3,6 +3,7 @@
 import React from "react";
 import { AuthProvider } from "@/context/AuthContext";
 import { AppProvider } from "@/context/AppContext";
+import { RolePageAccessGuard } from "@/components/role-page-access-guard";
 import { Toaster } from "sonner";
 
 type ProvidersProps = {
@@ -13,7 +14,7 @@ export default function Providers({ children }: ProvidersProps) {
   return (
     <AuthProvider>
       <AppProvider>
-        {children}
+        <RolePageAccessGuard>{children}</RolePageAccessGuard>
         <Toaster />
       </AppProvider>
     </AuthProvider>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -38,6 +39,8 @@ export const HistoryPage: React.FC = () => {
   } = useApp();
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(new Date());
+  const [depthMin, setDepthMin] = useState('');
+  const [depthMax, setDepthMax] = useState('');
   const [historicalData, setHistoricalData] = useState<ChartDataPoint[]>([]);
   const [historicalLoading, setHistoricalLoading] = useState(false);
   const [historicalError, setHistoricalError] = useState('');
@@ -51,6 +54,48 @@ export const HistoryPage: React.FC = () => {
     { key: 'gamma', label: 'Gamma', color: '#84cc16', unit: 'API' }
   ];
 
+  const readDepthFilter = (value: string, label: string) => {
+    if (!value.trim()) return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`${label} must be a valid number.`);
+    }
+    return parsed;
+  };
+
+  const getDateFilterRange = () => {
+    if (startDate && endDate && endDate < startDate) {
+      throw new Error('End date must be after start date.');
+    }
+
+    return {
+      measuredFrom: startDate
+        ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0, 0).toISOString()
+        : undefined,
+      measuredTo: endDate
+        ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999).toISOString()
+        : undefined,
+    };
+  };
+
+  const getDepthFilterRange = () => {
+    const parsedDepthMin = readDepthFilter(depthMin, 'Depth min');
+    const parsedDepthMax = readDepthFilter(depthMax, 'Depth max');
+
+    if (
+      typeof parsedDepthMin === 'number' &&
+      typeof parsedDepthMax === 'number' &&
+      parsedDepthMin > parsedDepthMax
+    ) {
+      throw new Error('Depth min must be less than or equal to depth max.');
+    }
+
+    return {
+      depthMin: parsedDepthMin,
+      depthMax: parsedDepthMax,
+    };
+  };
+
   const loadHistoricalData = async () => {
     if (!token) {
       setHistoricalError('Authentication token is not available.');
@@ -60,10 +105,18 @@ export const HistoryPage: React.FC = () => {
       return;
     }
 
-    if (startDate && endDate && endDate < startDate) {
-      setHistoricalError('End date must be after start date.');
-      toast.warning('Invalid date range', {
-        description: 'End date must be after start date.',
+    let filters: ReturnType<typeof getDateFilterRange> & ReturnType<typeof getDepthFilterRange>;
+
+    try {
+      filters = {
+        ...getDateFilterRange(),
+        ...getDepthFilterRange(),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid historical filter.';
+      setHistoricalError(message);
+      toast.warning('Invalid historical filter', {
+        description: message,
       });
       return;
     }
@@ -74,8 +127,7 @@ export const HistoryPage: React.FC = () => {
     try {
       const records = await getHistoricalData(token, {
         sessionId: activeMwdSessionId || undefined,
-        measuredFrom: startDate?.toISOString(),
-        measuredTo: endDate?.toISOString(),
+        ...filters,
       });
       const sessionRecords = filterMwdDataForSession(records, activeMwdSessionId);
       const dateScopedRecords = filterMwdDataByDateRange(sessionRecords, startDate, endDate);
@@ -129,9 +181,16 @@ export const HistoryPage: React.FC = () => {
       return;
     }
 
-    if (startDate && endDate && endDate < startDate) {
-      toast.warning('Invalid date range', {
-        description: 'End date must be after start date.',
+    let filters: ReturnType<typeof getDateFilterRange> & ReturnType<typeof getDepthFilterRange>;
+
+    try {
+      filters = {
+        ...getDateFilterRange(),
+        ...getDepthFilterRange(),
+      };
+    } catch (error) {
+      toast.warning('Invalid historical export filter', {
+        description: error instanceof Error ? error.message : 'Invalid historical filter.',
       });
       return;
     }
@@ -142,6 +201,7 @@ export const HistoryPage: React.FC = () => {
       const blob = await exportHistorical(token, {
         sessionId: activeMwdSessionId,
         format: 'csv',
+        ...filters,
       });
       downloadBlob(blob, 'historical-data.csv');
 
@@ -220,6 +280,26 @@ export const HistoryPage: React.FC = () => {
                 <Calendar mode="single" selected={endDate} onSelect={setEndDate} />
               </PopoverContent>
             </Popover>
+          </div>
+
+          <div className="min-w-[150px]">
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={depthMin}
+              onChange={(event) => setDepthMin(event.target.value)}
+              placeholder="Depth min"
+            />
+          </div>
+
+          <div className="min-w-[150px]">
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={depthMax}
+              onChange={(event) => setDepthMax(event.target.value)}
+              placeholder="Depth max"
+            />
           </div>
 
           <Button

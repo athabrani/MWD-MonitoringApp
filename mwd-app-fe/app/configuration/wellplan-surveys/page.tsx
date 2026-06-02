@@ -20,6 +20,7 @@ import {
   surveyRecordToPayload,
   updateSurvey,
 } from "@/lib/surveys-api";
+import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from "@/lib/survey-defaults";
 import { SurveyRecord } from "@/types/monitoring";
 
 const emptySurvey: SurveyRecord = {
@@ -213,7 +214,7 @@ export default function WellplanSurveysPage({
         content: await file.text(),
         sessionId: activeMwdSessionId,
         stationType: "plan",
-        verticalSectionAzimuth: 90,
+        verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
       });
       toast.success("Wellplan CSV imported.");
       await loadSurveys();

@@ -1,12 +1,17 @@
-import { apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiFetch, apiRequest, getApiBaseUrl } from "@/lib/api-client";
 import { PolarisWellInformation } from "@/types/polaris";
 
 type BackendMwdSession = Record<string, unknown>;
 
 type BackendMwdSessionsResponse = {
-  value?: BackendMwdSession[];
-  data?: BackendMwdSession[];
-  items?: BackendMwdSession[];
+  value?: unknown;
+  data?: unknown;
+  items?: unknown;
+  sessions?: unknown;
+  results?: unknown;
+  records?: unknown;
+  rows?: unknown;
+  list?: unknown;
   Count?: number;
   count?: number;
 };
@@ -263,20 +268,142 @@ export function wellJobInfoToMwdSessionPayload(wellInfo: PolarisWellInformation)
   };
 }
 
-function unwrapSessionList(response: BackendMwdSessionsResponse | BackendMwdSession[]) {
-  if (Array.isArray(response)) return response;
-  return response.value ?? response.data ?? response.items ?? [];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export async function getMwdSessions(token: string): Promise<MwdSessionListItem[]> {
-  const response = await apiRequest<BackendMwdSessionsResponse | BackendMwdSession[]>("/api/mwd-sessions", {
-    method: "GET",
-    token,
-  });
+const sessionListKeys: Array<keyof BackendMwdSessionsResponse> = [
+  "value",
+  "data",
+  "items",
+  "sessions",
+  "results",
+  "records",
+  "rows",
+  "list",
+];
 
-  return unwrapSessionList(response)
+function readArray(record: BackendMwdSessionsResponse, keys: Array<keyof BackendMwdSessionsResponse>) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) return value;
+  }
+
+  return [];
+}
+
+function unwrapSessionList(response: BackendMwdSessionsResponse | BackendMwdSession[]) {
+  if (Array.isArray(response)) return response;
+  const directList = readArray(response, sessionListKeys);
+  if (directList.length > 0) return directList;
+
+  for (const key of sessionListKeys) {
+    const value = response[key];
+    if (isRecord(value)) {
+      const nestedList = readArray(value as BackendMwdSessionsResponse, sessionListKeys);
+      if (nestedList.length > 0) return nestedList;
+    }
+  }
+
+  return [];
+}
+
+function describeResponseShape(response: BackendMwdSessionsResponse | BackendMwdSession[]) {
+  if (Array.isArray(response)) {
+    return {
+      container: "array",
+      keys: [],
+      firstItemKeys: isRecord(response[0]) ? Object.keys(response[0]).slice(0, 20) : [],
+    };
+  }
+
+  const rawList = unwrapSessionList(response);
+  return {
+    container: "object",
+    keys: Object.keys(response).slice(0, 20),
+    firstItemKeys: isRecord(rawList[0]) ? Object.keys(rawList[0]).slice(0, 20) : [],
+  };
+}
+
+function getMwdSessionsRequestTarget() {
+  return `${getApiBaseUrl()}/api/mwd-sessions`;
+}
+
+function describeIdCandidates(value: unknown) {
+  if (!isRecord(value)) return null;
+
+  return {
+    id: value.id,
+    _id: value._id,
+    sessionId: value.sessionId,
+    mwdSessionId: value.mwdSessionId,
+    ID: value.ID,
+  };
+}
+
+export async function getMwdSessions(
+  token: string,
+  options: { debugRole?: string } = {}
+): Promise<MwdSessionListItem[]> {
+  let httpResponse: Response;
+  const requestTargetUrl = getMwdSessionsRequestTarget();
+  const authHeaderAttached = Boolean(token);
+
+  try {
+    httpResponse = await apiFetch("/api/mwd-sessions", {
+      method: "GET",
+      token,
+    });
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.info("[MWD sessions] GET /api/mwd-sessions failed", {
+        role: options.debugRole ?? "unknown",
+        requestTargetUrl,
+        authHeaderAttached,
+        status: error instanceof ApiClientError ? error.status : undefined,
+        message: error instanceof Error ? error.message : "Unknown error",
+        rawResponseBody: error instanceof ApiClientError ? error.responseBody ?? "" : "",
+      });
+    }
+
+    throw error;
+  }
+
+  const text = await httpResponse.text();
+  let response: BackendMwdSessionsResponse | BackendMwdSession[] = [];
+
+  try {
+    response = text ? (JSON.parse(text) as BackendMwdSessionsResponse | BackendMwdSession[]) : [];
+  } catch {
+    throw new Error("Backend returned an invalid MWD sessions response.");
+  }
+
+  const rawSessions = unwrapSessionList(response);
+  const sessions = rawSessions
     .map(normalizeBackendMwdSession)
     .filter((session): session is MwdSessionListItem => Boolean(session));
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[MWD sessions] GET /api/mwd-sessions", {
+      status: httpResponse.status,
+      role: options.debugRole ?? "unknown",
+      requestTargetUrl,
+      authHeaderAttached,
+      rawResponseBody: text,
+      rawCount: rawSessions.length,
+      normalizedCount: sessions.length,
+      normalizedSessionIds: sessions.map((session) => session.id),
+      selectedSessionId: sessions[0]?.id ?? null,
+      responseShape: describeResponseShape(response),
+      firstRawItemIdCandidates: describeIdCandidates(rawSessions[0]),
+    });
+  }
+
+  if (rawSessions.length > 0 && sessions.length === 0) {
+    throw new Error("Session response tidak memiliki id yang dapat dikenali.");
+  }
+
+  return sessions;
 }
 
 export async function getMwdSessionById(

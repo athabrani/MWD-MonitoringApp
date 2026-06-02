@@ -1,4 +1,5 @@
 import { ThresholdSettings } from "@/types";
+import { PolarisWitsId } from "@/types/polaris";
 
 export type ParameterStatus = "normal" | "warning" | "critical";
 
@@ -37,6 +38,14 @@ export const dashboardThresholdDefinitions: DashboardThresholdDefinition[] = [
 
 export type DashboardThresholdKey = string;
 
+export type ResolvedWitsConfigThreshold = {
+  enabled: boolean;
+  low: number;
+  high: number;
+  lowSource: "backend" | "default" | "empty";
+  highSource: "backend" | "default" | "empty";
+};
+
 export function buildDefaultDashboardThresholds(): ThresholdSettings[] {
   return dashboardThresholdDefinitions.map((definition) => ({
     parameter: definition.key,
@@ -70,6 +79,132 @@ export function mergeDashboardThresholds(
       critical: stored.critical ?? stored.high ?? fallback.critical,
     };
   });
+}
+
+function formatWitsId(value: number) {
+  return String(value).padStart(4, "0");
+}
+
+function normalizeLookupValue(value?: string) {
+  return value?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
+}
+
+function inferDashboardThresholdKeys(config: PolarisWitsId) {
+  const keys = new Set<string>();
+  const witsId = formatWitsId(config.numericId);
+  const candidates = [
+    config.mappedField,
+    config.name,
+    config.lasMnemonic,
+    config.lasDescription,
+    config.realTimePlot,
+    witsId,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeLookupValue);
+
+  const addIfMatches = (dashboardKey: string, aliases: string[]) => {
+    if (candidates.some((candidate) => aliases.includes(candidate))) {
+      keys.add(dashboardKey);
+    }
+  };
+
+  if (config.mappedField) keys.add(config.mappedField);
+  keys.add(witsId);
+
+  addIfMatches("inc", ["inc", "inclination"]);
+  addIfMatches("azi", ["azi", "azimuth"]);
+  addIfMatches("gamma", ["gamma", "gammaray", "gr"]);
+  addIfMatches("wob", ["wob", "weightonbit"]);
+  addIfMatches("gammaDepth", ["gammadepth", "gammamd", "gammameasureddepth"]);
+  addIfMatches("pulseAmp", ["pulseamp", "pulseamplitude"]);
+  addIfMatches("bitDepth", ["bitdepth", "depthmd", "measureddepth", "md"]);
+  addIfMatches("decoderPressure", ["decoderpressure"]);
+  addIfMatches("holeDepth", ["holedepth"]);
+  addIfMatches("pumpPressure", ["pumppressure", "standpipepressure", "spp", "pressure"]);
+  addIfMatches("spp", ["pumppressure", "standpipepressure", "spp", "pressure"]);
+  addIfMatches("rop", ["rop", "rateofpenetration"]);
+  addIfMatches("mudweight", ["mudweight", "mw"]);
+  addIfMatches("temp", ["temp", "temperature"]);
+  addIfMatches("rpm", ["rpm", "rotaryspeed"]);
+  addIfMatches("vibration", ["vibration", "vib"]);
+  addIfMatches("rpmDownhole", ["rpmdownhole", "downholerpm"]);
+  addIfMatches("diffPressure", ["diffpressure", "differentialpressure"]);
+  addIfMatches("ecdTvdSurveyBase", ["ecdtvdsurveybase"]);
+  addIfMatches("ecd", ["ecd"]);
+  addIfMatches("tvd", ["tvd"]);
+  addIfMatches("toolface", ["toolface", "gtf", "mtf"]);
+
+  return Array.from(keys);
+}
+
+function getDefaultThresholdForWitsConfig(
+  config: PolarisWitsId,
+  fallbackThresholds: ThresholdSettings[] = []
+) {
+  const fallback = mergeDashboardThresholds(fallbackThresholds);
+  const fallbackByParameter = new Map(fallback.map((threshold) => [threshold.parameter, threshold]));
+  const keys = inferDashboardThresholdKeys(config);
+
+  return keys
+    .map((key) => fallbackByParameter.get(key))
+    .find((threshold): threshold is ThresholdSettings => Boolean(threshold));
+}
+
+export function resolveWitsConfigThreshold(
+  config: PolarisWitsId,
+  fallbackThresholds: ThresholdSettings[] = []
+): ResolvedWitsConfigThreshold {
+  const defaultThreshold = getDefaultThresholdForWitsConfig(config, fallbackThresholds);
+  const backendLow = config.alarmLowFromBackend && Number.isFinite(config.alarmLow) ? config.alarmLow : undefined;
+  const backendHigh = config.alarmHighFromBackend && Number.isFinite(config.alarmHigh) ? config.alarmHigh : undefined;
+  const defaultLow = defaultThreshold?.low;
+  const defaultHigh = defaultThreshold?.high;
+  const low = backendLow ?? defaultLow ?? config.alarmLow;
+  const high = backendHigh ?? defaultHigh ?? config.alarmHigh;
+
+  return {
+    enabled: config.alarmEnabledFromBackend
+      ? config.alarmEnabled
+      : defaultThreshold?.enabled ?? config.alarmEnabled,
+    low,
+    high,
+    lowSource: backendLow !== undefined ? "backend" : defaultLow !== undefined ? "default" : "empty",
+    highSource: backendHigh !== undefined ? "backend" : defaultHigh !== undefined ? "default" : "empty",
+  };
+}
+
+export function buildDashboardThresholdsFromWitsConfig(
+  configs: PolarisWitsId[],
+  fallbackThresholds: ThresholdSettings[]
+) {
+  const fallback = mergeDashboardThresholds(fallbackThresholds);
+
+  if (configs.length === 0) {
+    return fallback;
+  }
+
+  const byParameter = new Map(fallback.map((threshold) => [threshold.parameter, threshold]));
+
+  for (const config of configs) {
+    const resolved = resolveWitsConfigThreshold(config, fallbackThresholds);
+    const low = Number.isFinite(resolved.low) ? resolved.low : undefined;
+    const high = Number.isFinite(resolved.high) ? resolved.high : undefined;
+    const keys = inferDashboardThresholdKeys(config);
+
+    for (const parameter of keys) {
+      byParameter.set(parameter, {
+        parameter,
+        enabled: resolved.enabled,
+        low,
+        high,
+        warning: high ?? low ?? 0,
+        critical: high ?? low ?? 0,
+      });
+    }
+  }
+
+  return Array.from(byParameter.values());
 }
 
 export function getDashboardThresholdStatus(

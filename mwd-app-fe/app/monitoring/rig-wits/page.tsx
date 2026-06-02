@@ -12,7 +12,6 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -28,6 +27,7 @@ import {
   WitsOutputQueueItem,
   WitsOutputQueueStatus,
 } from "@/lib/wits-output-api";
+import { getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
 import { decodeWitsPacket } from "@/lib/wits-map";
 import { MonitoringMode, WitsPacketLog } from "@/types/monitoring";
 
@@ -47,7 +47,7 @@ function PacketStream({
   packets: WitsPacketLog[];
 }) {
   return (
-    <pre className="min-h-full whitespace-pre-wrap break-all bg-background px-4 py-3 font-mono text-sm leading-6 text-foreground">
+    <pre className="min-h-full w-full whitespace-pre-wrap break-words bg-background px-4 py-3 font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere] sm:text-sm sm:leading-6">
       {buildPacketStreamText(packets)}
     </pre>
   );
@@ -65,9 +65,9 @@ function PacketPanel({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="flex min-h-[420px] flex-col rounded-2xl p-0">
-      <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
+    <Card className="flex h-[clamp(380px,68vh,620px)] min-w-0 flex-col overflow-hidden rounded-2xl p-0">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+        <h2 className="min-w-0 text-lg font-semibold">{title}</h2>
         <div className="flex flex-wrap justify-end gap-2">
           <Badge variant="outline">{count} packets</Badge>
           <Badge variant="secondary">
@@ -75,7 +75,7 @@ function PacketPanel({
           </Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">{children}</div>
     </Card>
   );
 }
@@ -98,6 +98,39 @@ function queueItemToPacketLog(item: WitsOutputQueueItem): WitsPacketLog {
   };
 }
 
+function readRecordString(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+
+  return undefined;
+}
+
+function mwdRecordToReceivedPacket(record: MwdDataRecord, index: number): WitsPacketLog {
+  const raw = record.raw;
+  const witsId = readRecordString(raw, ["witsId", "wits_id", "channel", "mnemonic"]) ?? "MWD";
+  const metricEntries = Object.entries(record.metrics);
+  const metricSummary = metricEntries
+    .slice(0, 4)
+    .map(([key, value]) => `${key}=${Number.isFinite(value) ? value.toFixed(2) : value}`)
+    .join(", ");
+
+  return {
+    id: record.id ?? `received-mwd-${record.timestamp.toISOString()}-${index}`,
+    timestamp: record.timestamp.toISOString(),
+    source: readRecordString(raw, ["source", "dataSource", "data_source"]) ?? "MWD_Data",
+    port: "Backend /api/mwd-data",
+    rawPacket: JSON.stringify(raw),
+    witsId,
+    rawValue: metricSummary || (typeof record.depth === "number" ? `depth=${record.depth}` : "MWD record"),
+    parsedValue: typeof record.depth === "number" ? `Depth ${record.depth.toFixed(2)}` : (record.status ?? "Translated"),
+    label: readRecordString(raw, ["label", "parameter", "name"]) ?? "Translated MWD Data",
+    description: "Received data translated by backend from raw/WITS input using WITS config mapping.",
+  };
+}
+
 export default function RigWitsPage({
   onNavigate,
 }: {
@@ -107,13 +140,19 @@ export default function RigWitsPage({
   const { token, user } = useAuth();
   const { activeMwdSessionId } = useApp();
   const [mode, setMode] = useState<MonitoringMode>("raw");
-  const [receivedPackets] = useState<WitsPacketLog[]>([]);
+  const [receivedRecords, setReceivedRecords] = useState<MwdDataRecord[]>([]);
+  const [receivedLoading, setReceivedLoading] = useState(false);
+  const [receivedError, setReceivedError] = useState("");
   const [outputQueue, setOutputQueue] = useState<WitsOutputQueueItem[]>([]);
   const [outputQueueLoading, setOutputQueueLoading] = useState(false);
   const [outputQueueError, setOutputQueueError] = useState("");
   const [outputQueueStatusFilter, setOutputQueueStatusFilter] = useState<WitsOutputQueueStatus | "all">("all");
   const [generatingLatestOutput, setGeneratingLatestOutput] = useState(false);
   const [updatingQueueItemId, setUpdatingQueueItemId] = useState("");
+  const receivedPackets = useMemo(
+    () => receivedRecords.map(mwdRecordToReceivedPacket),
+    [receivedRecords]
+  );
   const transmittedDisplayPackets = useMemo(
     () => outputQueue.map(queueItemToPacketLog),
     [outputQueue]
@@ -126,6 +165,33 @@ export default function RigWitsPage({
     }, {});
   }, [outputQueue]);
   const canGenerateLatestOutput = user?.role === "admin" || user?.role === "engineer";
+
+  const loadReceivedData = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setReceivedRecords([]);
+      setReceivedError("");
+      return;
+    }
+
+    setReceivedLoading(true);
+    setReceivedError("");
+
+    try {
+      const records = await getMwdData(token, {
+        sessionId: activeMwdSessionId,
+        limit: 50,
+      });
+      setReceivedRecords(records);
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Unable to load Rig WITS received data.", error);
+      }
+      setReceivedRecords([]);
+      setReceivedError("Gagal memuat data dari backend.");
+    } finally {
+      setReceivedLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
 
   const loadOutputQueue = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -156,6 +222,10 @@ export default function RigWitsPage({
   }, [activeMwdSessionId, outputQueueStatusFilter, token]);
 
   useEffect(() => {
+    void loadReceivedData();
+  }, [loadReceivedData]);
+
+  useEffect(() => {
     void loadOutputQueue();
   }, [loadOutputQueue]);
 
@@ -180,6 +250,7 @@ export default function RigWitsPage({
     try {
       await generateWitsOutputFromLatest(token, { sessionId: activeMwdSessionId });
       toast.success("Latest WITS output queued");
+      await loadReceivedData();
       await loadOutputQueue();
     } catch (error) {
       toast.error("Unable to generate latest WITS output", {
@@ -220,6 +291,17 @@ export default function RigWitsPage({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <MonitoringModeToggle mode={mode} onChange={setMode} />
+          <Button
+            variant="outline"
+            onClick={() => {
+              void loadReceivedData();
+              void loadOutputQueue();
+            }}
+            disabled={receivedLoading || outputQueueLoading}
+          >
+            <RefreshCw className={`mr-2 size-4 ${receivedLoading || outputQueueLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
           {canGenerateLatestOutput ? (
             <Button
               variant="outline"
@@ -239,13 +321,24 @@ export default function RigWitsPage({
           count={receivedPackets.length}
           latestTimestamp={receivedPackets[0]?.timestamp}
         >
-          <ScrollArea className="h-[360px]">
+          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b px-4 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">Source: /api/mwd-data</Badge>
+              {receivedLoading ? <Badge variant="outline">Loading received data</Badge> : null}
+              {receivedError ? <Badge variant="outline">Gagal memuat data dari backend.</Badge> : null}
+            </div>
+            {receivedError ? (
+              <p className="mt-1 text-xs text-muted-foreground">{receivedError}</p>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
             {mode === "raw" ? (
               receivedPackets.length > 0 ? (
                 <PacketStream packets={receivedPackets} />
               ) : (
                 <div className="flex h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
-                  Belum ada data received untuk session ini.
+                  Belum ada received data untuk session ini.
                 </div>
               )
             ) : (
@@ -276,14 +369,15 @@ export default function RigWitsPage({
                   {receivedPackets.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
-                        Belum ada data received untuk session ini.
+                        Belum ada received data untuk session ini.
                       </TableCell>
                     </TableRow>
                   ) : null}
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
+          </div>
+          </div>
         </PacketPanel>
 
         <PacketPanel
@@ -291,7 +385,8 @@ export default function RigWitsPage({
           count={transmittedDisplayPackets.length}
           latestTimestamp={transmittedDisplayPackets[0]?.timestamp}
         >
-          <div className="border-b px-4 py-2">
+          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b px-4 py-2">
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={outputQueueStatusFilter}
@@ -332,7 +427,7 @@ export default function RigWitsPage({
               <p className="mt-1 text-xs text-muted-foreground">{outputQueueError}</p>
             ) : null}
           </div>
-          <ScrollArea className="h-[360px]">
+          <div className="min-h-0 flex-1 overflow-auto">
             {mode === "raw" ? (
               transmittedDisplayPackets.length > 0 ? (
                 <PacketStream packets={transmittedDisplayPackets} />
@@ -412,7 +507,8 @@ export default function RigWitsPage({
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
+          </div>
+          </div>
         </PacketPanel>
       </div>
     </div>

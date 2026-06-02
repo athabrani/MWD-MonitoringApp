@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Camera, Download, Maximize2, RefreshCw, Target } from "lucide-react";
 import {
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -209,16 +208,25 @@ export const TrajectoryPage: React.FC = () => {
             <TabsContent value="plan" className="mt-6">
               <Card className="p-6">
                 <ResponsiveContainer width="100%" height={500}>
-                  <ScatterChart>
+                  <ScatterChart margin={{ top: 20, right: 30, bottom: 44, left: 42 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis type="number" dataKey="x" name="Easting" label={{ value: "Easting (m)", position: "bottom" }} stroke="hsl(var(--muted-foreground))" />
                     <YAxis type="number" dataKey="y" name="Northing" label={{ value: "Northing (m)", angle: -90, position: "left" }} stroke="hsl(var(--muted-foreground))" />
                     <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)} m`, name]} />
-                    <Legend />
                     <Scatter name="Planned Path" data={planViewData.planned} fill="#3b82f6" line={{ stroke: "#3b82f6", strokeWidth: 2 }} />
                     <Scatter name="Actual Path" data={planViewData.actual} fill="#10b981" line={{ stroke: "#10b981", strokeWidth: 2 }} />
                   </ScatterChart>
                 </ResponsiveContainer>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="h-0.5 w-6 border-t-2 border-dashed border-blue-500" />
+                    <span className="text-muted-foreground">Planned Path</span>
+                  </div>
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="h-0.5 w-6 rounded-full bg-emerald-500" />
+                    <span className="text-muted-foreground">Actual Path</span>
+                  </div>
+                </div>
               </Card>
             </TabsContent>
 

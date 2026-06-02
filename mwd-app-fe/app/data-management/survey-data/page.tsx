@@ -49,6 +49,7 @@ import {
   updateSurvey,
 } from "@/lib/surveys-api";
 import { downloadBlob, exportSurveys, type SurveyExportFormat } from "@/lib/exports-api";
+import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from "@/lib/survey-defaults";
 import { cn } from "@/lib/utils";
 
 function createProjectionRecord(
@@ -367,6 +368,11 @@ export default function SurveyDataPage({
   };
 
   const handleOpenEditSurvey = async (record: SurveyRecord) => {
+    if (!canManageSurveys) {
+      toast.warning("Operator role can view survey data only.");
+      return;
+    }
+
     if (!token) {
       toast.warning("Backend login is required to edit survey data.");
       return;
@@ -425,7 +431,7 @@ export default function SurveyDataPage({
       await recalculateSurveys(token, {
         sessionId: activeMwdSessionId,
         stationType: "actual",
-        verticalSectionAzimuth: 90,
+        verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
       });
       await loadSurveys(savedRecord.id);
       toast.success("Survey row updated and trajectory recalculated.");
@@ -500,7 +506,7 @@ export default function SurveyDataPage({
     const payload = {
       sessionId: activeMwdSessionId,
       stationType: "actual",
-      verticalSectionAzimuth: 90,
+      verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
     };
 
     setSurveysActionLoading("recalculate");
@@ -555,7 +561,7 @@ export default function SurveyDataPage({
         content,
         sessionId: activeMwdSessionId,
         stationType: "plan",
-        verticalSectionAzimuth: 90,
+        verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
       });
       toast.success("Survey CSV imported.");
       await loadSurveys();
@@ -597,7 +603,7 @@ export default function SurveyDataPage({
         sessionId: activeMwdSessionId,
         format: formatName as SurveyExportFormat,
         stationType: "actual",
-        verticalSectionAzimuth: 90,
+        verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
       });
       downloadBlob(blob, `surveys-${activeMwdSessionId}.${formatName}`);
       toast.success("Survey export downloaded.");
@@ -629,6 +635,7 @@ export default function SurveyDataPage({
         </Card>
       ) : null}
 
+      {canManageSurveys ? (
       <Card className="rounded-2xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
           <div>
@@ -703,6 +710,7 @@ export default function SurveyDataPage({
           </div>
         </div>
       </Card>
+      ) : null}
 
       <Card className="overflow-hidden rounded-2xl p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
@@ -721,11 +729,13 @@ export default function SurveyDataPage({
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            {canManageSurveys ? (
+              <>
             <Button
               size="sm"
               variant="outline"
               onClick={() => setProjectionOpen(true)}
-              disabled={!token || !activeMwdSessionId || !canManageSurveys}
+              disabled={!token || !activeMwdSessionId}
             >
               <Plus className="mr-2 size-4" />
               Add Projection
@@ -736,7 +746,6 @@ export default function SurveyDataPage({
               onClick={() => void handleGenerateFromMwdData()}
               disabled={
                 surveysActionLoading === "from-mwd" ||
-                !canManageSurveys ||
                 !token ||
                 !activeMwdSessionId
               }
@@ -749,7 +758,6 @@ export default function SurveyDataPage({
               onClick={() => void handleRecalculateSurveys()}
               disabled={
                 surveysActionLoading === "recalculate" ||
-                !canManageSurveys ||
                 !token ||
                 !activeMwdSessionId
               }
@@ -767,7 +775,7 @@ export default function SurveyDataPage({
               size="sm"
               variant="outline"
               onClick={() => surveyImportInputRef.current?.click()}
-              disabled={surveysActionLoading === "import-csv" || !canManageSurveys || !token}
+              disabled={surveysActionLoading === "import-csv" || !token}
             >
               <FileUp className="mr-2 size-4" />
               {surveysActionLoading === "import-csv" ? "Importing..." : "Import Surveys"}
@@ -791,6 +799,8 @@ export default function SurveyDataPage({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+              </>
+            ) : null}
             <PlotSurveyMenu
               config={plotConfig}
               open={plotDialogOpen}
@@ -801,10 +811,12 @@ export default function SurveyDataPage({
                 toast.success(`Plot request queued for ${plotConfig.plotType}`);
               }}
             />
-            <Button size="sm" variant="outline" onClick={() => setStorageDialogOpen(true)}>
-              <Settings2 className="mr-2 size-4" />
-              Configure
-            </Button>
+            {canManageSurveys ? (
+              <Button size="sm" variant="outline" onClick={() => setStorageDialogOpen(true)}>
+                <Settings2 className="mr-2 size-4" />
+                Configure
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => setReverseSort((current) => !current)}>
               <RefreshCcw className="mr-2 size-4" />
               Reverse Sort
@@ -887,7 +899,9 @@ export default function SurveyDataPage({
                       selectedSurvey?.id === record.id && "bg-muted/60"
                     )}
                     onClick={() => setSelectedSurveyId(record.id)}
-                    onDoubleClick={() => void handleOpenEditSurvey(record)}
+                    onDoubleClick={() => {
+                      if (canManageSurveys) void handleOpenEditSurvey(record);
+                    }}
                   >
                   <td className="px-4 py-3">
                     <Badge variant={record.isProjection ? "secondary" : "outline"}>
@@ -895,13 +909,17 @@ export default function SurveyDataPage({
                     </Badge>
                   </td>
                   <td className="px-2 py-3">
-                    <ConfirmDeleteButton
-                      title="Delete survey row?"
-                      description={`Survey at MD ${record.md.toFixed(2)} will be deleted.`}
-                      className="h-6 w-6"
-                      disabled={surveysDeletingId === record.id || !canManageSurveys}
-                      onConfirm={() => void handleDeleteSurvey(record)}
-                    />
+                    {canManageSurveys ? (
+                      <ConfirmDeleteButton
+                        title="Delete survey row?"
+                        description={`Survey at MD ${record.md.toFixed(2)} will be deleted.`}
+                        className="h-6 w-6"
+                        disabled={surveysDeletingId === record.id}
+                        onConfirm={() => void handleDeleteSurvey(record)}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </td>
                   {surveyColumns.map((column) => (
                     <td key={column.key} className="px-3 py-3 text-right font-mono text-xs">
@@ -934,27 +952,32 @@ export default function SurveyDataPage({
         </div>
       </Card>
 
-      <ProjectionDialog
-        open={projectionOpen}
-        measuredDepth={projectionDepth}
-        method={projectionMethod}
-        onOpenChange={setProjectionOpen}
-        onMeasuredDepthChange={setProjectionDepth}
-        onMethodChange={setProjectionMethod}
-        onSubmit={() => void handleProjection()}
-      />
+      {canManageSurveys ? (
+        <ProjectionDialog
+          open={projectionOpen}
+          measuredDepth={projectionDepth}
+          method={projectionMethod}
+          onOpenChange={setProjectionOpen}
+          onMeasuredDepthChange={setProjectionDepth}
+          onMethodChange={setProjectionMethod}
+          onSubmit={() => void handleProjection()}
+        />
+      ) : null}
 
-      <SurveyStorageConfigDialog
-        open={storageDialogOpen}
-        config={storageConfig}
-        onOpenChange={setStorageDialogOpen}
-        onConfigChange={setStorageConfig}
-        onSave={() => {
-          setStorageDialogOpen(false);
-          toast.success("Survey storage preferences saved locally");
-        }}
-      />
+      {canManageSurveys ? (
+        <SurveyStorageConfigDialog
+          open={storageDialogOpen}
+          config={storageConfig}
+          onOpenChange={setStorageDialogOpen}
+          onConfigChange={setStorageConfig}
+          onSave={() => {
+            setStorageDialogOpen(false);
+            toast.success("Survey storage preferences saved locally");
+          }}
+        />
+      ) : null}
 
+      {canManageSurveys ? (
       <Dialog open={Boolean(editRecord)} onOpenChange={(open) => !open && setEditRecord(null)}>
         <DialogContent>
           <DialogHeader>
@@ -1012,6 +1035,7 @@ export default function SurveyDataPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      ) : null}
     </div>
   );
 

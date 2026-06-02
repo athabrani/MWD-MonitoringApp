@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useApp } from "@/context/AppContext";
+import type { BackendReachability } from "@/lib/admin-backend-health-api";
 import { cn } from "@/lib/utils";
 
 type HealthLevel = "connected" | "degraded" | "disconnected" | "loading" | "unknown";
@@ -17,6 +18,7 @@ type HealthItem = {
   description: string;
   updatedAt?: string | Date;
   detail?: string;
+  rawPacket?: string;
 };
 
 type SystemHealthPanelProps = {
@@ -25,6 +27,8 @@ type SystemHealthPanelProps = {
   mode?: "admin" | "settings";
   showRefresh?: boolean;
   className?: string;
+  backendReachability?: BackendReachability;
+  onRefreshBackendReachability?: () => void | Promise<void>;
 };
 
 function normalizeLevel(value?: string): HealthLevel {
@@ -62,6 +66,26 @@ function healthIcon(level: HealthLevel) {
   return Signal;
 }
 
+function backendBadgeLabel(status: BackendReachability["status"]) {
+  if (status === "checking") return "Checking";
+  if (status === "online") return "Connected";
+  if (status === "offline") return "Disconnected";
+  if (status === "auth-error") return "Auth Error";
+  return "Error";
+}
+
+function backendBadgeVariant(status: BackendReachability["status"]) {
+  if (status === "online") return "secondary" as const;
+  if (status === "offline" || status === "error") return "destructive" as const;
+  return "outline" as const;
+}
+
+function backendBadgeClassName(status: BackendReachability["status"]) {
+  if (status === "online") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+  if (status === "auth-error") return "border-amber-500/40 bg-amber-500/10 text-amber-700";
+  return undefined;
+}
+
 function getSummaryLevel(items: HealthItem[]): HealthLevel {
   if (items.some((item) => item.level === "disconnected")) return "disconnected";
   if (items.some((item) => item.level === "degraded" || item.level === "loading" || item.level === "unknown")) {
@@ -72,10 +96,12 @@ function getSummaryLevel(items: HealthItem[]): HealthLevel {
 
 export function SystemHealthPanel({
   title = "System Health",
-  description = "Live connection health from current backend and realtime state.",
+  description,
   mode = "settings",
   showRefresh = true,
   className,
+  backendReachability,
+  onRefreshBackendReachability,
 }: SystemHealthPanelProps) {
   const {
     activeMwdSession,
@@ -122,38 +148,48 @@ export function SystemHealthPanel({
     espWsStatus?.signal?.quality ? `Quality ${espWsStatus.signal.quality}` : null,
     espWsStatus?.signal?.sequence ? `Seq ${espWsStatus.signal.sequence}` : null,
   ].filter(Boolean).join(" | ");
+  const espRawPacket =
+    espWsStatus?.lastRawMessage ??
+    espWsStatus?.lastPayload ??
+    espWsStatus?.lastLine ??
+    espWsStatus?.rawPacket;
 
   const items: HealthItem[] = [
     {
-      key: "app",
-      label: "Application / API",
+      key: "hardware",
+      label: "Hardware Connection",
       level: connectionLevel,
       value: connectionStatusLoading ? "Loading" : connectionState.status,
-      description: connectionStatusError || `Primary source: ${connectionState.dataSource}`,
+      description: connectionStatusError || (
+        activeMwdSessionId
+          ? `Session-scoped source: ${connectionState.dataSource}`
+          : `Global backend source: ${connectionState.dataSource}`
+      ),
       updatedAt: connectionState.lastReceived,
       detail: connectionState.reconnecting ? "Reconnect in progress" : undefined,
     },
     {
       key: "serial",
-      label: "Serial",
+      label: "Serial Gateway",
       level: serialLevel,
-      value: serialStatusLoading ? "Loading" : serialStatus?.status ?? "No status",
-      description: serialStatusError || serialStatus?.message || serialStatus?.port || "Backend serial bridge status.",
+      value: serialStatusLoading ? "Loading" : serialStatus?.status ?? "Unavailable",
+      description: serialStatusError || serialStatus?.message || serialStatus?.port || "Serial status endpoint unavailable or no status returned.",
       updatedAt: serialStatus?.lastReceivedAt,
       detail: serialStatus?.port ? `Port ${serialStatus.port}` : undefined,
     },
     {
       key: "esp",
-      label: "ESP WS",
+      label: "ESP WebSocket",
       level: espLevel,
-      value: espWsStatusLoading ? "Loading" : espWsStatus?.status ?? "No status",
-      description: espWsStatusError || espWsStatus?.lastError || espWsStatus?.message || "ESP gateway websocket status.",
+      value: espWsStatusLoading ? "Loading" : espWsStatus?.status ?? "Unavailable",
+      description: espWsStatusError || espWsStatus?.lastError || espWsStatus?.message || "ESP WS status endpoint unavailable or no status returned.",
       updatedAt: espWsStatus?.lastReceivedAt,
       detail: signalDetails || (typeof espWsStatus?.clientCount === "number" ? `${espWsStatus.clientCount} clients` : undefined),
+      rawPacket: espRawPacket,
     },
     {
       key: "realtime",
-      label: "Realtime",
+      label: "Realtime WebSocket",
       level: realtimeLevel,
       value: realtimeError ? "Error" : realtimeStatus,
       description: realtimeError || "Frontend WebSocket client state.",
@@ -171,8 +207,15 @@ export function SystemHealthPanel({
 
   const summaryLevel = getSummaryLevel(items);
   const gridClass = mode === "admin" ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-5";
+  const healthLoading =
+    connectionStatusLoading ||
+    failoverEventsLoading ||
+    serialStatusLoading ||
+    espWsStatusLoading ||
+    backendReachability?.status === "checking";
 
   const handleRefresh = () => {
+    void onRefreshBackendReachability?.();
     void refreshConnectionStatus();
     void refreshFailoverEvents();
     void refreshSerialStatus();
@@ -185,11 +228,22 @@ export function SystemHealthPanel({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold">{title}</h3>
-            <Badge variant={healthBadgeVariant(summaryLevel)} className="capitalize">
-              {summaryLevel}
-            </Badge>
+            {backendReachability ? (
+              <Badge
+                variant={backendBadgeVariant(backendReachability.status)}
+                className={cn("capitalize", backendBadgeClassName(backendReachability.status))}
+              >
+                {backendBadgeLabel(backendReachability.status)}
+              </Badge>
+            ) : (
+              <Badge variant={healthBadgeVariant(summaryLevel)} className="capitalize">
+                {summaryLevel}
+              </Badge>
+            )}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          {description ? (
+            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          ) : null}
         </div>
         {showRefresh ? (
           <Button
@@ -198,13 +252,12 @@ export function SystemHealthPanel({
             size="sm"
             className="shrink-0"
             onClick={handleRefresh}
-            disabled={connectionStatusLoading || failoverEventsLoading || serialStatusLoading || espWsStatusLoading}
+            disabled={healthLoading}
           >
             <RefreshCw
               className={cn(
                 "mr-2 size-4",
-                (connectionStatusLoading || failoverEventsLoading || serialStatusLoading || espWsStatusLoading) &&
-                  "animate-spin"
+                healthLoading && "animate-spin"
               )}
             />
             Refresh Health
@@ -243,6 +296,22 @@ export function SystemHealthPanel({
                   </span>
                 ) : null}
               </div>
+              {item.key === "esp" ? (
+                <div className="mt-3 rounded-lg border border-border/70 bg-muted/40 p-2">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    ESP raw packet stream
+                  </div>
+                  {item.rawPacket ? (
+                    <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground">
+                      {item.rawPacket}
+                    </pre>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      ESP raw packet stream belum tersedia dari backend.
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
           );
         })}

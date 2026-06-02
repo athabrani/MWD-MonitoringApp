@@ -104,8 +104,8 @@ export const DashboardPage: React.FC = () => {
   const dashboardPlotGeneral = activePlotConfig?.general;
   const dashboardDepthScale = dashboardPlotGeneral?.grid?.depthScale ?? dashboardPlotGeneral?.depthScale ?? '1:500';
   const dashboardDepthCorrection = dashboardPlotGeneral?.depthCorrection ?? 'MD';
-  const activeWellName = activeMwdSession?.wellName ?? activeWell?.name;
-  const activeJobName = activeMwdSession?.jobName ?? activeMwdSession?.name ?? activeWell?.activeJob?.name;
+  const activeWellName = activeMwdSession?.wellName ?? activeWell?.name ?? 'No active well';
+  const activeJobName = activeMwdSession?.jobName ?? activeMwdSession?.name ?? activeWell?.activeJob?.name ?? 'No active session';
   const formatTrackingTime = (value?: string) => {
     if (!value) return '-';
 
@@ -121,15 +121,14 @@ export const DashboardPage: React.FC = () => {
     : depthTrackingError
       ? 'Unavailable'
       : depthTrackingState?.status ?? depthTrackingState?.mode ?? 'No state';
-  const startupError = mwdSessionsError || witsConfigError || mwdDataError;
   const startupLoading = mwdSessionsLoading || witsConfigLoading || mwdDataLoading;
   const hasNoSessions = !mwdSessionsLoading && !mwdSessionsError && mwdSessions.length === 0;
+  const hasNoActiveSession = !mwdSessionsLoading && !mwdSessionsError && !activeMwdSessionId;
   const hasNoMwdData =
     Boolean(activeMwdSessionId) &&
     !mwdDataLoading &&
     !mwdDataError &&
     !latestMwdDataRecord;
-  const shouldBlockDashboard = Boolean(startupError) || hasNoSessions;
   const serialStatusLabel = serialStatusLoading
     ? 'Loading'
     : serialStatusError
@@ -575,7 +574,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-1">
             {mwdSessionsError ? (
               <Badge variant="destructive" className="w-fit max-w-full text-[10px] sm:text-xs">
-                Gagal memuat data dari backend.
+                {mwdSessionsError}
               </Badge>
             ) : null}
             {mwdDataError ? (
@@ -704,6 +703,33 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
+      {mwdSessionsError ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertDescription>
+            {mwdSessionsError} Dashboard tetap ditampilkan dengan nilai kosong/default sampai backend mengirim session yang bisa dibaca.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {hasNoSessions ? (
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertDescription>
+            Belum ada job/session yang tersedia untuk akun ini. Dashboard tetap aktif; nilai monitoring akan kosong sampai backend mengirim session.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {!hasNoSessions && hasNoActiveSession ? (
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertDescription>
+            No active session selected. Monitoring widgets tetap tampil dengan nilai kosong/default.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {hasNoMwdData && (
         <Alert>
           <AlertTriangle className="size-4" />
@@ -713,51 +739,12 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
-      {shouldBlockDashboard ? (
-        <Card className="rounded-2xl p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {startupError
-                  ? "Gagal memuat data dari backend."
-                  : hasNoSessions
-                    ? "Belum ada job/session. Buat session baru untuk mulai monitoring."
-                    : "Belum ada data MWD untuk session ini."}
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                {startupError
-                  ? "Detail teknis tersedia di console saat development."
-                  : hasNoSessions
-                    ? "Buat atau pilih job/session dari backend sebelum membuka dashboard."
-                    : "Session sudah dipilih, tetapi /api/mwd-data belum mengembalikan data untuk session ini."}
-              </p>
-              {startupLoading ? (
-                <Badge variant="outline" className="mt-4">
-                  Loading startup data
-                </Badge>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => void refreshMwdSessions()} disabled={mwdSessionsLoading}>
-                <RefreshCw className={cn("mr-2 size-4", mwdSessionsLoading && "animate-spin")} />
-                Sessions
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  void refreshWitsConfig();
-                  void refreshMwdData();
-                }}
-                disabled={!activeMwdSessionId || witsConfigLoading || mwdDataLoading}
-              >
-                <RefreshCw className={cn("mr-2 size-4", (witsConfigLoading || mwdDataLoading) && "animate-spin")} />
-                Retry Data
-              </Button>
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <>
+      {startupLoading ? (
+        <Badge variant="outline" className="w-fit">
+          Loading startup data
+        </Badge>
+      ) : null}
+
       <div
         className={cn(
           'grid',
@@ -960,8 +947,6 @@ export const DashboardPage: React.FC = () => {
             </Button>
           </div>
         </Card>
-      )}
-        </>
       )}
     </div>
   );

@@ -20,6 +20,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SlidersHorizontal,
   LayoutDashboard,
@@ -51,6 +52,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/connection-status";
+import {
+  canAccessPage,
+  getAccessiblePageTarget,
+  readRolePageAccess,
+  RolePageAccessMap,
+  subscribeRolePageAccess,
+} from "@/lib/page-access";
 
 export type AppPage =
   | "dashboard"
@@ -831,7 +839,7 @@ function DetailNavItem({
       onClick={onClick}
       title={collapsed ? label : undefined}
       className={cn(
-        "group w-full rounded-xl border text-left transition-all duration-300",
+        "group w-full max-w-full min-w-0 rounded-xl border text-left transition-all duration-300",
         collapsed
           ? "flex h-11 w-11 items-center justify-center p-0"
           : "flex min-h-[56px] items-start gap-3 px-3 py-3",
@@ -852,15 +860,15 @@ function DetailNavItem({
       </div>
 
       {!collapsed && (
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
-            <span className="truncate text-sm font-medium text-foreground">
+        <div className="min-w-0 flex-1 overflow-visible">
+          <div className="flex w-full min-w-0 items-start gap-2">
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium leading-snug text-foreground">
               {label}
             </span>
             {badge}
           </div>
           {description ? (
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+            <p className="mt-1 line-clamp-2 min-w-0 break-words text-xs text-muted-foreground">
               {description}
             </p>
           ) : null}
@@ -877,6 +885,7 @@ function DesktopDetailSidebar({
   setActiveSection,
   activeAlarms,
   isDark,
+  canViewPage,
 }: {
   currentPage: AppPage;
   onNavigate: (page: AppPage) => void;
@@ -884,6 +893,7 @@ function DesktopDetailSidebar({
   setActiveSection: (page: AppPage) => void;
   activeAlarms: number;
   isDark: boolean;
+  canViewPage: (page: AppPage) => boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
@@ -898,12 +908,31 @@ function DesktopDetailSidebar({
         ...section,
         items: section.items.filter(
           (item) =>
-            item.label.toLowerCase().includes(q) ||
-            item.description?.toLowerCase().includes(q)
+            canViewPage(item.id) &&
+            (item.label.toLowerCase().includes(q) ||
+              item.description?.toLowerCase().includes(q))
         ),
       }))
       .filter((section) => section.items.length > 0);
-  }, [meta.sections, search]);
+  }, [canViewPage, meta.sections, search]);
+  const visibleSections = useMemo(
+    () =>
+      filteredSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => canViewPage(item.id)),
+        }))
+        .filter((section) => section.items.length > 0),
+    [canViewPage, filteredSections]
+  );
+  const sidebarScrollbarClassName = cn(
+    "w-2 border-l-0 bg-transparent p-0.5 transition-colors",
+    isDark ? "hover:bg-white/[0.04]" : "hover:bg-muted/60"
+  );
+  const sidebarThumbClassName = cn(
+    "rounded-full transition-colors",
+    isDark ? "bg-white/15 hover:bg-white/25" : "bg-muted-foreground/25 hover:bg-muted-foreground/40"
+  );
 
   return (
     <aside
@@ -919,8 +948,13 @@ function DesktopDetailSidebar({
       }}
     >
       {collapsed ? (
-        <div className="flex flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-col items-center gap-2">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="h-full"
+          scrollbarClassName={sidebarScrollbarClassName}
+          thumbClassName={sidebarThumbClassName}
+        >
+          <div className="flex flex-col items-center gap-2 pb-1">
             <CollapsedActionButton
               icon={PanelLeftOpen}
               label="Expand sidebar"
@@ -928,7 +962,7 @@ function DesktopDetailSidebar({
               isDark={isDark}
             />
 
-            {filteredSections.flatMap((section) =>
+            {visibleSections.flatMap((section) =>
               section.items.map((item) => (
                 <DetailNavItem
                   key={`${section.title}-${item.id}`}
@@ -945,7 +979,7 @@ function DesktopDetailSidebar({
               ))
             )}
           </div>
-        </div>
+        </ScrollArea>
       ) : (
         <>
           <div className="flex items-center justify-end">
@@ -968,39 +1002,46 @@ function DesktopDetailSidebar({
             <SearchBox collapsed={false} value={search} onChange={setSearch} />
           </div>
 
-          <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
-            {filteredSections.map((section) => (
-              <div key={section.title}>
-                <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {section.title}
-                </div>
+          <ScrollArea
+            className="mt-4 min-h-0 flex-1"
+            viewportClassName="min-w-0"
+            scrollbarClassName={sidebarScrollbarClassName}
+            thumbClassName={sidebarThumbClassName}
+          >
+            <div className="min-w-0 space-y-5 pb-1 pr-2">
+              {visibleSections.map((section) => (
+                <div key={section.title} className="min-w-0">
+                  <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {section.title}
+                  </div>
 
-                <div className="space-y-2">
-                  {section.items.map((item) => (
-                    <DetailNavItem
-                      key={`${section.title}-${item.id}`}
-                      icon={item.icon}
-                      label={item.label}
-                      description={item.description}
-                      active={currentPage === item.id}
-                      collapsed={false}
-                      onClick={() => {
-                        setActiveSection(getParentSection(item.id));
-                        onNavigate(item.id);
-                      }}
-                      badge={
-                        item.id === "alerts" && activeAlarms > 0 ? (
-                          <Badge variant="destructive" className="ml-auto">
-                            {activeAlarms}
-                          </Badge>
-                        ) : undefined
-                      }
-                    />
-                  ))}
+                  <div className="min-w-0 space-y-2">
+                    {section.items.map((item) => (
+                      <DetailNavItem
+                        key={`${section.title}-${item.id}`}
+                        icon={item.icon}
+                        label={item.label}
+                        description={item.description}
+                        active={currentPage === item.id}
+                        collapsed={false}
+                        onClick={() => {
+                          setActiveSection(getParentSection(item.id));
+                          onNavigate(item.id);
+                        }}
+                        badge={
+                          item.id === "alerts" && activeAlarms > 0 ? (
+                            <Badge variant="destructive" className="ml-auto">
+                              {activeAlarms}
+                            </Badge>
+                          ) : undefined
+                        }
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </ScrollArea>
 
           <div
             className={cn(
@@ -1108,11 +1149,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     settings,
     updateSettings,
     activeMwdSession,
+    mwdSessions,
     mwdSessionsLoading,
+    mwdSessionsError,
     refreshMwdSessions,
   } = useApp();
   const isDark = settings.display.theme === "dark";
   const [mounted, setMounted] = useState(false);
+  const [rolePageAccess, setRolePageAccess] = useState<RolePageAccessMap>(() => readRolePageAccess());
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AppPage>(
@@ -1123,24 +1167,39 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     setMounted(true);
   }, []);
 
+  useEffect(() => subscribeRolePageAccess(() => setRolePageAccess(readRolePageAccess())), []);
+
+  const canViewPage = React.useCallback(
+    (page: AppPage) => canAccessPage(user?.role, page, rolePageAccess),
+    [rolePageAccess, user?.role]
+  );
+
   const filteredNavItems = useMemo(
     () =>
       (mounted ? navigationItems : []).filter(
-        (item) => user && item.roles.includes(user.role)
+        (item) => user && item.roles.includes(user.role) && canViewPage(item.id)
       ),
-    [mounted, user]
+    [canViewPage, mounted, user]
   );
 
   const activeAlarms = 3;
   const activeSessionLabel = mwdSessionsLoading
     ? "Loading session..."
-    : activeMwdSession?.name ||
-      activeMwdSession?.sessionCode ||
-      activeMwdSession?.wellName ||
-      "No active session";
+    : mwdSessionsError
+      ? "Session unavailable"
+      : activeMwdSession?.name ||
+        activeMwdSession?.sessionCode ||
+        activeMwdSession?.wellName ||
+        "No active session";
   const activeSessionDetail = activeMwdSession
     ? [activeMwdSession.wellName, activeMwdSession.rigName].filter(Boolean).join(" / ") || activeMwdSession.id
-    : "Current session context";
+    : mwdSessionsError
+      ? mwdSessionsError
+      : mwdSessionsLoading
+        ? "Loading current session context"
+        : mwdSessions.length === 0
+          ? "Belum ada job/session yang tersedia untuk akun ini"
+          : "Current session context";
 
   const toggleTheme = () => {
     updateSettings({
@@ -1152,7 +1211,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   const handleNavigate = (page: AppPage) => {
-    const targetPage = getDefaultPage(page);
+    const targetPage = getAccessiblePageTarget(
+      user?.role,
+      page,
+      "dashboard",
+      rolePageAccess
+    ) as AppPage;
     setActiveSection(getParentSection(targetPage));
     onNavigate(targetPage);
     setMobileMenuOpen(false);
@@ -1342,6 +1406,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             setActiveSection={setActiveSection}
             activeAlarms={activeAlarms}
             isDark={isDark}
+            canViewPage={canViewPage}
           />
 
          <main className="min-w-0 flex-1 p-1.5 md:p-3 xl:p-3">

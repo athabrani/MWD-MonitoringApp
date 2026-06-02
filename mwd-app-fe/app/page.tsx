@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useApp } from "@/context/AppContext";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { X, Download, RefreshCw } from "lucide-react";
@@ -31,9 +31,17 @@ import HelpPage from "./help/page";
 import WellPlotPage from "./trajectory/well-plot/page";
 import ConfigurationPage from "./configuration/page";
 import WellplanSurveysPage from "./configuration/wellplan-surveys/page";
+import {
+  canAccessPage,
+  getDefaultAccessiblePage,
+  getPageAccessLabel,
+  readRolePageAccess,
+  RolePageAccessMap,
+  subscribeRolePageAccess,
+} from "@/lib/page-access";
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const {
     showInstallPrompt,
     dismissInstallPrompt,
@@ -43,6 +51,7 @@ const AppContent: React.FC = () => {
   } = useApp();
 
   const [currentPage, setCurrentPage] = useState<AppPage>("dashboard");
+  const [rolePageAccess, setRolePageAccess] = useState<RolePageAccessMap>(() => readRolePageAccess());
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -57,6 +66,8 @@ const AppContent: React.FC = () => {
       document.documentElement.classList.remove("dark");
     }
   }, [settings.display.theme]);
+
+  useEffect(() => subscribeRolePageAccess(() => setRolePageAccess(readRolePageAccess())), []);
 
   if (!mounted) {
     return null;
@@ -74,7 +85,29 @@ const AppContent: React.FC = () => {
     return <LoginPage onLoginSuccess={() => setCurrentPage("dashboard")} />;
   }
 
+  const hasPageAccess = canAccessPage(user?.role, currentPage, rolePageAccess);
+  const fallbackPage = getDefaultAccessiblePage(user?.role, rolePageAccess) as AppPage;
+
+  const renderAccessDenied = () => (
+    <Alert className="border-amber-500/40 bg-amber-500/10">
+      <AlertTitle>Access denied</AlertTitle>
+      <AlertDescription className="mt-2 space-y-3">
+        <p>
+          Your role does not currently have access to {getPageAccessLabel(currentPage)}.
+          This is a frontend navigation and page guard; backend endpoint permissions still need backend enforcement.
+        </p>
+        <Button size="sm" onClick={() => setCurrentPage(fallbackPage)}>
+          Go to allowed page
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+
   const renderPage = () => {
+    if (!hasPageAccess) {
+      return renderAccessDenied();
+    }
+
     switch (currentPage) {
       case "dashboard":
         return <DashboardPage />;
@@ -101,10 +134,10 @@ const AppContent: React.FC = () => {
       case "data-management-generate-las":
         return <GenerateLasPage onNavigate={setCurrentPage} />;
       case "trajectory":
-      case "trajectory-well-plot":
-        return <WellPlotPage/>;
       case "trajectory-analysis":
         return <TrajectoryPage />;
+      case "trajectory-well-plot":
+        return <WellPlotPage/>;
       case "charts":
         return <ChartsPage />;
       case "alerts":
@@ -135,7 +168,7 @@ const AppContent: React.FC = () => {
       {/* PWA Install Prompt */}
       {showInstallPrompt && (
         <div className="fixed bottom-4 right-4 z-50 max-w-sm">
-          <Alert className="shadow-lg">
+          <Alert className="border-border/70 bg-card text-card-foreground shadow-lg">
             <Download className="size-4" />
             <AlertDescription className="flex items-center justify-between gap-4">
               <div>

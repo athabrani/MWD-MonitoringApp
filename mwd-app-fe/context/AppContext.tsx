@@ -11,8 +11,10 @@ import {
   ToolfaceData
 } from '../types';
 import { useAuth } from '@/context/AuthContext';
+import { ApiClientError } from '@/lib/api-client';
 import {
   buildDefaultDashboardThresholds,
+  buildDashboardThresholdsFromWitsConfig,
   getDashboardThresholdStatus,
   mergeDashboardThresholds,
 } from '@/lib/dashboard-thresholds';
@@ -240,6 +242,50 @@ function logBackendError(label: string, error: unknown) {
   }
 }
 
+function getMwdSessionsErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError) {
+    if (error.status === 401) {
+      return 'Sesi login tidak valid. Silakan login ulang untuk memuat daftar job/session.';
+    }
+
+    if (error.status === 403) {
+      return 'Role ini belum memiliki izin membaca daftar job/session dari backend.';
+    }
+
+    return `Gagal memuat daftar job/session. Backend mengembalikan status ${error.status}.`;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return backendErrorMessage;
+}
+
+function getBackendStatusErrorMessage(source: string, error: unknown) {
+  if (error instanceof ApiClientError) {
+    if (error.status === 401) {
+      return `${source} tidak dapat dimuat karena sesi login tidak valid.`;
+    }
+
+    if (error.status === 403) {
+      return `${source} tidak dapat dimuat karena role ini belum memiliki izin read dari backend.`;
+    }
+
+    if (error.status === 404) {
+      return `${source} endpoint belum tersedia di backend.`;
+    }
+
+    return `${source} gagal dimuat. Backend mengembalikan status ${error.status}.`;
+  }
+
+  if (isExpectedBackendConnectivityError(error)) {
+    return `${source} tidak dapat dijangkau dari backend API.`;
+  }
+
+  return error instanceof Error && error.message ? error.message : backendErrorMessage;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -312,6 +358,10 @@ function normalizeRealtimeEspStatus(data: Record<string, unknown>): EspWsStatus 
     lastError: lastError ?? null,
     clientCount: readNumber(data, ['clientCount', 'client_count', 'clients', 'connections']),
     message: readString(data, ['message', 'description', 'reason']) ?? lastError,
+    lastRawMessage: readString(data, ['lastRawMessage', 'last_raw_message']),
+    lastPayload: readString(data, ['lastPayload', 'last_payload', 'payload']),
+    lastLine: readString(data, ['lastLine', 'last_line', 'line']),
+    rawPacket: readString(data, ['rawPacket', 'raw_packet', 'packet', 'raw']),
     signal: {
       rssi: readNumber(signal, ['rssi']),
       snr: readNumber(signal, ['snr']),
@@ -354,6 +404,14 @@ function buildEmptyKpiData(): KPIData {
       },
     ])
   ) as KPIData;
+}
+
+function resolveActiveMwdSessionId(currentSessionId: string, sessions: MwdSessionListItem[]) {
+  if (currentSessionId && sessions.some((session) => session.id === currentSessionId)) {
+    return currentSessionId;
+  }
+
+  return sessions[0]?.id ?? '';
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -464,11 +522,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const activeMwdSession = useMemo(
-    () =>
-      mwdSessions.find((session) => session.id === activeMwdSessionId) ??
-      mwdSessions[0] ??
-      null,
+    () => mwdSessions.find((session) => session.id === activeMwdSessionId) ?? null,
     [activeMwdSessionId, mwdSessions]
+  );
+  const operationalThresholds = useMemo(
+    () => buildDashboardThresholdsFromWitsConfig(witsConfig, settings.thresholds),
+    [settings.thresholds, witsConfig]
+  );
+  const effectiveSettings = useMemo(
+    () => ({
+      ...settings,
+      thresholds: operationalThresholds,
+    }),
+    [operationalThresholds, settings]
   );
 
   const refreshMwdSessions = useCallback(async () => {
@@ -482,23 +548,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMwdSessionsError('');
 
     try {
-      const sessions = await getMwdSessions(token);
+      const sessions = await getMwdSessions(token, { debugRole: user?.role });
       setMwdSessions(sessions);
       setActiveMwdSessionId((current) => {
-        if (current && sessions.some((session) => session.id === current)) {
-          return current;
+        const nextActiveSessionId = resolveActiveMwdSessionId(current, sessions);
+
+        if (process.env.NODE_ENV === 'development') {
+          console.info('[MWD sessions] active session resolver', {
+            role: user?.role ?? 'unknown',
+            previousSessionId: current || null,
+            nextSessionId: nextActiveSessionId || null,
+            sessionCount: sessions.length,
+            normalizedSessionIds: sessions.map((session) => session.id),
+            preservedExisting: Boolean(current && current === nextActiveSessionId),
+            resolution:
+              nextActiveSessionId
+                ? current === nextActiveSessionId
+                  ? 'preserved-existing-session'
+                  : 'selected-first-readable-session'
+                : 'no-normalized-sessions-available',
+          });
         }
 
-        return sessions[0]?.id ?? '';
+        return nextActiveSessionId;
       });
     } catch (error) {
       logBackendError('Unable to load MWD sessions.', error);
       setMwdSessions([]);
-      setMwdSessionsError(backendErrorMessage);
+      setActiveMwdSessionId('');
+      setMwdSessionsError(getMwdSessionsErrorMessage(error));
     } finally {
       setMwdSessionsLoading(false);
     }
-  }, [token]);
+  }, [token, user?.role]);
 
   const refreshPlotTemplates = useCallback(async () => {
     if (!token) {
@@ -613,7 +695,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (typeof value !== 'number' || !Number.isFinite(value)) continue;
 
         const currentParameter = current[kpiKey];
-        const threshold = settings.thresholds.find(
+        const threshold = operationalThresholds.find(
           (item) =>
             item.parameter === metricKey ||
             item.parameter === currentParameter.id ||
@@ -656,7 +738,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: record.metrics.mtf !== undefined ? 'MTF' : current.type,
       }));
     }
-  }, [settings.thresholds]);
+  }, [operationalThresholds]);
 
   const applyWitsDataValues = useCallback((values: WitsDataValue[]) => {
     setKpiData((current) => {
@@ -670,7 +752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!target || target === 'currentDepth') continue;
 
         const currentParameter = current[target];
-        const threshold = settings.thresholds.find(
+        const threshold = operationalThresholds.find(
           (thresholdItem) =>
             thresholdItem.parameter === item.witsId ||
             thresholdItem.parameter === currentParameter.id ||
@@ -721,7 +803,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastReceived: latestTimestamp,
       }));
     }
-  }, [settings.thresholds]);
+  }, [operationalThresholds]);
 
   const refreshWitsDataValues = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -746,7 +828,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, applyWitsDataValues, token]);
 
   const refreshWitsConfig = useCallback(async () => {
-    if (!token || !activeMwdSessionId) {
+    if (!token) {
       setWitsConfig([]);
       setWitsConfigError('');
       return;
@@ -765,7 +847,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setWitsConfigLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [token]);
 
   const refreshWitsAlarms = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -798,7 +880,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, token]);
 
   const refreshConnectionStatus = useCallback(async () => {
-    if (!token || !activeMwdSessionId) {
+    if (!token) {
       setConnectionStatusError('');
       setBackendConnectionStatusActive(false);
       return;
@@ -822,10 +904,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           reconnecting: current.reconnecting,
         }));
         setBackendConnectionStatusActive(true);
+      } else {
+        setBackendConnectionStatusActive(false);
       }
     } catch (error) {
       logBackendError('Unable to load connection status.', error);
-      setConnectionStatusError(backendErrorMessage);
+      setConnectionStatusError(getBackendStatusErrorMessage('Connection status', error));
     } finally {
       connectionStatusRequestInFlight.current = false;
       setConnectionStatusLoading(false);
@@ -833,7 +917,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, token]);
 
   const refreshFailoverEvents = useCallback(async () => {
-    if (!token || !activeMwdSessionId) {
+    if (!token) {
       setFailoverEventsError('');
       setFailoverEventIds(new Set());
       return;
@@ -861,7 +945,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (error) {
       logBackendError('Unable to load failover events.', error);
-      setFailoverEventsError(backendErrorMessage);
+      setFailoverEventsError(getBackendStatusErrorMessage('Failover events', error));
     } finally {
       failoverEventsRequestInFlight.current = false;
       setFailoverEventsLoading(false);
@@ -869,7 +953,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, token]);
 
   const refreshSerialStatus = useCallback(async () => {
-    if (!token || !activeMwdSessionId) {
+    if (!token) {
       setSerialStatus(null);
       setSerialStatusError('');
       return;
@@ -886,15 +970,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       logBackendError('Unable to load serial status.', error);
       setSerialStatus(null);
-      setSerialStatusError(backendErrorMessage);
+      setSerialStatusError(getBackendStatusErrorMessage('Serial status', error));
     } finally {
       serialStatusRequestInFlight.current = false;
       setSerialStatusLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [token]);
 
   const refreshEspWsStatus = useCallback(async () => {
-    if (!token || !activeMwdSessionId) {
+    if (!token) {
       setEspWsStatus(null);
       setEspWsStatusError('');
       return;
@@ -911,12 +995,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       logBackendError('Unable to load ESP websocket status.', error);
       setEspWsStatus(null);
-      setEspWsStatusError(backendErrorMessage);
+      setEspWsStatusError(getBackendStatusErrorMessage('ESP WS status', error));
     } finally {
       espWsStatusRequestInFlight.current = false;
       setEspWsStatusLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [token]);
 
   const refreshMwdData = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -1081,13 +1165,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isAuthenticated, refreshPlotTemplates, token]);
 
   useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setWitsConfig([]);
+      setWitsConfigError('');
+      return;
+    }
+
+    void refreshWitsConfig();
+  }, [isAuthenticated, refreshWitsConfig, token]);
+
+  useEffect(() => {
     if (!isAuthenticated || !token || !activeMwdSessionId) {
       setWitsDataValuesError('');
-      setWitsConfigError('');
       setWitsAlarmsError('');
       setMwdDataError('');
       setChartData([]);
       setLatestMwdDataRecord(null);
+      setFailoverEventIds(new Set());
+      return;
+    }
+
+    void (async () => {
+      await refreshMwdData();
+      void refreshWitsDataValues();
+      void refreshWitsAlarms();
+    })();
+  }, [
+    activeMwdSessionId,
+    isAuthenticated,
+    refreshMwdData,
+    refreshWitsAlarms,
+    refreshWitsDataValues,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) {
       setConnectionStatusError('');
       setFailoverEventsError('');
       setSerialStatus(null);
@@ -1099,32 +1212,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    void (async () => {
-      await refreshWitsConfig();
-      await refreshMwdData();
-      void refreshWitsDataValues();
-      void refreshWitsAlarms();
-      void refreshConnectionStatus();
-      void refreshFailoverEvents();
-      void refreshSerialStatus();
-      void refreshEspWsStatus();
-    })();
+    void refreshConnectionStatus();
+    void refreshFailoverEvents();
+    void refreshSerialStatus();
+    void refreshEspWsStatus();
   }, [
     activeMwdSessionId,
     isAuthenticated,
     refreshConnectionStatus,
     refreshEspWsStatus,
     refreshFailoverEvents,
-    refreshMwdData,
     refreshSerialStatus,
-    refreshWitsAlarms,
-    refreshWitsConfig,
-    refreshWitsDataValues,
     token,
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !activeMwdSessionId || !settings.display.autoRefresh) return;
+    if (!isAuthenticated || !token || !settings.display.autoRefresh) return;
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
@@ -1135,7 +1238,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => window.clearInterval(interval);
   }, [
-    activeMwdSessionId,
     isAuthenticated,
     refreshConnectionStatus,
     refreshEspWsStatus,
@@ -1145,7 +1247,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !activeMwdSessionId || !settings.display.autoRefresh) return;
+    if (!isAuthenticated || !token || !settings.display.autoRefresh) return;
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
@@ -1153,12 +1255,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 30000);
 
     return () => window.clearInterval(interval);
-  }, [activeMwdSessionId, isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
-
-  useEffect(() => {
-    if (!activeMwdSession || activeMwdSession.id === activeMwdSessionId) return;
-    setActiveMwdSessionId(activeMwdSession.id);
-  }, [activeMwdSession, activeMwdSessionId]);
+  }, [isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
 
   useEffect(() => {
     if (!activePlotConfig) return;
@@ -1224,7 +1321,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     const unsubscribeEvent = client.on('event', applyRealtimeEvent);
 
-    if (!isAuthenticated || !token || !activeMwdSessionId) {
+    if (!isAuthenticated || !token) {
       client.disconnect();
       return () => {
         unsubscribeStatus();
@@ -1233,7 +1330,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     client.connect();
-    client.subscribeSession(activeMwdSessionId);
+
+    if (activeMwdSessionId) {
+      client.subscribeSession(activeMwdSessionId);
+    } else {
+      client.clearSessionSubscription();
+    }
 
     return () => {
       unsubscribeStatus();
@@ -1370,7 +1472,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       refreshWitsAlarms,
       events,
       toolfaceData,
-      settings,
+      settings: effectiveSettings,
       updateSettings,
       acknowledgeAlarm,
       resolveAlarm,

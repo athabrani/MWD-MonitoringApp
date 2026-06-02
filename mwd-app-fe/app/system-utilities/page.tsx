@@ -4,18 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  CheckCircle2,
   Database,
   Download,
   FileArchive,
   HardDrive,
-  Info,
-  LogOut,
-  RefreshCw,
   ServerCog,
   Trash2,
   Upload,
-  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
@@ -40,7 +35,6 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -63,83 +57,7 @@ import {
 import { getSurveys } from "@/lib/surveys-api";
 import { cn } from "@/lib/utils";
 
-type ProcessStatus = "running" | "stopped" | "degraded" | "unknown";
-
-type BackupRecord = {
-  id: string;
-  fileName: string;
-  timestamp: string;
-  size: string;
-  source: string;
-};
-
-type ClearDataCategory = {
-  id: string;
-  label: string;
-  description: string;
-};
-
 type BackupJson = Record<string, unknown>;
-
-const internalBackups: BackupRecord[] = [
-  {
-    id: "depth-auto-20260515-2300",
-    fileName: "depth-db-auto-2026-05-15-2300.bak",
-    timestamp: "15 May 2026 23:00",
-    size: "48.2 MB",
-    source: "Automatic internal backup",
-  },
-  {
-    id: "depth-auto-20260515-1700",
-    fileName: "depth-db-auto-2026-05-15-1700.bak",
-    timestamp: "15 May 2026 17:00",
-    size: "47.9 MB",
-    source: "Automatic internal backup",
-  },
-  {
-    id: "depth-auto-20260515-1100",
-    fileName: "depth-db-auto-2026-05-15-1100.bak",
-    timestamp: "15 May 2026 11:00",
-    size: "47.1 MB",
-    source: "Automatic internal backup",
-  },
-];
-
-const systemInfoRows = [
-  ["Machine Serial Number", "MWD-RDS-0427"],
-  ["License Key Number", "LK-77A9-2026"],
-  ["Key Version", "4.8"],
-  ["Software Version", "MWD Monitoring FE 0.1.0"],
-  ["Internet Address / IP", "192.168.10.24"],
-  ["Hardware / Hostname", "rig-rds-workstation-01"],
-  ["Address", "Rig Floor Unit / Serial Port A"],
-  ["Nickname", "MWD Monitor Primary"],
-  ["Limit / Domain / Host", "Local operations domain / localhost"],
-];
-
-const processStatuses: Array<{ name: string; status: ProcessStatus; detail: string }> = [
-  { name: "Logging process", status: "running", detail: "Receiving depth-based WITS packets" },
-  { name: "Helper process", status: "running", detail: "Monitoring support process active" },
-];
-
-const systemLogEntries = [
-  { time: "00:14:22", level: "info", message: "logging process heartbeat ok" },
-  { time: "00:13:58", level: "warning", message: "illegal character received on serial input" },
-  { time: "00:12:41", level: "info", message: "helper process heartbeat ok" },
-  { time: "00:09:03", level: "warning", message: "hangup signal received from rig monitoring equipment" },
-  { time: "00:05:44", level: "info", message: "depth database checkpoint complete" },
-];
-
-const clearDataCategories: ClearDataCategory[] = [
-  { id: "logged", label: "Logged Data", description: "Depth-based stored WITS log records" },
-  { id: "time", label: "Time data", description: "Time-based logging database records" },
-  { id: "survey", label: "Survey Data", description: "Survey stations and projected survey records" },
-  { id: "wellplan", label: "Well Plan Data", description: "Planned trajectory and wellplan survey rows" },
-  { id: "headers", label: "Well and Log Header Information", description: "Well metadata and log header fields" },
-  { id: "messages", label: "Contacts, Notes, Messages", description: "Operational contacts and message history" },
-  { id: "email", label: "Email message body default and signature", description: "Default email body and signature templates" },
-  { id: "uploads", label: "User uploaded files in storage", description: "Locally stored uploaded files and attachments" },
-];
 
 const clearTargetLabels: Record<string, string> = {
   mwd_data: "MWD Data",
@@ -156,7 +74,7 @@ const configTargetLabels: Record<string, string> = {
   plot_templates: "Plot Templates",
 };
 
-function runUnavailableAction(label: string) {
+function runUnavailableAction() {
   toast.message("Endpoint backend untuk fitur ini belum tersedia.");
 }
 
@@ -217,26 +135,6 @@ function readJsonFile(file: File): Promise<BackupJson> {
     reader.onerror = () => reject(new Error("Unable to read backup file."));
     reader.readAsText(file);
   });
-}
-
-function getStatusTone(status: ProcessStatus) {
-  switch (status) {
-    case "running":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
-    case "stopped":
-      return "border-destructive/30 bg-destructive/10 text-destructive";
-    case "degraded":
-      return "border-amber-200 bg-amber-50 text-amber-900";
-    default:
-      return "border-muted bg-muted/30 text-muted-foreground";
-  }
-}
-
-function StatusIcon({ status }: { status: ProcessStatus }) {
-  if (status === "running") return <CheckCircle2 className="size-4" />;
-  if (status === "stopped") return <XCircle className="size-4" />;
-  if (status === "degraded") return <AlertTriangle className="size-4" />;
-  return <Info className="size-4" />;
 }
 
 function UtilityActionCard({
@@ -366,7 +264,6 @@ function DatabaseTab({
   const [configBackupJson, setConfigBackupJson] = useState<BackupJson | null>(null);
   const [configBackupFileName, setConfigBackupFileName] = useState("");
   const [configBackupCounts, setConfigBackupCounts] = useState<Record<string, number>>({});
-  const [timeBackupFile, setTimeBackupFile] = useState("");
   const [actionError, setActionError] = useState("");
   const toggleSessionTarget = (target: string) => {
     setSelectedSessionTargets((current) =>
@@ -776,15 +673,15 @@ function DatabaseTab({
               title="Time logging database backup"
               description="Create a backup of time-indexed logging storage."
             >
-              <Button onClick={() => runUnavailableAction("Time logging database backup")}>Backup</Button>
+              <Button onClick={runUnavailableAction}>Backup</Button>
             </UtilityActionCard>
             <UtilityActionCard
               icon={Upload}
               title="Restore time data backup"
               description="Choose a time-data backup file and stage it for restore."
             >
-              <Input type="file" accept=".bak,.zip,.db" className="w-full sm:w-56" onChange={(event) => setTimeBackupFile(event.target.files?.[0]?.name ?? "")} />
-              <Button variant="outline" onClick={() => runUnavailableAction(timeBackupFile ? `Restore ${timeBackupFile}` : "Restore time data backup")}>
+              <Input type="file" accept=".bak,.zip,.db" className="w-full sm:w-56" />
+              <Button variant="outline" onClick={runUnavailableAction}>
                 Restore File
               </Button>
             </UtilityActionCard>
@@ -803,111 +700,29 @@ function DatabaseTab({
 }
 
 function SystemInfoTab() {
-  const hasSerialWarnings = systemLogEntries.some(
-    (entry) => entry.message.includes("illegal character received") || entry.message.includes("hangup signal received")
-  );
-
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="rounded-2xl p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">System Information Summary</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Endpoint backend untuk fitur ini belum tersedia.
-              </p>
-            </div>
-            <Badge variant="outline">Endpoint backend untuk fitur ini belum tersedia.</Badge>
+      <Card className="rounded-2xl border-dashed p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">System Information Summary</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              System information, process status, and system log APIs are not available yet.
+              This page does not display static or simulated diagnostics as production data.
+            </p>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {systemInfoRows.map(([label, value]) => (
-              <div key={label} className="rounded-xl border bg-muted/20 px-3 py-2">
-                <div className="text-xs text-muted-foreground">{label}</div>
-                <div className="mt-1 break-words text-sm font-medium">{value}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
+          <Badge variant="outline">Endpoint backend untuk fitur ini belum tersedia.</Badge>
+        </div>
+      </Card>
 
-        <Card className="rounded-2xl p-4">
-          <h2 className="text-lg font-semibold">Process Status</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Both core processes should be running during normal operation.</p>
-          <div className="mt-4 space-y-3">
-            {processStatuses.map((process) => (
-              <div key={process.name} className={cn("rounded-xl border px-3 py-3", getStatusTone(process.status))}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 font-medium">
-                    <StatusIcon status={process.status} />
-                    {process.name}
-                  </div>
-                  <span className="text-xs font-semibold uppercase">{process.status}</span>
-                </div>
-                <p className="mt-1 text-sm opacity-80">{process.detail}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}>
-              <RefreshCw className="mr-2 size-4" />
-              Refresh
-            </Button>
-            <Button variant="outline" onClick={() => runUnavailableAction("System Exit")}>
-              <LogOut className="mr-2 size-4" />
-              System Exit
-            </Button>
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Alert variant={hasSerialWarnings ? "destructive" : "default"} className="rounded-2xl">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Troubleshooting Guidance</AlertTitle>
-          <AlertDescription>
-            <div className="space-y-2">
-              <p>If both the logging process and helper process are not running, reboot the workstation.</p>
-              <p>Check the system log for "illegal character received" or "hangup signal received".</p>
-              <p>If those messages exist, the null-modem serial cable may be faulty or rig monitoring equipment may be transmitting garbage data.</p>
-            </div>
-          </AlertDescription>
-        </Alert>
-
-        <Card className="rounded-2xl p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold">System Log Preview</h2>
-              <p className="text-sm text-muted-foreground">Recent diagnostic messages with serial-link warnings highlighted.</p>
-            </div>
-            <Badge variant={hasSerialWarnings ? "destructive" : "secondary"}>
-              {hasSerialWarnings ? "Warnings found" : "No warnings"}
-            </Badge>
-          </div>
-          <ScrollArea className="mt-4 h-[260px]">
-            <div className="space-y-2 pr-3">
-              {systemLogEntries.map((entry) => {
-                const highlighted =
-                  entry.message.includes("illegal character received") || entry.message.includes("hangup signal received");
-                return (
-                  <div
-                    key={`${entry.time}-${entry.message}`}
-                    className={cn(
-                      "rounded-xl border px-3 py-2 text-sm",
-                      highlighted ? "border-destructive/30 bg-destructive/5" : "bg-muted/20"
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{entry.time}</span>
-                      <Badge variant={highlighted ? "destructive" : "outline"}>{entry.level}</Badge>
-                    </div>
-                    <div className="mt-1 font-medium">{entry.message}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </Card>
-      </div>
+      <Alert className="rounded-2xl">
+        <AlertTriangle className="size-4" />
+        <AlertTitle>Diagnostics unavailable</AlertTitle>
+        <AlertDescription>
+          Backend diagnostics endpoints are required before system info, process status, and
+          system log entries can be shown.
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }

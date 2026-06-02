@@ -1,10 +1,14 @@
 export class ApiClientError extends Error {
   status: number;
+  payload?: unknown;
+  responseBody?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, payload?: unknown, responseBody?: string) {
     super(message);
     this.name = "ApiClientError";
     this.status = status;
+    this.payload = payload;
+    this.responseBody = responseBody;
   }
 }
 
@@ -12,7 +16,7 @@ type ApiRequestOptions = RequestInit & {
   token?: string;
 };
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!baseUrl) {
@@ -70,7 +74,7 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    throw new ApiClientError(getErrorMessage(payload), response.status);
+    throw new ApiClientError(getErrorMessage(payload), response.status, payload, text);
   }
 
   return payload as T;
@@ -108,7 +112,7 @@ export async function apiFetch(
       payload = { message: text || "Backend request failed." };
     }
 
-    throw new ApiClientError(getErrorMessage(payload), response.status);
+    throw new ApiClientError(getErrorMessage(payload), response.status, payload, text);
   }
 
   return response;

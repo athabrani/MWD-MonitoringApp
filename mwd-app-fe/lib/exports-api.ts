@@ -21,6 +21,8 @@ export type ExportBlob = Blob & {
 export type HistoricalExportPayload = {
   sessionId: string | number;
   format: ExportFormat;
+  measuredFrom?: string;
+  measuredTo?: string;
   depthMin?: number;
   depthMax?: number;
 };
@@ -92,10 +94,6 @@ export type ExportRecord = {
   completedAt?: string;
   raw: BackendExportRecord;
 };
-
-function isRecord(value: unknown): value is BackendExportRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function readString(record: BackendExportRecord, keys: string[]) {
   for (const key of keys) {

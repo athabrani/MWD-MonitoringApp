@@ -331,6 +331,7 @@ export default function ConfigurationPage({
   const [witsConfigDeleting, setWitsConfigDeleting] = useState(false);
   const [witsConfigError, setWitsConfigError] = useState("");
   const canManageWitsConfig = user?.role === "engineer" || user?.role === "admin";
+  const canManageConfiguration = user?.role === "engineer" || user?.role === "admin";
   const [decoderConfig, setDecoderConfig] = useState<PolarisDecoderConfiguration>(() =>
     normalizeDecoderConfig(emptyDecoderConfiguration)
   );
@@ -425,6 +426,10 @@ export default function ConfigurationPage({
   }, [activeMwdSessionId, loadedWellSessionId, token, wellInfoDirty]);
 
   const patchWellInfo = (patch: Partial<PolarisWellInformation>) => {
+    if (!canManageConfiguration) {
+      return;
+    }
+
     setWellInfo((prev) => ({ ...prev, ...patch }));
     setWellInfoDirty(true);
   };
@@ -445,6 +450,11 @@ export default function ConfigurationPage({
   };
 
   const startNewMwdSessionDraft = () => {
+    if (!canManageConfiguration) {
+      toast.warning("Operator role can view sessions only.");
+      return;
+    }
+
     if (wellInfoDirty) {
       const discardDraft = window.confirm(
         "Discard unsaved Well and Job Information changes and start a new session draft?"
@@ -484,6 +494,11 @@ export default function ConfigurationPage({
   };
 
   const saveWellSession = async () => {
+    if (!canManageConfiguration) {
+      toast.warning("Operator role can view sessions only.");
+      return;
+    }
+
     if (!token) {
       toast.error("Backend session is not available. Please sign in again.");
       return;
@@ -524,6 +539,11 @@ export default function ConfigurationPage({
   };
 
   const saveContactDraft = () => {
+    if (!canManageConfiguration) {
+      toast.warning("Operator role can view contacts only.");
+      return;
+    }
+
     if (!draftContact.name || !draftContact.email) {
       toast.error("Contact name dan email wajib diisi.");
       return;
@@ -546,6 +566,11 @@ export default function ConfigurationPage({
   };
 
   const deleteSelectedContact = () => {
+    if (!canManageConfiguration) {
+      toast.warning("Operator role can view contacts only.");
+      return;
+    }
+
     if (!selectedContactId) return;
 
     setContacts((prev) => prev.filter((item) => item.id !== selectedContactId));
@@ -555,6 +580,10 @@ export default function ConfigurationPage({
   };
 
   const updateActiveWits = (patch: Partial<PolarisWitsId>) => {
+    if (!canManageWitsConfig) {
+      return;
+    }
+
     if (!activeWitsRecord) return;
     setWitsIds((prev) =>
       prev.map((item) =>
@@ -862,16 +891,18 @@ export default function ConfigurationPage({
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => toast.message("Settings without backend endpoints are local UI-only drafts.")}>
-            <Save className="mr-2 size-4" />
-            Save Draft
-          </Button>
-          <Button onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}>
-            <Settings2 className="mr-2 size-4" />
-            Generate Review
-          </Button>
-        </div>
+        {canManageConfiguration ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => toast.message("Settings without backend endpoints are local UI-only drafts.")}>
+              <Save className="mr-2 size-4" />
+              Save Draft
+            </Button>
+            <Button onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}>
+              <Settings2 className="mr-2 size-4" />
+              Generate Review
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <Tabs defaultValue="well" className="space-y-4">
@@ -923,30 +954,34 @@ export default function ConfigurationPage({
                       <RefreshCw className={cn("mr-2 size-4", mwdSessionsLoading && "animate-spin")} />
                       Refresh
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={startNewMwdSessionDraft}
-                      disabled={wellSessionSaving}
-                    >
-                      <Plus className="mr-2 size-4" />
-                      New Session
-                    </Button>
+                    {canManageConfiguration ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={startNewMwdSessionDraft}
+                        disabled={wellSessionSaving}
+                      >
+                        <Plus className="mr-2 size-4" />
+                        New Session
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
-                <Button
-                  type="button"
-                  onClick={() => void saveWellSession()}
-                  disabled={wellSessionSaving || wellSessionLoading}
-                >
-                  <Save className="mr-2 size-4" />
-                  {wellSessionSaving
-                    ? "Saving..."
-                    : activeMwdSessionId
-                      ? "Update Session"
-                      : "Create Session"}
-                </Button>
+                {canManageConfiguration ? (
+                  <Button
+                    type="button"
+                    onClick={() => void saveWellSession()}
+                    disabled={wellSessionSaving || wellSessionLoading}
+                  >
+                    <Save className="mr-2 size-4" />
+                    {wellSessionSaving
+                      ? "Saving..."
+                      : activeMwdSessionId
+                        ? "Update Session"
+                        : "Create Session"}
+                  </Button>
+                ) : null}
               </div>
 
               {mwdSessionsError || wellSessionError ? (
@@ -957,6 +992,11 @@ export default function ConfigurationPage({
               ) : null}
               {wellSessionLoading ? (
                 <p className="mt-3 text-sm text-muted-foreground">Loading selected session detail...</p>
+              ) : null}
+              {!canManageConfiguration ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Operator role can view session and configuration details, but cannot create or update sessions.
+                </p>
               ) : null}
               {wellInfoDirty ? (
                 <p className="mt-3 text-xs text-muted-foreground">
@@ -1290,32 +1330,34 @@ export default function ConfigurationPage({
             description="Local UI-only contacts. No backend contact endpoint is documented yet."
             badge="Endpoint backend untuk fitur ini belum tersedia."
           >
-            <div className="mb-4 flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setDraftContact({ ...emptyContact, id: "" });
-                  setSelectedContactId("");
-                }}
-              >
-                <Plus className="mr-2 size-4" />
-                Add Contact
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  toast.message("Endpoint backend untuk fitur ini belum tersedia.")
-                }
-                disabled
-              >
-                <ArrowUpFromLine className="mr-2 size-4" />
-                Import CSV
-              </Button>
-              <Button variant="outline" onClick={deleteSelectedContact} disabled={!selectedContactId}>
-                <Trash2 className="mr-2 size-4" />
-                Delete Selected
-              </Button>
-            </div>
+            {canManageConfiguration ? (
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDraftContact({ ...emptyContact, id: "" });
+                    setSelectedContactId("");
+                  }}
+                >
+                  <Plus className="mr-2 size-4" />
+                  Add Contact
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    toast.message("Endpoint backend untuk fitur ini belum tersedia.")
+                  }
+                  disabled
+                >
+                  <ArrowUpFromLine className="mr-2 size-4" />
+                  Import CSV
+                </Button>
+                <Button variant="outline" onClick={deleteSelectedContact} disabled={!selectedContactId}>
+                  <Trash2 className="mr-2 size-4" />
+                  Delete Selected
+                </Button>
+              </div>
+            ) : null}
 
             <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="border-dashed p-0">
@@ -1416,9 +1458,11 @@ export default function ConfigurationPage({
                       }
                     />
                   </div>
-                  <Button className="w-full" onClick={saveContactDraft}>
-                    Save Contact
-                  </Button>
+                  {canManageConfiguration ? (
+                    <Button className="w-full" onClick={saveContactDraft}>
+                      Save Contact
+                    </Button>
+                  ) : null}
                 </div>
               </Card>
             </div>
@@ -1837,14 +1881,16 @@ export default function ConfigurationPage({
                     <RefreshCw className={cn("mr-2 size-4", witsConfigLoading && "animate-spin")} />
                     Refresh API
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => void addMemoryStorageWitsId()}
-                    disabled={witsConfigSaving || !canManageWitsConfig}
-                  >
-                    <Plus className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
-                    Add Memory Storage WITS ID
-                  </Button>
+                  {canManageWitsConfig ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => void addMemoryStorageWitsId()}
+                      disabled={witsConfigSaving}
+                    >
+                      <Plus className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
+                      Add Memory Storage WITS ID
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -1862,6 +1908,7 @@ export default function ConfigurationPage({
             <div className="grid gap-4">
               {witsViewMode === "list" ? (
                 <Card className="border-dashed p-4">
+                {canManageWitsConfig ? (
                 <div className="mb-4 rounded-lg border bg-card p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <FormField label="Add WITS ID">
@@ -1897,6 +1944,7 @@ export default function ConfigurationPage({
                     </p>
                   )}
                 </div>
+                ) : null}
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1959,17 +2007,20 @@ export default function ConfigurationPage({
                       <Button variant="outline" onClick={() => setWitsViewMode("list")}>
                         Back to WITS ID list
                       </Button>
-                      <Button
-                        variant="outline"
-                        className="border-red-400/40 text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => void deleteActiveWits()}
-                        disabled={witsConfigDeleting || !canManageWitsConfig}
-                      >
-                        <Trash2 className={cn("mr-2 size-4", witsConfigDeleting && "animate-spin")} />
-                        Delete
-                      </Button>
+                      {canManageWitsConfig ? (
+                        <Button
+                          variant="outline"
+                          className="border-red-400/40 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => void deleteActiveWits()}
+                          disabled={witsConfigDeleting}
+                        >
+                          <Trash2 className={cn("mr-2 size-4", witsConfigDeleting && "animate-spin")} />
+                          Delete
+                        </Button>
+                      ) : null}
                       <Switch
                         checked={activeWitsRecord.enabled}
+                        disabled={!canManageWitsConfig}
                         onCheckedChange={(value) => updateActiveWits({ enabled: value })}
                       />
                     </div>
@@ -1978,7 +2029,7 @@ export default function ConfigurationPage({
                   <Tabs defaultValue="general" className="space-y-4">
                     <TabsList className="h-auto flex-wrap justify-start">
                       <TabsTrigger value="general">General</TabsTrigger>
-                      <TabsTrigger value="memory">Memory Import</TabsTrigger>
+                      {canManageWitsConfig ? <TabsTrigger value="memory">Memory Import</TabsTrigger> : null}
                     </TabsList>
 
                     <TabsContent value="general" className="space-y-4">
@@ -1995,6 +2046,7 @@ export default function ConfigurationPage({
                               <Label className="text-xs">Enable Logging</Label>
                               <Switch
                                 checked={activeWitsRecord.enabled}
+                                disabled={!canManageWitsConfig}
                                 onCheckedChange={(value) => updateActiveWits({ enabled: value })}
                               />
                             </div>
@@ -2268,25 +2320,31 @@ export default function ConfigurationPage({
                       </div>
 
                       <div className="flex flex-wrap justify-end gap-2">
-                        <Button variant="outline" onClick={() => toast.message("Current editor values are already held in local state.")}>
-                          Reset / Cancel
-                        </Button>
-                        <Button
-                          onClick={() => void saveActiveWits()}
-                          disabled={witsConfigSaving || !canManageWitsConfig}
-                        >
-                          <Save className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
-                          Save Changes
-                        </Button>
+                        {canManageWitsConfig ? (
+                          <>
+                            <Button variant="outline" onClick={() => toast.message("Current editor values are already held in local state.")}>
+                              Reset / Cancel
+                            </Button>
+                            <Button
+                              onClick={() => void saveActiveWits()}
+                              disabled={witsConfigSaving}
+                            >
+                              <Save className={cn("mr-2 size-4", witsConfigSaving && "animate-spin")} />
+                              Save Changes
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </TabsContent>
 
                     <TabsContent value="memory" className="space-y-4">
-                      <WitsMemoryImportPanel
-                        activeWitsRecord={activeWitsRecord}
-                        allWitsIds={witsIds}
-                        onUpdateWits={updateActiveWits}
-                      />
+                      {canManageWitsConfig ? (
+                        <WitsMemoryImportPanel
+                          activeWitsRecord={activeWitsRecord}
+                          allWitsIds={witsIds}
+                          onUpdateWits={updateActiveWits}
+                        />
+                      ) : null}
                     </TabsContent>
                   </Tabs>
                 </Card>

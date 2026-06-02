@@ -192,6 +192,17 @@ class RealtimeClient {
     }
   }
 
+  clearSessionSubscription() {
+    if (!this.subscribedSessionId) return;
+
+    const previousSessionId = this.subscribedSessionId;
+    this.subscribedSessionId = "";
+
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.sendUnsubscribe(previousSessionId);
+    }
+  }
+
   private sendSubscribe(sessionId: string) {
     this.send({
       type: "subscribe",

@@ -10,6 +10,10 @@ export type EspWsStatus = {
   lastError?: string | null;
   clientCount?: number;
   message?: string;
+  lastRawMessage?: string;
+  lastPayload?: string;
+  lastLine?: string;
+  rawPacket?: string;
   signal?: {
     rssi?: number;
     snr?: number;
@@ -70,6 +74,7 @@ function unwrapSingle(response: unknown) {
 function normalizeEspWsStatus(record: BackendRecord): EspWsStatus {
   const status = readString(record, ["status", "state", "connectionStatus", "connection_status"]) ?? "disconnected";
   const connected = readBoolean(record, ["connected", "isConnected", "is_connected", "status", "state"]) ?? status === "connected";
+  const signal = isRecord(record.signal) ? record.signal : {};
 
   return {
     connected,
@@ -77,6 +82,16 @@ function normalizeEspWsStatus(record: BackendRecord): EspWsStatus {
     lastReceivedAt: readString(record, ["lastReceivedAt", "last_received_at", "lastReceived", "last_received", "updatedAt", "updated_at"]),
     clientCount: readNumber(record, ["clientCount", "client_count", "clients", "connections"]),
     message: readString(record, ["message", "error", "reason", "description"]),
+    lastRawMessage: readString(record, ["lastRawMessage", "last_raw_message"]),
+    lastPayload: readString(record, ["lastPayload", "last_payload", "payload"]),
+    lastLine: readString(record, ["lastLine", "last_line", "line"]),
+    rawPacket: readString(record, ["rawPacket", "raw_packet", "packet", "raw"]),
+    signal: {
+      rssi: readNumber(signal, ["rssi"]),
+      snr: readNumber(signal, ["snr"]),
+      sequence: readString(signal, ["sequence", "seq"]),
+      quality: readString(signal, ["quality"]),
+    },
     raw: record,
   };
 }

@@ -1552,6 +1552,7 @@ export default function PlottingPage({
   const [loadingConfigId, setLoadingConfigId] = useState<string>("");
   const [deletingConfigId, setDeletingConfigId] = useState<string>("");
   const [exportingPdfPlot, setExportingPdfPlot] = useState(false);
+  const canManagePlotting = user?.role === "admin" || user?.role === "engineer";
   const canExport = user?.role === "admin" || user?.role === "engineer";
   const configs = useMemo(
     () => dedupePlotConfigurations(rawConfigs.map((config) => normalizePlotConfiguration(config))),
@@ -1582,6 +1583,7 @@ export default function PlottingPage({
     [witsConfig]
   );
   const updateActiveConfig = (patch: Partial<PlotConfiguration>) => {
+    if (!canManagePlotting) return;
     if (!activeConfig) return;
     setConfigs((current) => current.map((config) => (config.id === activeConfig.id ? { ...config, ...patch } : config)));
   };
@@ -1617,6 +1619,11 @@ export default function PlottingPage({
   };
 
   const persistNewConfig = async (config: PlotConfiguration, successMessage: string) => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     const savableConfig = buildSavableConfig(config);
     const validationError = validateTemplateConfig(savableConfig);
 
@@ -1651,6 +1658,11 @@ export default function PlottingPage({
   };
 
   const saveConfig = async (config: PlotConfiguration) => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     const savableConfig = buildSavableConfig(config);
     const validationError = validateTemplateConfig(savableConfig);
 
@@ -1700,6 +1712,11 @@ export default function PlottingPage({
   };
 
   const removeConfig = async (config: PlotConfiguration) => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     if (configs.length <= 1) return;
     if (config.isDefault) {
       toast.error("Default plot template cannot be deleted.");
@@ -1707,16 +1724,16 @@ export default function PlottingPage({
     }
 
     const removeLocalConfig = () => {
-      setConfigs((current) => {
-        const next = current.filter((item) => item.id !== config.id);
-        const nextActive = next.find((item) => item.isDefault) ?? next[0];
-        if (nextActive) {
-          selectConfig(nextActive);
-        } else {
-          setActivePlotConfigId("");
-        }
-        return next;
-      });
+      const nextConfigs = configs.filter((item) => item.id !== config.id);
+      const nextActive = nextConfigs.find((item) => item.isDefault) ?? nextConfigs[0];
+
+      setConfigs(nextConfigs);
+
+      if (nextActive) {
+        selectConfig(nextActive);
+      } else {
+        setActivePlotConfigId("");
+      }
     };
 
     if (!token) {
@@ -1745,6 +1762,11 @@ export default function PlottingPage({
   };
 
   const addConfig = async () => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     if (!draftConfigName.trim()) {
       toast.error("Enter a plot configuration name");
       return;
@@ -1760,6 +1782,12 @@ export default function PlottingPage({
   };
 
   const openEditor = async (config: PlotConfiguration) => {
+    if (!canManagePlotting) {
+      selectConfig(config);
+      toast.warning("Operator role can generate plot previews only.");
+      return;
+    }
+
     selectConfig(config);
     if (token) {
       setLoadingConfigId(config.id);
@@ -1911,11 +1939,21 @@ export default function PlottingPage({
   };
 
   const cloneConfig = async (config: PlotConfiguration) => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     const next = clonePlotConfiguration(config);
     await persistNewConfig(next, "Plot configuration cloned");
   };
 
   const openEditorTab = (tab: string) => {
+    if (!canManagePlotting) {
+      toast.warning("Operator role can view plot configurations only.");
+      return;
+    }
+
     setEditorTab(tab);
     setPlottingView("editor");
   };
@@ -1953,19 +1991,23 @@ export default function PlottingPage({
             <Button variant="outline" onClick={() => void refreshWitsConfig()} disabled={witsConfigLoading}>
               Refresh WITS
             </Button>
-            <Button
-              disabled={!activeConfig || savingConfigId === activeConfig.id}
-              onClick={() => activeConfig && void saveConfig(activeConfig)}
-            >
-              <Save className="mr-2 size-4" />
-              {activeConfig && savingConfigId === activeConfig.id ? "Saving..." : "Save"}
-            </Button>
+            {canManagePlotting ? (
+              <Button
+                disabled={!activeConfig || savingConfigId === activeConfig.id}
+                onClick={() => activeConfig && void saveConfig(activeConfig)}
+              >
+                <Save className="mr-2 size-4" />
+                {activeConfig && savingConfigId === activeConfig.id ? "Saving..." : "Save"}
+              </Button>
+            ) : null}
           </div>
         ) : (
-          <Button onClick={() => setCreateDialogOpen(true)} disabled={Boolean(savingConfigId)}>
-            <Plus className="mr-2 size-4" />
-            New Plot Configuration
-          </Button>
+          canManagePlotting ? (
+            <Button onClick={() => setCreateDialogOpen(true)} disabled={Boolean(savingConfigId)}>
+              <Plus className="mr-2 size-4" />
+              New Plot Configuration
+            </Button>
+          ) : null
         )}
       </div>
 
@@ -1982,6 +2024,7 @@ export default function PlottingPage({
                 </div>
                 <Badge variant="outline">Editor shortcuts</Badge>
               </div>
+              {canManagePlotting ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                   ["Header Information", "Header setup", "header"],
@@ -2004,6 +2047,7 @@ export default function PlottingPage({
                   </Button>
                 ))}
               </div>
+              ) : null}
             </Card>
           </div>
 
@@ -2069,32 +2113,36 @@ export default function PlottingPage({
                           <Eye className="mr-2 size-4" />
                           Generate Plot
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={loadingConfigId === config.id}
-                          onClick={() => void openEditor(config)}
-                        >
-                          <Pencil className="mr-2 size-4" />
-                          {loadingConfigId === config.id ? "Loading..." : "Edit Configuration"}
-                        </Button>
-                        <Button size="sm" variant="outline" disabled={Boolean(savingConfigId)} onClick={() => void cloneConfig(config)}>
-                          <Copy className="mr-2 size-4" />
-                          Clone
-                        </Button>
-                        <ConfirmDeleteButton
-                          title={config.isDefault ? "Default template cannot be deleted" : "Delete plot configuration?"}
-                          description={
-                            config.isDefault
-                              ? `${config.name} is the default plot template. Choose another default before deleting templates.`
-                              : `${config.name} will be removed from plot templates.`
-                          }
-                          triggerLabel="Delete"
-                          size="sm"
-                          variant="outline"
-                          disabled={config.isDefault || configs.length <= 1 || deletingConfigId === config.id}
-                          onConfirm={() => void removeConfig(config)}
-                        />
+                        {canManagePlotting ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={loadingConfigId === config.id}
+                              onClick={() => void openEditor(config)}
+                            >
+                              <Pencil className="mr-2 size-4" />
+                              {loadingConfigId === config.id ? "Loading..." : "Edit Configuration"}
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={Boolean(savingConfigId)} onClick={() => void cloneConfig(config)}>
+                              <Copy className="mr-2 size-4" />
+                              Clone
+                            </Button>
+                            <ConfirmDeleteButton
+                              title={config.isDefault ? "Default template cannot be deleted" : "Delete plot configuration?"}
+                              description={
+                                config.isDefault
+                                  ? `${config.name} is the default plot template. Choose another default before deleting templates.`
+                                  : `${config.name} will be removed from plot templates.`
+                              }
+                              triggerLabel="Delete"
+                              size="sm"
+                              variant="outline"
+                              disabled={config.isDefault || configs.length <= 1 || deletingConfigId === config.id}
+                              onConfirm={() => void removeConfig(config)}
+                            />
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -2110,13 +2158,15 @@ export default function PlottingPage({
                   <h2 className="text-lg font-semibold">User Files</h2>
                   <p className="text-sm text-muted-foreground">Upload and manage files usable by the PDF builder.</p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
-                >
-                  <FilePlus2 className="mr-2 size-4" />
-                  Upload File
-                </Button>
+                {canManagePlotting ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
+                  >
+                    <FilePlus2 className="mr-2 size-4" />
+                    Upload File
+                  </Button>
+                ) : null}
               </div>
               <div className="mt-4 space-y-2">
                 {uploadedFiles.map((file) => (
@@ -2140,9 +2190,11 @@ export default function PlottingPage({
                         <Download className="mr-2 size-4" />
                         Download
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
-                        {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
-                      </Button>
+                      {canManagePlotting ? (
+                        <Button size="sm" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
+                          {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -2175,9 +2227,11 @@ export default function PlottingPage({
                         <Download className="mr-2 size-4" />
                         Download Template
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>
-                        Duplicate
-                      </Button>
+                      {canManagePlotting ? (
+                        <Button size="sm" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>
+                          Duplicate
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -2185,7 +2239,7 @@ export default function PlottingPage({
             </Card>
           </div>
         </div>
-      ) : (
+      ) : canManagePlotting ? (
       <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)]">
         <Card className="rounded-2xl p-4">
           <div className="flex items-center justify-between gap-3">
@@ -2213,7 +2267,7 @@ export default function PlottingPage({
               </button>
             ))}
           </div>
-          {activeConfig ? (
+          {activeConfig && canManagePlotting ? (
             <div className="mt-3 grid gap-2">
               <Button
                 variant="outline"
@@ -2460,9 +2514,18 @@ export default function PlottingPage({
           ) : null}
         </div>
       </div>
+      ) : (
+        <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
+          Operator role can generate and view plot previews from the configuration list, but cannot edit plot configuration.
+        </Card>
       )}
 
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+      <Dialog
+        open={createDialogOpen && canManagePlotting}
+        onOpenChange={(open) => {
+          if (canManagePlotting) setCreateDialogOpen(open);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>New Plot Configuration</DialogTitle>

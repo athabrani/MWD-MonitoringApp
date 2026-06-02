@@ -224,6 +224,9 @@ function toBackendDataSource(value: WitsIdDataSourceType) {
 export function normalizeWitsConfigRecord(record: BackendRecord): PolarisWitsId | null {
   const numericId = readNumber(record, ["numericId", "numeric_id", "witsId", "wits_id", "channel", "channelId"]);
   const id = readString(record, ["id", "_id", "configId", "witsConfigId", "wits_config_id"]);
+  const alarmEnabled = readBoolean(record, ["alarmEnabled", "alarm_enabled"]);
+  const alarmLow = readNumber(record, ["alarmMin", "alarm_min", "alarmLow", "alarm_low"]);
+  const alarmHigh = readNumber(record, ["alarmMax", "alarm_max", "alarmHigh", "alarm_high"]);
 
   if (numericId === undefined && !id) return null;
 
@@ -261,9 +264,12 @@ export function normalizeWitsConfigRecord(record: BackendRecord): PolarisWitsId 
     lasMnemonic: readString(record, ["lasTag", "las_tag", "lasMnemonic", "las_mnemonic", "mnemonic"]) ?? defaultWitsConfig.lasMnemonic,
     lasDescription: readString(record, ["lasDescription", "las_description", "description"]) ?? defaultWitsConfig.lasDescription,
     lasFilter: readNumber(record, ["lasFilter", "las_filter"]) ?? defaultWitsConfig.lasFilter,
-    alarmEnabled: readBoolean(record, ["alarmEnabled", "alarm_enabled"]) ?? defaultWitsConfig.alarmEnabled,
-    alarmLow: readNumber(record, ["alarmMin", "alarm_min", "alarmLow", "alarm_low"]) ?? defaultWitsConfig.alarmLow,
-    alarmHigh: readNumber(record, ["alarmMax", "alarm_max", "alarmHigh", "alarm_high"]) ?? defaultWitsConfig.alarmHigh,
+    alarmEnabled: alarmEnabled ?? defaultWitsConfig.alarmEnabled,
+    alarmLow: alarmLow ?? defaultWitsConfig.alarmLow,
+    alarmHigh: alarmHigh ?? defaultWitsConfig.alarmHigh,
+    alarmEnabledFromBackend: alarmEnabled !== undefined,
+    alarmLowFromBackend: alarmLow !== undefined,
+    alarmHighFromBackend: alarmHigh !== undefined,
     dataSourceType: normalizeFrontendDataSourceType(readString(record, ["dataSource", "data_source", "dataSourceType", "data_source_type"])),
     dataSourceValue: readNumber(record, ["dataInputValue", "data_input_value", "dataSourceValue", "data_source_value"]) ?? defaultWitsConfig.dataSourceValue,
     customDepthWitsId: readString(record, ["customDepthWitsId", "custom_depth_wits_id"]) ?? null,
@@ -424,10 +430,30 @@ export async function getWitsConfig(token: string): Promise<PolarisWitsId[]> {
     method: "GET",
     token,
   });
-
-  return unwrapRecordList(response)
+  const rawRecords = unwrapRecordList(response);
+  const configs = rawRecords
     .map(normalizeWitsConfigRecord)
     .filter((record): record is PolarisWitsId => Boolean(record));
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[WITS config] GET /api/wits-config", {
+      rawCount: rawRecords.length,
+      normalizedCount: configs.length,
+      firstItemKeys: isRecord(rawRecords[0]) ? Object.keys(rawRecords[0]).slice(0, 30) : [],
+      mappedFields: configs.slice(0, 10).map((config) => ({
+        id: config.id,
+        witsId: formatWitsId(config.numericId),
+        name: config.name,
+        mappedField: config.mappedField,
+        units: config.units,
+        alarmEnabled: config.alarmEnabled,
+        alarmLow: config.alarmLow,
+        alarmHigh: config.alarmHigh,
+      })),
+    });
+  }
+
+  return configs;
 }
 
 export async function createWitsConfig(token: string, input: WitsConfigInput): Promise<PolarisWitsId> {
