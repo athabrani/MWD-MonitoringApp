@@ -60,7 +60,11 @@ export const canModifyMonitoringData = (roleName: unknown) => {
 };
 
 export const canViewAllSessions = (roleName: unknown) => {
-  return hasRole(roleName, [SYSTEM_ROLES.admin, SYSTEM_ROLES.engineer]);
+  return hasRole(roleName, [
+    SYSTEM_ROLES.admin,
+    SYSTEM_ROLES.engineer,
+    SYSTEM_ROLES.operator,
+  ]);
 };
 
 export const canAccessSessionOwner = (
