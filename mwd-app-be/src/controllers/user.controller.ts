@@ -27,8 +27,8 @@ const normalizeString = (value: unknown) => {
 };
 
 const validatePassword = (password: string) => {
-  if (password.length < 10) {
-    return "Password must be at least 10 characters";
+  if (password.length < 8) {
+    return "Password must be at least 8 characters";
   }
 
   if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
