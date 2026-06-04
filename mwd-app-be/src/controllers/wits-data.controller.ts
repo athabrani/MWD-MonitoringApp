@@ -8,6 +8,7 @@ import {
   canAccessSessionOwner,
   canViewAllSessions,
 } from "../utils/roles.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -38,6 +39,11 @@ const parsePositiveBigInt = (value: unknown) => {
 
   return null;
 };
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 
 const parseOptionalDate = (value: unknown, fieldName: string) => {
   if (value === undefined) {
@@ -299,6 +305,23 @@ export const acknowledgeWitsAlarm = async (req: Request, res: Response) => {
       id,
       authUser.userId,
     );
+    const alarmRecord = toRecord(alarm);
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "wits_alarm.acknowledge",
+      details: `Acknowledged WITS alarm ${id.toString()}`,
+      metadata: {
+        alarmId: id.toString(),
+        witsId:
+          alarmRecord.witsId !== undefined ? String(alarmRecord.witsId) : null,
+        sessionId:
+          alarmRecord.sessionId !== undefined
+            ? String(alarmRecord.sessionId)
+            : null,
+      },
+    });
+
     res.json(alarm);
   } catch (error: unknown) {
     return handleWitsDataWriteError(error, res);
@@ -314,6 +337,24 @@ export const resolveWitsAlarm = async (req: Request, res: Response) => {
     }
 
     const alarm = await witsDataService.resolveWitsAlarm(id);
+    const authUser = (req as AuthenticatedRequest).user;
+    const alarmRecord = toRecord(alarm);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "wits_alarm.resolve",
+      details: `Resolved WITS alarm ${id.toString()}`,
+      metadata: {
+        alarmId: id.toString(),
+        witsId:
+          alarmRecord.witsId !== undefined ? String(alarmRecord.witsId) : null,
+        sessionId:
+          alarmRecord.sessionId !== undefined
+            ? String(alarmRecord.sessionId)
+            : null,
+      },
+    });
+
     res.json(alarm);
   } catch (error: unknown) {
     return handleWitsDataWriteError(error, res);

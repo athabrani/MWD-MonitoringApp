@@ -1,10 +1,12 @@
 import type { Request, Response } from "express";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import {
   connectSerialGateway,
   disconnectSerialGateway,
   getSerialGatewayStatus,
   listSerialPorts,
 } from "../services/serial-gateway.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -131,6 +133,20 @@ export const connectSerialPort = async (req: Request, res: Response) => {
       ...(transmitterId !== undefined ? { transmitterId } : {}),
       ...(verbose !== undefined ? { verbose } : {}),
     });
+    const authUser = (req as AuthenticatedRequest).user;
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "serial.connect",
+      details: `Connected serial gateway to ${path}`,
+      metadata: {
+        path,
+        baudRate,
+        sessionId,
+        source,
+        transmitterId,
+      },
+    });
 
     res.json({
       message: "Serial gateway connect requested",
@@ -143,9 +159,19 @@ export const connectSerialPort = async (req: Request, res: Response) => {
   }
 };
 
-export const disconnectSerialPort = async (_req: Request, res: Response) => {
+export const disconnectSerialPort = async (req: Request, res: Response) => {
   try {
     const status = await disconnectSerialGateway();
+    const authUser = (req as AuthenticatedRequest).user;
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "serial.disconnect",
+      details: "Disconnected serial gateway",
+      metadata: {
+        status,
+      },
+    });
 
     res.json({
       message: "Serial gateway disconnected",

@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import * as systemUtilityService from "../services/system-utility.service.js";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -69,6 +71,9 @@ const getClearInput = (body: Record<string, unknown>) => {
   } as const;
 };
 
+const getUserId = (req: Request) =>
+  (req as AuthenticatedRequest).user?.userId ?? null;
+
 export const getClearDataTargets = (_req: Request, res: Response) => {
   res.json({
     data: systemUtilityService.getValidTargets(),
@@ -94,6 +99,18 @@ export const backupSessionData = async (req: Request, res: Response) => {
       input.depthRange,
       input.targets,
     );
+
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.backup_session",
+      details: `Generated backup for session ${input.sessionId}`,
+      metadata: {
+        sessionId: input.sessionId,
+        depthRange: input.depthRange,
+        targets: input.targets,
+        counts: result.counts,
+      },
+    });
 
     res.json({
       message: "Session backup generated",
@@ -124,6 +141,18 @@ export const previewClearSessionData = async (req: Request, res: Response) => {
       input.depthRange,
       input.targets,
     );
+
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.preview_clear_session",
+      details: `Previewed clear data for session ${input.sessionId}`,
+      metadata: {
+        sessionId: input.sessionId,
+        depthRange: input.depthRange,
+        targets: input.targets,
+        counts: result.counts,
+      },
+    });
 
     res.json({
       message: "Clear data preview",
@@ -159,6 +188,18 @@ export const clearSessionData = async (req: Request, res: Response) => {
       input.depthRange,
       input.targets,
     );
+
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.clear_session",
+      details: `Cleared data for session ${input.sessionId}`,
+      metadata: {
+        sessionId: input.sessionId,
+        depthRange: input.depthRange,
+        targets: input.targets,
+        deleted: result.deleted,
+      },
+    });
 
     res.json({
       message: "Session data cleared",
@@ -202,6 +243,18 @@ export const restoreSessionData = async (req: Request, res: Response) => {
       replaceExisting,
     );
 
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.restore_session",
+      details: `Restored data for session ${sessionId}`,
+      metadata: {
+        sessionId,
+        targets,
+        replaceExisting,
+        restored: result.restored,
+      },
+    });
+
     res.json({
       message: "Session data restored",
       replaceExisting,
@@ -220,6 +273,16 @@ export const backupConfiguration = async (req: Request, res: Response) => {
       req.body?.targets,
     );
     const result = await systemUtilityService.createConfigurationBackup(targets);
+
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.backup_configuration",
+      details: "Generated configuration backup",
+      metadata: {
+        targets,
+        counts: result.counts,
+      },
+    });
 
     res.json({
       message: "Configuration backup generated",
@@ -253,6 +316,16 @@ export const restoreConfiguration = async (req: Request, res: Response) => {
       backup,
       targets,
     );
+
+    await createAuditLog({
+      userId: getUserId(req),
+      action: "system.restore_configuration",
+      details: "Restored configuration backup",
+      metadata: {
+        targets,
+        restored: result.restored,
+      },
+    });
 
     res.json({
       message: "Configuration restored",

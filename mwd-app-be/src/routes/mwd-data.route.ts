@@ -19,6 +19,11 @@ import {
   unhideDepthRange,
 } from "../controllers/mwd-data-edit.controller.js";
 import { authenticate, authorize } from "../middlewares/auth.middleware.js";
+import { validateBody } from "../middlewares/validation.middleware.js";
+import {
+  mwdDataCreateBodySchema,
+  mwdDataUpdateBodySchema,
+} from "../utils/request-schemas.js";
 
 const router = Router();
 
@@ -34,10 +39,20 @@ router.post("/edit/delete-depth-range", authorize("admin", "engineer"), deleteDe
 router.post("/edit/move-depth", authorize("admin", "engineer"), moveDepthRange);
 router.post("/edit/copy-depth", authorize("admin", "engineer"), copyDepthRange);
 router.post("/edit/rescale", authorize("admin", "engineer"), rescaleDepthRange);
-router.post("/", authorize("admin", "engineer"), createMWDData);
+router.post(
+  "/",
+  authorize("admin", "engineer"),
+  validateBody(mwdDataCreateBodySchema),
+  createMWDData,
+);
 router.get("/", getAllMWDData);
 router.get("/:id", getMWDDataById);
-router.put("/:id", authorize("admin", "engineer"), updateMWDData);
+router.put(
+  "/:id",
+  authorize("admin", "engineer"),
+  validateBody(mwdDataUpdateBodySchema),
+  updateMWDData,
+);
 router.delete("/:id", authorize("admin", "engineer"), deleteMWDData);
 
 export default router;

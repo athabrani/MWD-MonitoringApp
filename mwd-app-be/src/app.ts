@@ -23,9 +23,18 @@ import userRoutes from "./routes/user.route.js";
 import witsConfigRoutes from "./routes/wits-config.route.js";
 import { witsAlarmRouter, witsDataRouter } from "./routes/wits-data.route.js";
 import witsOutputRoutes from "./routes/wits-output.route.js";
+import {
+  csrfProtection,
+  rateLimit,
+  securityHeaders,
+} from "./middlewares/security.middleware.js";
+import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
+import { validateSecurityEnvironment } from "./utils/security-env.js";
 
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
+
+validateSecurityEnvironment();
 
 const isDecimalLike = (value: unknown): value is { toString: () => string } => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -76,7 +85,9 @@ const normalizeJsonValue = (value: unknown): unknown => {
 app.set("json replacer", (_key: string, value: unknown) =>
   typeof value === "bigint" ? value.toString() : value,
 );
+app.set("trust proxy", 1);
 
+app.use(securityHeaders);
 app.use(
   cors({
     origin: corsOrigin,
@@ -84,6 +95,33 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "10mb" }));
+app.use(
+  "/api/auth/login",
+  rateLimit({
+    keyPrefix: "auth-login",
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: "Too many login attempts. Please try again later.",
+  }),
+);
+app.use(
+  "/api/gateway",
+  rateLimit({
+    keyPrefix: "gateway",
+    windowMs: 60 * 1000,
+    max: 120,
+    message: "Too many gateway requests. Please slow down.",
+  }),
+);
+app.use(
+  "/api",
+  rateLimit({
+    keyPrefix: "api",
+    windowMs: 60 * 1000,
+    max: 600,
+  }),
+);
+app.use("/api", csrfProtection);
 app.use((_req, res, next) => {
   const json = res.json.bind(res);
 
@@ -125,5 +163,7 @@ app.use("/api/wits-config", witsConfigRoutes);
 app.use("/api/wits-data-values", witsDataRouter);
 app.use("/api/wits-alarms", witsAlarmRouter);
 app.use("/api/wits-output", witsOutputRoutes);
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 export default app;

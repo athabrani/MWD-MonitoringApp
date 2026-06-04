@@ -3,11 +3,11 @@ import {
   getAuditLogById,
   listAuditLogs,
 } from "../controllers/audit-log.controller.js";
-import { authenticate } from "../middlewares/auth.middleware.js";
+import { authenticate, authorize } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.use(authenticate);
+router.use(authenticate, authorize("admin", "engineer"));
 
 router.get("/", listAuditLogs);
 router.get("/:id", getAuditLogById);

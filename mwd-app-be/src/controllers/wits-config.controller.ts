@@ -5,6 +5,8 @@ import {
   normalizeWitsId,
 } from "../utils/mwd-measurements.js";
 import * as witsConfigService from "../services/wits-config.service.js";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -18,6 +20,11 @@ const parsePositiveInt = (value: unknown) => {
 
   return null;
 };
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 
 const parseBoolean = (value: unknown, fieldName: string) => {
   if (value === undefined) {
@@ -326,6 +333,27 @@ export const createWitsConfig = async (req: Request, res: Response) => {
     const config = await witsConfigService.createWitsConfig(
       result.data as witsConfigService.WitsConfigInput,
     );
+
+    const authUser = (req as AuthenticatedRequest).user;
+    const configRecord = toRecord(config);
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "wits_config.create",
+      details: `Created WITS config ${String(configRecord.witsId ?? "")}`,
+      metadata: {
+        witsConfigId:
+          configRecord.id !== undefined ? String(configRecord.id) : null,
+        witsId:
+          configRecord.witsId !== undefined
+            ? String(configRecord.witsId)
+            : null,
+        mappedField:
+          configRecord.mappedField !== undefined
+            ? String(configRecord.mappedField)
+            : null,
+      },
+    });
+
     res.status(201).json(config);
   } catch (error: unknown) {
     return handleWitsConfigError(error, res);
@@ -391,6 +419,24 @@ export const updateWitsConfig = async (req: Request, res: Response) => {
       id,
       result.data as witsConfigService.WitsConfigUpdateInput,
     );
+
+    const authUser = (req as AuthenticatedRequest).user;
+    const configRecord = toRecord(config);
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "wits_config.update",
+      details: `Updated WITS config ${String(configRecord.witsId ?? id)}`,
+      metadata: {
+        witsConfigId:
+          configRecord.id !== undefined ? String(configRecord.id) : String(id),
+        witsId:
+          configRecord.witsId !== undefined
+            ? String(configRecord.witsId)
+            : null,
+        updatedFields: Object.keys(result.data),
+      },
+    });
+
     res.json(config);
   } catch (error: unknown) {
     return handleWitsConfigError(error, res);
@@ -405,7 +451,26 @@ export const deleteWitsConfig = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid WITS config id" });
     }
 
-    await witsConfigService.deleteWitsConfig(id);
+    const deletedConfig = await witsConfigService.deleteWitsConfig(id);
+    const authUser = (req as AuthenticatedRequest).user;
+    const deletedConfigRecord = toRecord(deletedConfig);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "wits_config.delete",
+      details: `Deleted WITS config ${String(deletedConfigRecord.witsId ?? id)}`,
+      metadata: {
+        witsConfigId:
+          deletedConfigRecord.id !== undefined
+            ? String(deletedConfigRecord.id)
+            : String(id),
+        witsId:
+          deletedConfigRecord.witsId !== undefined
+            ? String(deletedConfigRecord.witsId)
+            : null,
+      },
+    });
+
     res.json({ message: "WITS config deleted successfully" });
   } catch (error: unknown) {
     return handleWitsConfigError(error, res);

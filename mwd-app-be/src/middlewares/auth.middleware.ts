@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import * as authService from "../services/auth.service.js";
-import { hasRole } from "../utils/roles.js";
+import { hasRole, normalizeRoleName } from "../utils/roles.js";
+import { getAccessTokenFromCookie } from "../utils/cookies.js";
 
 export type AuthenticatedUser = {
   userId: number;
@@ -8,28 +9,47 @@ export type AuthenticatedUser = {
   username: string;
   email: string;
   roleName: string;
+  authSource?: "bearer" | "cookie";
 };
 
 export type AuthenticatedRequest = Request & {
   user?: AuthenticatedUser;
 };
 
-export const authenticate = (
+export const authenticate = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const bearerToken =
+    authHeader && authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+  const cookieToken = bearerToken ? "" : getAccessTokenFromCookie(req);
+  const token = bearerToken || cookieToken;
+
+  if (!token) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const token = authHeader.slice(7).trim();
-
   try {
     const payload = authService.verifyAccessToken(token);
-    (req as AuthenticatedRequest).user = payload;
+    const currentUser = await authService.getCurrentUser(payload.userId);
+
+    if (!currentUser || !currentUser.isActive) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
+    (req as AuthenticatedRequest).user = {
+      userId: currentUser.id,
+      roleId: currentUser.roleId,
+      username: currentUser.username,
+      email: currentUser.email,
+      roleName: normalizeRoleName(currentUser.role.name),
+      authSource: bearerToken ? "bearer" : "cookie",
+    };
     next();
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });

@@ -19,6 +19,7 @@ import {
   buildDepthTrackingInputFromMwdSource,
   updateDepthTrackingState,
 } from "../services/depth-tracking.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -157,6 +158,18 @@ export const createMWDData = async (req: Request, res: Response) => {
         source: req.body ?? {},
       }),
     );
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_data.create",
+      details: `Created MWD data for session ${sessionId}`,
+      metadata: {
+        mwdDataId: data.id.toString(),
+        sessionId,
+        depthMd: data.depthMd?.toString() ?? null,
+        measuredAt: data.measuredAt.toISOString(),
+      },
+    });
 
     res.status(201).json({
       ...data,
@@ -342,6 +355,18 @@ export const updateMWDData = async (req: Request, res: Response) => {
     }
 
     const data = await mwdDataService.updateMWDData(id, updates);
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_data.update",
+      details: `Updated MWD data ${id.toString()}`,
+      metadata: {
+        mwdDataId: id.toString(),
+        sessionId: data.sessionId,
+        updatedFields: Object.keys(updates),
+      },
+    });
+
     res.json(data);
   } catch (error: unknown) {
     return handleMWDDataWriteError(error, res);
@@ -367,7 +392,20 @@ export const deleteMWDData = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    await mwdDataService.deleteMWDData(id);
+    const deletedData = await mwdDataService.deleteMWDData(id);
+    const authUser = (req as AuthenticatedRequest).user;
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "mwd_data.delete",
+      details: `Deleted MWD data ${id.toString()}`,
+      metadata: {
+        mwdDataId: id.toString(),
+        sessionId: deletedData.sessionId,
+        depthMd: deletedData.depthMd?.toString() ?? null,
+      },
+    });
+
     res.json({ message: "MWD data deleted successfully" });
   } catch (error: unknown) {
     return handleMWDDataWriteError(error, res);

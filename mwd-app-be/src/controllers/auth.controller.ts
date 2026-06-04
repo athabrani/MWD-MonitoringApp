@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
+import { randomBytes } from "node:crypto";
 import * as authService from "../services/auth.service.js";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { clearAuthCookies, setAuthCookies } from "../utils/cookies.js";
 
 const normalizeString = (value: unknown) => {
   return typeof value === "string" ? value.trim() : "";
@@ -25,12 +27,28 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    res.json(result);
+    const csrfToken = randomBytes(32).toString("hex");
+
+    setAuthCookies(res, {
+      accessToken: result.token,
+      csrfToken,
+      maxAgeSeconds: 24 * 60 * 60,
+    });
+
+    res.json({
+      ...result,
+      csrfToken,
+    });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ message });
   }
+};
+
+export const logout = async (_req: Request, res: Response) => {
+  clearAuthCookies(res);
+  res.json({ message: "Logged out" });
 };
 
 export const me = async (req: Request, res: Response) => {

@@ -6,6 +6,8 @@ import {
   isSystemRoleName,
   normalizeRoleName,
 } from "../utils/roles.js";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parseRoleId = (idParam: string) => {
   const id = Number(idParam);
@@ -29,6 +31,17 @@ export const createRole = async (req: Request, res: Response) => {
     }
 
     const role = await roleService.createRole(normalizedName);
+
+    await createAuditLog({
+      userId: (req as AuthenticatedRequest).user?.userId ?? null,
+      action: "role.create",
+      details: `Created role ${role.name}`,
+      metadata: {
+        roleId: role.id,
+        roleName: role.name,
+      },
+    });
+
     res.status(201).json(role);
   } catch (error: unknown) {
     if (
@@ -50,8 +63,8 @@ export const getAllRoles = async (_req: Request, res: Response) => {
       isSystemRoleName(role.name),
     );
     res.json(roles);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch {
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -101,6 +114,17 @@ export const updateRole = async (req: Request, res: Response) => {
     }
 
     const role = await roleService.updateRole(id, normalizedName);
+
+    await createAuditLog({
+      userId: (req as AuthenticatedRequest).user?.userId ?? null,
+      action: "role.update",
+      details: `Updated role ${role.name}`,
+      metadata: {
+        roleId: role.id,
+        roleName: role.name,
+      },
+    });
+
     res.json(role);
   } catch (error: unknown) {
     if (
@@ -145,6 +169,16 @@ export const deleteRole = async (req: Request, res: Response) => {
     }
 
     await roleService.deleteRole(id);
+
+    await createAuditLog({
+      userId: (req as AuthenticatedRequest).user?.userId ?? null,
+      action: "role.delete",
+      details: `Deleted role ${role.name}`,
+      metadata: {
+        roleId: role.id,
+        roleName: role.name,
+      },
+    });
 
     res.json({ message: "Role deleted successfully" });
   } catch (error: unknown) {

@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js'
 import * as historicalDataService from '../services/historical-data.service.js'
 import * as sessionService from '../services/mwd-session.service.js'
 import * as exportRecordService from '../services/export-record.service.js'
+import { createAuditLog } from '../services/audit-log.service.js'
 import * as surveyService from '../services/survey.service.js'
 import * as witsConfigService from '../services/wits-config.service.js'
 import * as witsDataService from '../services/wits-data.service.js'
@@ -125,6 +126,27 @@ const parseWitsId = (value: unknown) => {
   return witsId && /^\d{4}$/.test(witsId) ? witsId : null
 }
 
+const auditExport = async (input: {
+  userId: number
+  action: string
+  sessionId: number
+  fileName: string
+  fileType: string
+  rowCount?: number
+}) => {
+  await createAuditLog({
+    userId: input.userId,
+    action: input.action,
+    details: `Exported ${input.fileType} ${input.fileName}`,
+    metadata: {
+      sessionId: input.sessionId,
+      fileName: input.fileName,
+      fileType: input.fileType,
+      rowCount: input.rowCount ?? null,
+    },
+  })
+}
+
 export const exportHistoricalData = async (req: Request, res: Response) => {
   try {
     const authUser = (req as AuthenticatedRequest).user
@@ -218,6 +240,14 @@ export const exportHistoricalData = async (req: Request, res: Response) => {
     await exportRecordService.createExportRecord({
       sessionId,
       exportedById: authUser.userId,
+      fileName,
+      fileType: format,
+      rowCount: historicalData.count,
+    })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.historical',
+      sessionId,
       fileName,
       fileType: format,
       rowCount: historicalData.count,
@@ -324,6 +354,14 @@ export const exportWitsData = async (req: Request, res: Response) => {
     await exportRecordService.createExportRecord({
       sessionId,
       exportedById: authUser.userId,
+      fileName,
+      fileType: 'wits_csv',
+      rowCount: rows.length,
+    })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.wits',
+      sessionId,
       fileName,
       fileType: 'wits_csv',
       rowCount: rows.length,
@@ -585,6 +623,14 @@ export const exportLasData = async (req: Request, res: Response) => {
       fileType: 'las',
       rowCount: lasExport.rowCount,
     })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.las',
+      sessionId,
+      fileName: lasExport.fileName,
+      fileType: 'las',
+      rowCount: lasExport.rowCount,
+    })
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
     res.setHeader(
@@ -644,6 +690,14 @@ export const exportSurveyData = async (req: Request, res: Response) => {
       fileType: 'survey_csv',
       rowCount: stations.length,
     })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.survey_csv',
+      sessionId,
+      fileName,
+      fileType: 'survey_csv',
+      rowCount: stations.length,
+    })
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
@@ -696,6 +750,14 @@ export const exportSurveyDataAsExcel = async (req: Request, res: Response) => {
     await exportRecordService.createExportRecord({
       sessionId,
       exportedById: authUser.userId,
+      fileName: excelExport.fileName,
+      fileType: 'survey_excel',
+      rowCount: stations.length,
+    })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.survey_excel',
+      sessionId,
       fileName: excelExport.fileName,
       fileType: 'survey_excel',
       rowCount: stations.length,
@@ -769,6 +831,14 @@ export const exportSurveyDataAsPdf = async (req: Request, res: Response) => {
     await exportRecordService.createExportRecord({
       sessionId,
       exportedById: authUser.userId,
+      fileName: pdfExport.fileName,
+      fileType: 'survey_pdf',
+      rowCount: stations.length,
+    })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.survey_pdf',
+      sessionId,
       fileName: pdfExport.fileName,
       fileType: 'survey_pdf',
       rowCount: stations.length,
@@ -886,6 +956,14 @@ export const exportPdfPlot = async (req: Request, res: Response) => {
     await exportRecordService.createExportRecord({
       sessionId,
       exportedById: authUser.userId,
+      fileName: pdfExport.fileName,
+      fileType: 'pdf_plot',
+      rowCount: pdfExport.rowCount,
+    })
+    await auditExport({
+      userId: authUser.userId,
+      action: 'export.pdf_plot',
+      sessionId,
       fileName: pdfExport.fileName,
       fileType: 'pdf_plot',
       rowCount: pdfExport.rowCount,

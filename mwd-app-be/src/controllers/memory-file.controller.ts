@@ -7,6 +7,11 @@ import {
   canModifyMonitoringData,
   canViewAllSessions,
 } from "../utils/roles.js";
+import { createAuditLog } from "../services/audit-log.service.js";
+
+const MAX_MEMORY_IMPORT_ROWS = 50_000;
+const MAX_MEMORY_IMPORT_CONTENT_LENGTH = 10 * 1024 * 1024;
+const ALLOWED_MEMORY_FILE_EXTENSIONS = new Set([".csv", ".txt", ".tsv"]);
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -120,6 +125,11 @@ const parseJsonLike = (value: unknown) => {
   }
 };
 
+const getFileExtension = (fileName: string) => {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex === -1 ? "" : fileName.slice(dotIndex).toLowerCase();
+};
+
 const getAuthUser = (req: Request) => (req as AuthenticatedRequest).user;
 
 const canAccessSession = (req: Request, sessionUserId: number) => {
@@ -213,12 +223,29 @@ export const importMemoryFile = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "fileName must be a string" });
     }
 
+    if (
+      fileName !== undefined &&
+      getFileExtension(fileName) &&
+      !ALLOWED_MEMORY_FILE_EXTENSIONS.has(getFileExtension(fileName))
+    ) {
+      return res.status(400).json({
+        message: "fileName must use .csv, .txt, or .tsv extension",
+      });
+    }
+
     if (source === null) {
       return res.status(400).json({ message: "source must be a string" });
     }
 
     if (content === null) {
       return res.status(400).json({ message: "content/csv must be a string" });
+    }
+
+    if (
+      content !== undefined &&
+      Buffer.byteLength(content, "utf8") > MAX_MEMORY_IMPORT_CONTENT_LENGTH
+    ) {
+      return res.status(400).json({ message: "Import content is too large" });
     }
 
     if (delimiter === null) {
@@ -249,6 +276,12 @@ export const importMemoryFile = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "rows must be an array" });
     }
 
+    if (Array.isArray(rows) && rows.length > MAX_MEMORY_IMPORT_ROWS) {
+      return res.status(400).json({
+        message: `rows must contain at most ${MAX_MEMORY_IMPORT_ROWS} items`,
+      });
+    }
+
     const session = await ensureSessionAccess(req, res, sessionId);
 
     if (!session) {
@@ -268,6 +301,17 @@ export const importMemoryFile = async (req: Request, res: Response) => {
       ...(depthField !== undefined ? { depthField } : {}),
       ...(measuredAtField !== undefined ? { measuredAtField } : {}),
       ...(fieldMappings !== undefined ? { fieldMappings } : {}),
+    });
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "memory_file.import",
+      details: `Imported memory file ${result.file.fileName}`,
+      metadata: {
+        sessionId,
+        memoryFileId: result.file.id,
+        importedCount: result.importedCount,
+      },
     });
 
     res.status(201).json({

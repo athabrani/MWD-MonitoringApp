@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as sessionService from "../services/mwd-session.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import {
   canAccessSessionOwner,
   canModifyMonitoringData,
@@ -264,6 +265,17 @@ export const createSession = async (req: Request, res: Response) => {
 
     const session = await sessionService.createSession(createInput);
 
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_session.create",
+      details: `Created session ${session.sessionCode}`,
+      metadata: {
+        sessionId: session.id,
+        sessionCode: session.sessionCode,
+        ownerUserId: session.userId,
+      },
+    });
+
     res.status(201).json(session);
   } catch (error: unknown) {
     return handleSessionWriteError(error, res);
@@ -450,6 +462,18 @@ export const updateSession = async (req: Request, res: Response) => {
     }
 
     const session = await sessionService.updateSession(id, updates);
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_session.update",
+      details: `Updated session ${session.sessionCode}`,
+      metadata: {
+        sessionId: session.id,
+        sessionCode: session.sessionCode,
+        updatedFields: Object.keys(updates),
+      },
+    });
+
     res.json(session);
   } catch (error: unknown) {
     return handleSessionWriteError(error, res);
@@ -475,7 +499,20 @@ export const deleteSession = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    await sessionService.deleteSession(id);
+    const authUser = (req as AuthenticatedRequest).user;
+    const deletedSession = await sessionService.deleteSession(id);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "mwd_session.delete",
+      details: `Deleted session ${deletedSession.sessionCode}`,
+      metadata: {
+        sessionId: deletedSession.id,
+        sessionCode: deletedSession.sessionCode,
+        ownerUserId: deletedSession.userId,
+      },
+    });
+
     res.json({ message: "Session deleted successfully" });
   } catch (error: unknown) {
     return handleSessionWriteError(error, res);

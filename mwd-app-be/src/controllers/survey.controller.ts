@@ -3,6 +3,7 @@ import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as sessionService from "../services/mwd-session.service.js";
 import * as surveyService from "../services/survey.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import {
   canAccessSessionOwner,
   canModifyMonitoringData,
@@ -38,6 +39,11 @@ const parsePositiveBigInt = (value: unknown) => {
 
   return null;
 };
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 
 const parseOptionalBoolean = (value: unknown, fallback = false) => {
   if (value === undefined) {
@@ -283,6 +289,24 @@ export const createSurveyStation = async (req: Request, res: Response) => {
     const station = await surveyService.createSurveyStation(
       result.data as surveyService.SurveyStationInputData,
     );
+    const authUser = getAuthUser(req);
+    const stationRecord = toRecord(station);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.create",
+      details: `Created survey station for session ${sessionId}`,
+      metadata: {
+        surveyStationId:
+          stationRecord.id !== undefined ? String(stationRecord.id) : null,
+        sessionId,
+        measuredDepth:
+          stationRecord.measuredDepth !== undefined
+            ? String(stationRecord.measuredDepth)
+            : null,
+      },
+    });
+
     res.status(201).json(station);
   } catch (error: unknown) {
     return handleSurveyWriteError(error, res);
@@ -413,6 +437,18 @@ export const updateSurveyStation = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Survey station not found" });
     }
 
+    const authUser = getAuthUser(req);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.update",
+      details: `Updated survey station ${id.toString()}`,
+      metadata: {
+        surveyStationId: id.toString(),
+        updatedFields: Object.keys(result.data),
+      },
+    });
+
     res.json(station);
   } catch (error: unknown) {
     return handleSurveyWriteError(error, res);
@@ -443,7 +479,18 @@ export const deleteSurveyStation = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
+    const authUser = getAuthUser(req);
     await surveyService.deleteSurveyStation(id);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.delete",
+      details: `Deleted survey station ${id.toString()}`,
+      metadata: {
+        surveyStationId: id.toString(),
+      },
+    });
+
     res.json({ message: "Survey station deleted successfully" });
   } catch (error: unknown) {
     return handleSurveyWriteError(error, res);
@@ -482,6 +529,17 @@ export const recalculateSurveyStations = async (req: Request, res: Response) => 
       normalizeStationType(req.body?.stationType),
       verticalSectionAzimuth.value,
     );
+
+    const authUser = getAuthUser(req);
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.recalculate",
+      details: `Recalculated survey stations for session ${sessionId}`,
+      metadata: {
+        sessionId,
+        count: data.length,
+      },
+    });
 
     res.json({
       count: data.length,
@@ -541,6 +599,18 @@ export const importSurveyFromMwdData = async (req: Request, res: Response) => {
     }
 
     const result = await surveyService.importSurveyFromMwdData(importInput);
+
+    const authUser = getAuthUser(req);
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.import_from_mwd",
+      details: `Imported survey stations from MWD data for session ${sessionId}`,
+      metadata: {
+        sessionId,
+        importedCount: result.importedCount,
+        stationType: importInput.stationType ?? null,
+      },
+    });
 
     res.status(201).json(result);
   } catch (error: unknown) {
@@ -619,6 +689,19 @@ export const importWellPlanCsv = async (req: Request, res: Response) => {
     }
 
     const result = await surveyService.importWellPlanCsv(importInput);
+
+    const authUser = getAuthUser(req);
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "survey.import_well_plan",
+      details: `Imported well plan CSV for session ${sessionId}`,
+      metadata: {
+        sessionId,
+        importedCount: result.importedCount,
+        skippedCount: result.skippedCount,
+        stationType: importInput.stationType ?? null,
+      },
+    });
 
     res.status(201).json(result);
   } catch (error: unknown) {

@@ -7,13 +7,20 @@ import {
   deleteUser,
 } from "../controllers/user.controller.js";
 import { authenticate, authorize } from "../middlewares/auth.middleware.js";
+import { validateBody } from "../middlewares/validation.middleware.js";
+import {
+  userCreateBodySchema,
+  userUpdateBodySchema,
+} from "../utils/request-schemas.js";
 
 const router = Router();
 
-router.post("/", authenticate, authorize("admin", "engineer"), createUser);
-router.get("/", authenticate, authorize("admin", "engineer"), getAllUsers);
-router.get("/:id", authenticate, authorize("admin", "engineer"), getUserById);
-router.put("/:id", authenticate, authorize("admin", "engineer"), updateUser);
-router.delete("/:id", authenticate, authorize("admin", "engineer"), deleteUser);
+router.use(authenticate, authorize("admin"));
+
+router.post("/", validateBody(userCreateBodySchema), createUser);
+router.get("/", getAllUsers);
+router.get("/:id", getUserById);
+router.put("/:id", validateBody(userUpdateBodySchema), updateUser);
+router.delete("/:id", deleteUser);
 
 export default router;
