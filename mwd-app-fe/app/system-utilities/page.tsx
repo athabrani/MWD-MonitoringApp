@@ -3,14 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   AlertTriangle,
+  Cable,
+  CheckCircle2,
+  Clock,
   Database,
   Download,
   FileArchive,
   HardDrive,
+  Info,
+  Network,
+  RefreshCw,
   ServerCog,
   Trash2,
   Upload,
+  Wifi,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
@@ -55,6 +64,9 @@ import {
   type ClearDataPreviewResponse,
 } from "@/lib/api/system-utilities";
 import { getSurveys } from "@/lib/surveys-api";
+import { getSafeErrorMessage, logSecurityError } from "@/lib/security/errors";
+import { parseFiniteNumber, validateDepthRange, validateJsonFile } from "@/lib/security/input";
+import { requireActionPermission } from "@/lib/security/permissions";
 import { cn } from "@/lib/utils";
 
 type BackupJson = Record<string, unknown>;
@@ -114,8 +126,9 @@ function downloadJsonFile(data: unknown, filename: string) {
 
 function readJsonFile(file: File): Promise<BackupJson> {
   return new Promise((resolve, reject) => {
-    if (!file.name.toLowerCase().endsWith(".json")) {
-      reject(new Error("Backup file must be a .json file."));
+    const validationError = validateJsonFile(file, { maxSizeMb: 5 });
+    if (validationError) {
+      reject(new Error(validationError));
       return;
     }
 
@@ -288,9 +301,8 @@ function DatabaseTab({
     if (!token) return "Backend login is required.";
     if (!isAdmin) return "Only admin users can use System Utilities.";
     if (!activeMwdSessionId) return "Select an active MWD session.";
-    if (!Number.isFinite(startDepth) || !Number.isFinite(endDepth) || startDepth > endDepth) {
-      return "Depth range must be valid.";
-    }
+    const depthError = validateDepthRange(startDepth, endDepth);
+    if (depthError) return depthError;
     if (selectedSessionTargets.length === 0) return "Select at least one data target.";
     return "";
   };
@@ -315,7 +327,7 @@ function DatabaseTab({
       downloadJsonFile(response.backup, `mwd-session-backup-session-${activeMwdSessionId}-${timestampForFileName()}.json`);
       toast.success("Backup downloaded successfully");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to backup session.";
+      const message = getSafeErrorMessage(error, "Unable to backup session.");
       setActionError(message);
       toast.error("Unable to backup session", { description: message });
     } finally {
@@ -331,7 +343,7 @@ function DatabaseTab({
       setSessionBackupFileName(file.name);
       toast.success("Session backup JSON loaded");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to read session backup.";
+      const message = getSafeErrorMessage(error, "Unable to read session backup.");
       setSessionBackupJson(null);
       setSessionBackupFileName("");
       toast.error("Invalid backup file", { description: message });
@@ -341,12 +353,13 @@ function DatabaseTab({
   };
 
   const handleRestoreSession = async () => {
-    if (!token) {
-      toast.error("Backend login is required.");
+    const permissionError = requireActionPermission(isAdmin ? { role: "admin" } : null, "system:restore");
+    if (permissionError) {
+      toast.error(permissionError);
       return;
     }
-    if (!isAdmin) {
-      toast.error("Only admin users can restore session data.");
+    if (!token) {
+      toast.error("Backend login is required.");
       return;
     }
     if (!activeMwdSessionId) {
@@ -376,7 +389,7 @@ function DatabaseTab({
       toast.success("Restore session completed");
       await refreshAfterDataMutation();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to restore session.";
+      const message = getSafeErrorMessage(error, "Unable to restore session.");
       setActionError(message);
       toast.error("Unable to restore session", { description: message });
     } finally {
@@ -385,12 +398,13 @@ function DatabaseTab({
   };
 
   const handleBackupConfiguration = async () => {
-    if (!token) {
-      toast.error("Backend login is required.");
+    const permissionError = requireActionPermission(isAdmin ? { role: "admin" } : null, "system:backup");
+    if (permissionError) {
+      toast.error(permissionError);
       return;
     }
-    if (!isAdmin) {
-      toast.error("Only admin users can backup configuration.");
+    if (!token) {
+      toast.error("Backend login is required.");
       return;
     }
     if (selectedConfigTargets.length === 0) {
@@ -407,7 +421,7 @@ function DatabaseTab({
       downloadJsonFile(response.backup, `mwd-config-backup-${timestampForFileName()}.json`);
       toast.success("Configuration backup downloaded");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to backup configuration.";
+      const message = getSafeErrorMessage(error, "Unable to backup configuration.");
       setActionError(message);
       toast.error("Unable to backup configuration", { description: message });
     } finally {
@@ -426,7 +440,7 @@ function DatabaseTab({
       setConfigBackupFileName(file.name);
       toast.success("Configuration backup JSON loaded");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to read configuration backup.";
+      const message = getSafeErrorMessage(error, "Unable to read configuration backup.");
       setConfigBackupJson(null);
       setConfigBackupFileName("");
       toast.error("Invalid configuration backup", { description: message });
@@ -436,12 +450,13 @@ function DatabaseTab({
   };
 
   const handleRestoreConfiguration = async () => {
-    if (!token) {
-      toast.error("Backend login is required.");
+    const permissionError = requireActionPermission(isAdmin ? { role: "admin" } : null, "system:restore");
+    if (permissionError) {
+      toast.error(permissionError);
       return;
     }
-    if (!isAdmin) {
-      toast.error("Only admin users can restore configuration.");
+    if (!token) {
+      toast.error("Backend login is required.");
       return;
     }
     if (!isBackupObject(configBackupJson)) {
@@ -465,7 +480,7 @@ function DatabaseTab({
       toast.success("Configuration restore completed");
       await refreshAfterConfigRestore();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to restore configuration.";
+      const message = getSafeErrorMessage(error, "Unable to restore configuration.");
       setActionError(message);
       toast.error("Unable to restore configuration", { description: message });
     } finally {
@@ -500,11 +515,11 @@ function DatabaseTab({
               />
               <div className="space-y-2">
                 <Label>Start Depth</Label>
-                <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(Number(event.target.value))} />
+                <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
               </div>
               <div className="space-y-2">
                 <Label>End Depth</Label>
-                <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(Number(event.target.value))} />
+                <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
               </div>
             </div>
             <div className="mt-4">
@@ -699,30 +714,361 @@ function DatabaseTab({
   );
 }
 
-function SystemInfoTab() {
+type DiagnosticLevel = "ok" | "warning" | "critical" | "unknown";
+
+type DiagnosticStatusItem = {
+  label: string;
+  value: string;
+  level: DiagnosticLevel;
+  description?: string;
+  detail?: string;
+  updatedAt?: Date | string;
+  icon?: React.ComponentType<{ className?: string }>;
+};
+
+function formatDiagnosticTime(value?: Date | string) {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function normalizeDiagnosticLevel(value?: string | null): DiagnosticLevel {
+  const normalized = value?.toLowerCase();
+  if (!normalized) return "unknown";
+  if (["connected", "online", "running", "open", "healthy", "ok", "available"].includes(normalized)) return "ok";
+  if (["connecting", "reconnecting", "degraded", "warning", "idle"].includes(normalized)) return "warning";
+  if (["offline", "disconnected", "closed", "error", "failed", "down", "unreachable"].includes(normalized)) return "critical";
+  return "unknown";
+}
+
+function statusBadgeClass(level: DiagnosticLevel) {
+  if (level === "ok") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (level === "warning") return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (level === "critical") return "border-destructive/40 bg-destructive/10 text-destructive";
+  return "border-border bg-muted/40 text-muted-foreground";
+}
+
+function DiagnosticStatusCard({ item }: { item: DiagnosticStatusItem }) {
+  const Icon = item.icon ?? Info;
+  const updatedAt = formatDiagnosticTime(item.updatedAt);
+
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl border-dashed p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <Card className="rounded-2xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-3">
+          <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl border", statusBadgeClass(item.level))}>
+            <Icon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold">{item.label}</h3>
+              <Badge variant="outline" className={cn("capitalize", statusBadgeClass(item.level))}>
+                {item.value}
+              </Badge>
+            </div>
+            {item.description ? <p className="mt-1 text-sm text-muted-foreground">{item.description}</p> : null}
+            {item.detail ? <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p> : null}
+            {updatedAt ? (
+              <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                <Clock className="size-3" />
+                Updated {updatedAt}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SystemInfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words font-mono text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function textIncludesAny(value: string, patterns: string[]) {
+  const normalized = value.toLowerCase();
+  return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function SystemInfoTab() {
+  const {
+    activeMwdSession,
+    activeMwdSessionId,
+    connectionState,
+    connectionStatusLoading,
+    connectionStatusError,
+    refreshConnectionStatus,
+    failoverEventsLoading,
+    failoverEventsError,
+    refreshFailoverEvents,
+    serialStatus,
+    serialStatusLoading,
+    serialStatusError,
+    refreshSerialStatus,
+    espWsStatus,
+    espWsStatusLoading,
+    espWsStatusError,
+    refreshEspWsStatus,
+    realtimeStatus,
+    realtimeError,
+    events,
+  } = useApp();
+
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "Not configured";
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "Not configured";
+  const browserHost = typeof window === "undefined" ? "Unavailable" : window.location.host;
+
+  const refreshDiagnostics = async () => {
+    await Promise.allSettled([
+      refreshConnectionStatus(),
+      refreshFailoverEvents(),
+      refreshSerialStatus(),
+      refreshEspWsStatus(),
+    ]);
+  };
+
+  const connectionLevel = connectionStatusLoading
+    ? "warning"
+    : connectionStatusError
+      ? "critical"
+      : normalizeDiagnosticLevel(connectionState.status);
+  const serialLevel = serialStatusLoading
+    ? "warning"
+    : serialStatusError
+      ? "critical"
+      : normalizeDiagnosticLevel(serialStatus?.status);
+  const espLevel = espWsStatusLoading
+    ? "warning"
+    : espWsStatusError || espWsStatus?.lastError
+      ? "critical"
+      : normalizeDiagnosticLevel(espWsStatus?.status);
+  const realtimeLevel = normalizeDiagnosticLevel(realtimeStatus);
+
+  const processItems: DiagnosticStatusItem[] = [
+    {
+      label: "Backend Connection Monitor",
+      value: connectionStatusLoading ? "checking" : connectionState.status,
+      level: connectionLevel,
+      description: connectionStatusError || `Data source: ${connectionState.dataSource}. Latency ${connectionState.latency} ms, packet loss ${connectionState.packetLoss}%.`,
+      updatedAt: connectionState.lastReceived,
+      icon: Network,
+    },
+    {
+      label: "Realtime WebSocket Client",
+      value: realtimeStatus,
+      level: realtimeError ? "critical" : realtimeLevel,
+      description: realtimeError || (wsUrl === "Not configured" ? "NEXT_PUBLIC_WS_URL is not configured." : "Frontend realtime client status."),
+      detail: wsUrl,
+      icon: Wifi,
+    },
+    {
+      label: "Logging Process",
+      value: "unknown",
+      level: "unknown",
+      description: "Backend process-status endpoint is not available yet, so running/not running cannot be verified.",
+      detail: "Expected future source: diagnostics/process status API.",
+      icon: Activity,
+    },
+    {
+      label: "Helper Process",
+      value: "unknown",
+      level: "unknown",
+      description: "Backend process-status endpoint is not available yet, so helper process state cannot be verified.",
+      detail: "Expected future source: diagnostics/process status API.",
+      icon: Activity,
+    },
+  ];
+
+  const portItems: DiagnosticStatusItem[] = [
+    {
+      label: "Serial Gateway",
+      value: serialStatusLoading ? "checking" : serialStatus?.status ?? "unavailable",
+      level: serialLevel,
+      description: serialStatusError || serialStatus?.message || "Source: GET /api/serial/status.",
+      detail: serialStatus?.port ? `Port ${serialStatus.port}` : "No serial port returned.",
+      updatedAt: serialStatus?.lastReceivedAt,
+      icon: Cable,
+    },
+    {
+      label: "ESP WebSocket Gateway",
+      value: espWsStatusLoading ? "checking" : espWsStatus?.status ?? "unavailable",
+      level: espLevel,
+      description: espWsStatusError || espWsStatus?.lastError || espWsStatus?.message || "Source: GET /api/esp-ws/status.",
+      detail: [
+        typeof espWsStatus?.clientCount === "number" ? `${espWsStatus.clientCount} clients` : null,
+        typeof espWsStatus?.signal?.rssi === "number" ? `RSSI ${espWsStatus.signal.rssi}` : null,
+        typeof espWsStatus?.signal?.snr === "number" ? `SNR ${espWsStatus.signal.snr}` : null,
+      ].filter(Boolean).join(" | ") || "No signal detail returned.",
+      updatedAt: espWsStatus?.lastReceivedAt,
+      icon: Wifi,
+    },
+  ];
+
+  const diagnosticText = [
+    serialStatusError,
+    serialStatus?.message,
+    espWsStatusError,
+    espWsStatus?.lastError ?? undefined,
+    espWsStatus?.message,
+    espWsStatus?.lastRawMessage,
+    espWsStatus?.lastPayload,
+    espWsStatus?.lastLine,
+    espWsStatus?.rawPacket,
+    realtimeError,
+    connectionStatusError,
+    failoverEventsError,
+    ...events.slice(0, 20).map((event) => event.message),
+  ].filter((value): value is string => Boolean(value));
+
+  const hints = [
+    connectionLevel === "critical"
+      ? "Backend connection monitor reports offline/error. Check backend API reachability and active data source before troubleshooting UI widgets."
+      : null,
+    connectionLevel === "warning"
+      ? "Backend connection is degraded/checking. Review failover events and packet loss before trusting realtime values."
+      : null,
+    serialLevel === "critical"
+      ? "Serial gateway is disconnected or errored. Check rig WITS port, serial adapter, baud rate, and null-modem serial cable."
+      : null,
+    espLevel === "critical"
+      ? "ESP WebSocket gateway is disconnected or errored. Check ESP gateway process, network path, and websocket status endpoint."
+      : null,
+    realtimeError || ["disconnected", "error"].includes(realtimeStatus)
+      ? "Realtime frontend websocket is not connected. Verify NEXT_PUBLIC_WS_URL and backend websocket availability."
+      : null,
+    textIncludesAny(diagnosticText.join("\n"), ["illegal character received", "illegal character"])
+      ? "System message mentions illegal characters. Polaris guide indicates possible faulty null-modem cable or rig monitoring equipment sending garbage data."
+      : null,
+    textIncludesAny(diagnosticText.join("\n"), ["hangup signal received", "hangup signal", "hangup"])
+      ? "System message mentions hangup signal. Check serial cable, device power, and data transmission stability."
+      : null,
+    failoverEventsError
+      ? "Failover events could not be loaded. Backend failover diagnostics may be unavailable or access may be denied."
+      : null,
+  ].filter((hint): hint is string => Boolean(hint));
+
+  const recentDiagnostics = events
+    .filter((event) => ["connection", "failover", "system"].includes(event.type))
+    .slice(0, 6);
+
+  return (
+    <div className="space-y-6">
+      <Card className="rounded-2xl p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold">System Information Summary</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              System information, process status, and system log APIs are not available yet.
-              This page does not display static or simulated diagnostics as production data.
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Runtime diagnostics from the frontend state and available backend status endpoints. Process and system-log status are shown honestly when backend support is not available.
             </p>
           </div>
-          <Badge variant="outline">Endpoint backend untuk fitur ini belum tersedia.</Badge>
+          <Button variant="outline" size="sm" onClick={() => void refreshDiagnostics()} disabled={connectionStatusLoading || failoverEventsLoading || serialStatusLoading || espWsStatusLoading}>
+            <RefreshCw className="mr-2 size-4" />
+            Refresh Diagnostics
+          </Button>
         </div>
       </Card>
 
-      <Alert className="rounded-2xl">
-        <AlertTriangle className="size-4" />
-        <AlertTitle>Diagnostics unavailable</AlertTitle>
-        <AlertDescription>
-          Backend diagnostics endpoints are required before system info, process status, and
-          system log entries can be shown.
-        </AlertDescription>
-      </Alert>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SystemInfoRow label="Active Session" value={activeMwdSession?.name ?? activeMwdSession?.wellName ?? activeMwdSessionId ?? "No active session"} />
+        <SystemInfoRow label="Frontend Host" value={browserHost} />
+        <SystemInfoRow label="Backend API Base URL" value={apiBaseUrl} />
+        <SystemInfoRow label="Realtime WS URL" value={wsUrl} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="space-y-3">
+          <div>
+            <h3 className="font-semibold">Process / Service Status</h3>
+            <p className="text-sm text-muted-foreground">Operational services and process-like runtime components.</p>
+          </div>
+          <div className="grid gap-3">
+            {processItems.map((item) => <DiagnosticStatusCard key={item.label} item={item} />)}
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <div>
+            <h3 className="font-semibold">Port / Connection Status</h3>
+            <p className="text-sm text-muted-foreground">Serial, ESP, and realtime transport status from backend/state.</p>
+          </div>
+          <div className="grid gap-3">
+            {portItems.map((item) => <DiagnosticStatusCard key={item.label} item={item} />)}
+          </div>
+        </section>
+      </div>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
+        <Card className="rounded-2xl p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">Diagnostic Notes</h3>
+              <p className="text-sm text-muted-foreground">Hints are shown only when current status or diagnostic messages indicate a problem.</p>
+            </div>
+            <Badge variant={hints.length > 0 ? "destructive" : "secondary"}>
+              {hints.length > 0 ? `${hints.length} warning${hints.length === 1 ? "" : "s"}` : "No active hints"}
+            </Badge>
+          </div>
+          {hints.length > 0 ? (
+            <div className="space-y-2">
+              {hints.map((hint) => (
+                <Alert key={hint} className="rounded-xl border-amber-500/30 bg-amber-500/5">
+                  <AlertTriangle className="size-4" />
+                  <AlertDescription>{hint}</AlertDescription>
+                </Alert>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="size-4" />
+              No status-driven diagnostic hints are active.
+            </div>
+          )}
+        </Card>
+
+        <Card className="rounded-2xl p-4">
+          <div className="mb-3">
+            <h3 className="font-semibold">System Log Availability</h3>
+            <p className="text-sm text-muted-foreground">Backend system log endpoint is not integrated yet.</p>
+          </div>
+          <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+            Recent backend process logs such as "illegal character received" or "hangup signal received" are not available as a dedicated API yet. This panel scans available status/error messages only.
+          </div>
+        </Card>
+      </section>
+
+      <Card className="rounded-2xl p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Recent Connection/System Events</h3>
+            <p className="text-sm text-muted-foreground">Events generated from real connection, failover, and system state.</p>
+          </div>
+          <Badge variant="outline">{recentDiagnostics.length} event{recentDiagnostics.length === 1 ? "" : "s"}</Badge>
+        </div>
+        {recentDiagnostics.length > 0 ? (
+          <div className="space-y-2">
+            {recentDiagnostics.map((event) => (
+              <div key={event.id} className="flex items-start gap-3 rounded-xl border border-border/70 p-3">
+                {event.severity === "critical" ? <XCircle className="mt-0.5 size-4 text-destructive" /> : event.severity === "warning" ? <AlertTriangle className="mt-0.5 size-4 text-amber-500" /> : <Info className="mt-0.5 size-4 text-muted-foreground" />}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{event.message}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {event.type} | {formatDiagnosticTime(event.timestamp)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+            No recent connection/system diagnostic events are available.
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -781,9 +1127,8 @@ function ClearDataTab({
     if (!token) return "Backend login is required.";
     if (!isAdmin) return "Only admin users can use Clear Data.";
     if (!activeMwdSessionId) return "Select an active MWD session.";
-    if (!Number.isFinite(startDepth) || !Number.isFinite(endDepth) || startDepth > endDepth) {
-      return "Depth range must be valid.";
-    }
+    const depthError = validateDepthRange(startDepth, endDepth);
+    if (depthError) return depthError;
     if (selectedCategories.length === 0) return "Select at least one clear target.";
     return "";
   };
@@ -813,7 +1158,7 @@ function ClearDataTab({
       setPreview(result);
       toast.success("Clear data preview loaded");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to preview clear data.";
+      const message = getSafeErrorMessage(error, "Unable to preview clear data.");
       setPreview(null);
       setActionError(message);
       toast.error("Unable to preview clear data", { description: message });
@@ -837,7 +1182,7 @@ function ClearDataTab({
       downloadJsonFile(response.backup, `mwd-session-backup-session-${activeMwdSessionId}-${timestampForFileName()}.json`);
       toast.success("Backup downloaded successfully");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to backup session.";
+      const message = getSafeErrorMessage(error, "Unable to backup session.");
       setActionError(message);
       toast.error("Unable to backup session", { description: message });
     } finally {
@@ -873,7 +1218,7 @@ function ClearDataTab({
       setPreview(null);
       await refreshAfterDataMutation();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to clear data.";
+      const message = getSafeErrorMessage(error, "Unable to clear data.");
       setActionError(message);
       toast.error("Unable to clear data", { description: message });
     } finally {
@@ -945,11 +1290,11 @@ function ClearDataTab({
             />
             <div className="space-y-2">
               <Label>Start Depth</Label>
-              <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(Number(event.target.value))} />
+              <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
             </div>
             <div className="space-y-2">
               <Label>End Depth</Label>
-              <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(Number(event.target.value))} />
+              <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
             </div>
           </div>
         </Card>
@@ -1073,9 +1418,7 @@ export default function SystemUtilitiesPage({
       const targets = await getClearDataTargets(token);
       setClearTargets(targets);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load clear-data targets.", error);
-      }
+      logSecurityError("Unable to load clear-data targets.", error);
       const message = "Gagal memuat data dari backend.";
       setClearTargets([]);
       setClearTargetsError(message);
@@ -1097,9 +1440,7 @@ export default function SystemUtilitiesPage({
       const targets = await getConfigBackupTargets(token);
       setConfigTargets(targets);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load configuration backup targets.", error);
-      }
+      logSecurityError("Unable to load configuration backup targets.", error);
       const message = "Gagal memuat data dari backend.";
       setConfigTargets([]);
       setConfigTargetsError(message);

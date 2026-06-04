@@ -43,10 +43,16 @@ export const AlertsPage: React.FC = () => {
   const resolvedAlarms = events.filter(e => 
     e.type === 'alarm' && e.resolved
   );
+  const notificationEvents = events.filter(e => e.type !== 'alarm');
 
   const filteredActive = activeAlarms.filter(e =>
     e.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.parameter?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  const filteredNotifications = notificationEvents.filter(e =>
+    e.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.parameter?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.type.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleAcknowledge = (eventId: string, eventNote?: string) => {
@@ -185,6 +191,41 @@ export const AlertsPage: React.FC = () => {
     </Card>
   );
 
+  const NotificationCard = ({ event }: { event: Event }) => (
+    <Card
+      className={cn(
+        "p-4 border-l-4",
+        event.severity === 'critical' && "border-l-red-500 bg-red-500/5",
+        event.severity === 'warning' && "border-l-yellow-500 bg-yellow-500/5",
+        event.severity === 'info' && "border-l-blue-500 bg-blue-500/5"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold">{event.message}</h3>
+            <Badge variant="outline">{event.type}</Badge>
+            <Badge
+              variant="outline"
+              className={cn(
+                event.severity === 'critical' && "bg-red-500/10 text-red-500 border-red-500/20",
+                event.severity === 'warning' && "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+                event.severity === 'info' && "bg-blue-500/10 text-blue-500 border-blue-500/20"
+              )}
+            >
+              {event.severity}
+            </Badge>
+          </div>
+          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+            <div>Time: {format(event.timestamp, 'PPpp')}</div>
+            {event.parameter ? <div>Parameter: <Badge variant="secondary">{event.parameter}</Badge></div> : null}
+            {event.source ? <div>Source: <Badge variant="secondary">{event.source}</Badge></div> : null}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -210,7 +251,7 @@ export const AlertsPage: React.FC = () => {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-4 border-l-4 border-l-red-500">
           <div className="text-sm text-muted-foreground mb-1">Active Alarms</div>
           <div className="text-3xl font-bold">{activeAlarms.length}</div>
@@ -222,6 +263,10 @@ export const AlertsPage: React.FC = () => {
         <Card className="p-4 border-l-4 border-l-green-500">
           <div className="text-sm text-muted-foreground mb-1">Resolved (24h)</div>
           <div className="text-3xl font-bold">{resolvedAlarms.length}</div>
+        </Card>
+        <Card className="p-4 border-l-4 border-l-blue-500">
+          <div className="text-sm text-muted-foreground mb-1">Notifications</div>
+          <div className="text-3xl font-bold">{notificationEvents.length}</div>
         </Card>
       </div>
 
@@ -238,7 +283,7 @@ export const AlertsPage: React.FC = () => {
 
       {/* Tabs */}
       <Tabs defaultValue="active">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
           <TabsTrigger value="active">
             Active ({activeAlarms.length})
           </TabsTrigger>
@@ -247,6 +292,9 @@ export const AlertsPage: React.FC = () => {
           </TabsTrigger>
           <TabsTrigger value="resolved">
             Resolved ({resolvedAlarms.length})
+          </TabsTrigger>
+          <TabsTrigger value="notifications">
+            Notifications ({notificationEvents.length})
           </TabsTrigger>
         </TabsList>
 
@@ -294,6 +342,22 @@ export const AlertsPage: React.FC = () => {
           ) : (
             resolvedAlarms.map(event => (
               <AlarmCard key={event.id} event={event} showAcknowledge={false} />
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="notifications" className="mt-6 space-y-4">
+          {filteredNotifications.length === 0 ? (
+            <Card className="p-12 text-center">
+              <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="font-semibold mb-2">Belum ada notification.</h3>
+              <p className="text-muted-foreground">
+                Connection, failover, health, and system notifications will appear here.
+              </p>
+            </Card>
+          ) : (
+            filteredNotifications.map(event => (
+              <NotificationCard key={event.id} event={event} />
             ))
           )}
         </TabsContent>

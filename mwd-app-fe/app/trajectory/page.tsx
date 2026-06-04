@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Camera, Download, Maximize2, RefreshCw, Target } from "lucide-react";
+import { Camera, RefreshCw } from "lucide-react";
 import {
   CartesianGrid,
   ResponsiveContainer,
@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { VerticalTrajectory } from "@/components/contents/trajectory/vertical-trajectory";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
-import { getSurveys } from "@/lib/surveys-api";
+import { createSurveysFromMwdData, getSurveys } from "@/lib/surveys-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,30 +25,96 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TrajectoryData, TrajectoryPoint } from "@/types";
 import type { SurveyRecord } from "@/types/monitoring";
 
-function surveyToTrajectoryPoint(survey: SurveyRecord): TrajectoryPoint {
-  return {
-    md: survey.md,
-    tvd: survey.tvd,
-    inclination: survey.inc,
-    azimuth: survey.azm,
-    northing: survey.ns,
-    easting: survey.ew,
-  };
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
 }
 
-function formatValue(value: number, digits = 1) {
-  return Number.isFinite(value) ? value.toFixed(digits) : "-";
+function sortSurveysByMd(surveys: SurveyRecord[]) {
+  return [...surveys].sort((left, right) => left.md - right.md);
+}
+
+function hasBackendGeometry(surveys: SurveyRecord[]) {
+  return surveys.some((survey, index) => {
+    if (index === 0) return false;
+    return Math.abs(survey.tvd) > 0 || Math.abs(survey.ns) > 0 || Math.abs(survey.ew) > 0;
+  });
+}
+
+function surveysToTrajectoryPoints(surveys: SurveyRecord[]): TrajectoryPoint[] {
+  const sortedSurveys = sortSurveysByMd(surveys);
+
+  if (hasBackendGeometry(sortedSurveys)) {
+    return sortedSurveys.map((survey) => ({
+      md: survey.md,
+      tvd: survey.tvd,
+      inclination: survey.inc,
+      azimuth: survey.azm,
+      northing: survey.ns,
+      easting: survey.ew,
+    }));
+  }
+
+  let tvd = 0;
+  let northing = 0;
+  let easting = 0;
+  let previousSurvey: SurveyRecord | null = null;
+
+  return sortedSurveys.map((survey) => {
+    if (previousSurvey) {
+      const deltaMd = Math.max(survey.md - previousSurvey.md, 0);
+      const averageInc = toRadians((previousSurvey.inc + survey.inc) / 2);
+      const averageAzm = toRadians((previousSurvey.azm + survey.azm) / 2);
+
+      tvd += deltaMd * Math.cos(averageInc);
+      northing += deltaMd * Math.sin(averageInc) * Math.cos(averageAzm);
+      easting += deltaMd * Math.sin(averageInc) * Math.sin(averageAzm);
+    }
+
+    previousSurvey = survey;
+
+    return {
+      md: survey.md,
+      tvd,
+      inclination: survey.inc,
+      azimuth: survey.azm,
+      northing,
+      easting,
+    };
+  });
+}
+
+function formatValue(value?: number | null, digits = 1) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function getCurrentPoint(points: TrajectoryPoint[], depthSlider: number) {
+  if (points.length === 0) return undefined;
+  const index = Math.min(
+    Math.floor((depthSlider / 100) * Math.max(points.length - 1, 0)),
+    Math.max(points.length - 1, 0)
+  );
+  return points[index];
+}
+
+function getClosestByMd(points: TrajectoryPoint[], md?: number) {
+  if (points.length === 0 || typeof md !== "number") return undefined;
+
+  return points.reduce((closest, point) =>
+    Math.abs(point.md - md) < Math.abs(closest.md - md) ? point : closest
+  );
 }
 
 export const TrajectoryPage: React.FC = () => {
-  const { token } = useAuth();
-  const { activeMwdSessionId } = useApp();
-  const [view, setView] = useState<"vertical" | "plan" | "3d">("vertical");
+  const { token, user } = useAuth();
+  const { activeMwdSessionId, activeMwdSession } = useApp();
+  const [view, setView] = useState<"vertical" | "plan">("vertical");
   const [depthSlider, setDepthSlider] = useState(100);
   const [actualSurveys, setActualSurveys] = useState<SurveyRecord[]>([]);
   const [plannedSurveys, setPlannedSurveys] = useState<SurveyRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [generatingActual, setGeneratingActual] = useState(false);
   const [error, setError] = useState("");
+  const canGenerateActual = user?.role === "admin" || user?.role === "engineer";
 
   const loadTrajectory = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -66,15 +132,26 @@ export const TrajectoryPage: React.FC = () => {
         getSurveys(token, { sessionId: activeMwdSessionId, stationType: "actual" }),
         getSurveys(token, { sessionId: activeMwdSessionId, stationType: "plan" }),
       ]);
+
       setActualSurveys(actual);
       setPlannedSurveys(plan);
+
+      if (process.env.NODE_ENV === "development") {
+        console.info("[Trajectory Analysis] survey load", {
+          sessionId: activeMwdSessionId,
+          actualCount: actual.length,
+          plannedCount: plan.length,
+          actualSample: actual[0] ?? null,
+          plannedSample: plan[0] ?? null,
+        });
+      }
     } catch (nextError) {
       if (process.env.NODE_ENV === "development") {
         console.error("Unable to load trajectory surveys.", nextError);
       }
       setActualSurveys([]);
       setPlannedSurveys([]);
-      setError("Gagal memuat data dari backend.");
+      setError("Gagal memuat survey trajectory dari backend.");
     } finally {
       setLoading(false);
     }
@@ -86,164 +163,214 @@ export const TrajectoryPage: React.FC = () => {
 
   const trajectoryData = useMemo<TrajectoryData>(
     () => ({
-      actual: actualSurveys.map(surveyToTrajectoryPoint),
-      planned: plannedSurveys.map(surveyToTrajectoryPoint),
+      actual: surveysToTrajectoryPoints(actualSurveys),
+      planned: surveysToTrajectoryPoints(plannedSurveys),
     }),
     [actualSurveys, plannedSurveys]
   );
 
   const hasActualTrajectory = trajectoryData.actual.length > 0;
-  const currentDepthIndex = hasActualTrajectory
-    ? Math.min(Math.floor((depthSlider / 100) * (trajectoryData.actual.length - 1)), trajectoryData.actual.length - 1)
-    : 0;
-  const visiblePlanned = trajectoryData.planned.slice(0, Math.min(currentDepthIndex + 1, trajectoryData.planned.length));
-  const visibleActual = trajectoryData.actual.slice(0, currentDepthIndex + 1);
-  const currentActual = trajectoryData.actual[currentDepthIndex];
-  const currentPlanned = trajectoryData.planned[Math.min(currentDepthIndex, Math.max(trajectoryData.planned.length - 1, 0))];
+  const hasPlannedTrajectory = trajectoryData.planned.length > 0;
+  const hasTrajectory = hasActualTrajectory || hasPlannedTrajectory;
+  const referenceSeries = hasActualTrajectory ? trajectoryData.actual : trajectoryData.planned;
+  const currentReference = getCurrentPoint(referenceSeries, depthSlider);
+  const currentActual = getClosestByMd(trajectoryData.actual, currentReference?.md);
+  const currentPlanned = getClosestByMd(trajectoryData.planned, currentReference?.md);
 
   const crossTrackError =
     currentActual && currentPlanned
       ? Math.sqrt((currentActual.northing - currentPlanned.northing) ** 2 + (currentActual.easting - currentPlanned.easting) ** 2)
       : null;
   const deltaTVD = currentActual && currentPlanned ? Math.abs(currentActual.tvd - currentPlanned.tvd) : null;
-  const deltaInc = currentActual && currentPlanned ? Math.abs(currentActual.inclination - currentPlanned.inclination) : null;
-  const deltaAzi = currentActual && currentPlanned ? Math.abs(currentActual.azimuth - currentPlanned.azimuth) : null;
 
   const planViewData = {
-    planned: visiblePlanned.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
-    actual: visibleActual.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
+    planned: trajectoryData.planned.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
+    actual: trajectoryData.actual.map((point) => ({ x: point.easting, y: point.northing, md: point.md })),
   };
 
-  const handleSnapshot = () => toast.message("Endpoint backend untuk fitur ini belum tersedia.");
-  const handleExport = () => toast.message("Endpoint backend untuk fitur ini belum tersedia.");
+  const handleSnapshot = async () => {
+    if (!hasTrajectory) {
+      toast.warning("Tidak ada trajectory untuk disnapshot.");
+      return;
+    }
+
+    const snapshot = [
+      `Trajectory Analysis Snapshot`,
+      `Session: ${activeMwdSession?.name ?? activeMwdSession?.wellName ?? activeMwdSessionId}`,
+      `Actual stations: ${actualSurveys.length}`,
+      `Planned stations: ${plannedSurveys.length}`,
+      `Current MD: ${formatValue(currentReference?.md)} m`,
+      `Cross-track error: ${crossTrackError === null ? "-" : `${formatValue(crossTrackError, 2)} m`}`,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(snapshot);
+      toast.success("Trajectory snapshot copied to clipboard.");
+    } catch {
+      toast.message(snapshot);
+    }
+  };
+
+  const handleGenerateActual = async () => {
+    if (!token || !activeMwdSessionId || !canGenerateActual) return;
+
+    setGeneratingActual(true);
+    setError("");
+
+    try {
+      const generated = await createSurveysFromMwdData(token, {
+        sessionId: activeMwdSessionId,
+        stationType: "actual",
+      });
+      setActualSurveys(generated);
+      toast.success(`Generated ${generated.length} actual survey station${generated.length === 1 ? "" : "s"} from MWD data.`);
+      await loadTrajectory();
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : "Unable to generate actual surveys from MWD data.";
+      setError(message);
+      toast.error("Unable to generate actual surveys", { description: message });
+    } finally {
+      setGeneratingActual(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Trajectory Analysis</h1>
-          <p className="text-muted-foreground">Planned vs actual trajectory from backend surveys.</p>
+          <p className="mt-1 max-w-3xl text-muted-foreground">
+            Planned and actual trajectory from session surveys. Source: GET /api/surveys by active session.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" asChild>
             <Link href="/trajectory/well-plot">Well Plots</Link>
           </Button>
           <Button variant="outline" size="sm" onClick={() => void loadTrajectory()} disabled={loading}>
             <RefreshCw className="mr-2 size-4" />
-            Retry
+            Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSnapshot}>
+          <Button variant="outline" size="sm" onClick={() => void handleSnapshot()} disabled={!hasTrajectory}>
             <Camera className="mr-2 size-4" />
             Snapshot
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-2 size-4" />
-            Export
           </Button>
         </div>
       </div>
 
       {!activeMwdSessionId ? (
         <Card className="p-6 text-sm text-muted-foreground">Pilih job/session sebelum membuka trajectory.</Card>
-      ) : error ? (
+      ) : error && !hasTrajectory ? (
         <Card className="space-y-3 border-destructive/40 p-6">
-          <div className="font-semibold text-destructive">Gagal memuat data dari backend.</div>
+          <div className="font-semibold text-destructive">Gagal memuat data trajectory.</div>
           <p className="text-sm text-muted-foreground">{error}</p>
           <Button variant="outline" onClick={() => void loadTrajectory()}>Retry</Button>
         </Card>
       ) : loading ? (
         <Card className="p-6 text-sm text-muted-foreground">Loading trajectory survey...</Card>
-      ) : !hasActualTrajectory ? (
-        <Card className="p-6 text-sm text-muted-foreground">Belum ada survey untuk session ini.</Card>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
-            <MetricCard label="Current MD" value={formatValue(currentActual.md)} unit="m" />
-            <MetricCard label="Current TVD" value={formatValue(currentActual.tvd)} unit="m" />
-            <MetricCard label="Inclination" value={formatValue(currentActual.inclination)} unit="deg" />
-            <MetricCard label="Azimuth" value={formatValue(currentActual.azimuth)} unit="deg" />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Actual Stations" value={String(actualSurveys.length)} unit="survey" />
+            <MetricCard label="Planned Stations" value={String(plannedSurveys.length)} unit="survey" />
+            <MetricCard label="Reference MD" value={formatValue(currentReference?.md)} unit="m" />
             <MetricCard label="Cross-track Error" value={crossTrackError === null ? "-" : formatValue(crossTrackError, 2)} unit="m" />
-            <MetricCard label="Delta TVD" value={deltaTVD === null ? "-" : formatValue(deltaTVD, 2)} unit="m" />
-            <MetricCard label="Delta Inc" value={deltaInc === null ? "-" : formatValue(deltaInc, 2)} unit="deg" />
-            <MetricCard label="Delta Azi" value={deltaAzi === null ? "-" : formatValue(deltaAzi, 2)} unit="deg" />
           </div>
 
-          <Card className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">Depth Position</h3>
-                <p className="text-sm text-muted-foreground">Slide to view backend trajectory at different survey stations.</p>
-              </div>
-              <Badge variant="secondary" className="text-sm">{formatValue(currentActual.md)} m MD</Badge>
-            </div>
-            <Slider value={[depthSlider]} onValueChange={(value) => setDepthSlider(value[0] ?? 100)} max={100} step={1} />
-            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>Start</span>
-              <span>Current: {depthSlider}%</span>
-              <span>Last: {formatValue(trajectoryData.actual.at(-1)?.md ?? currentActual.md, 0)} m</span>
-            </div>
-          </Card>
-
-          <Tabs value={view} onValueChange={(value) => setView(value as "vertical" | "plan" )}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
-              <TabsTrigger value="plan">Plan View</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="vertical" className="mt-6">
-              <div className="grid gap-6 lg:grid-cols-[350px_1fr]">
-                <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={600} />
-                <Card className="p-6">
-                  <h3 className="mb-4 font-semibold">Survey Summary</h3>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <MetricTile label="Actual stations" value={String(trajectoryData.actual.length)} />
-                    <MetricTile label="Plan stations" value={String(trajectoryData.planned.length)} />
-                    <MetricTile label="First actual MD" value={`${formatValue(trajectoryData.actual[0]?.md ?? 0)} m`} />
-                    <MetricTile label="Last actual MD" value={`${formatValue(trajectoryData.actual.at(-1)?.md ?? 0)} m`} />
+          {!hasTrajectory ? (
+            <Card className="space-y-3 border-dashed p-6">
+              <div className="font-semibold">No trajectory survey data for this session.</div>
+              <p className="text-sm text-muted-foreground">
+                Neither planned nor actual survey stations were returned by GET /api/surveys for this active session.
+              </p>
+            </Card>
+          ) : (
+            <>
+              {(!hasActualTrajectory || !hasPlannedTrajectory || error) ? (
+                <Card className="flex flex-col gap-3 border-amber-500/30 bg-amber-500/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    {!hasActualTrajectory ? <p>Actual trajectory is not available for this session.</p> : null}
+                    {!hasPlannedTrajectory ? <p>Planned trajectory is not available for this session.</p> : null}
+                    {error ? <p className="text-destructive">{error}</p> : null}
                   </div>
+                  {!hasActualTrajectory && canGenerateActual ? (
+                    <Button size="sm" onClick={() => void handleGenerateActual()} disabled={generatingActual}>
+                      {generatingActual ? "Generating..." : "Generate Actual From MWD"}
+                    </Button>
+                  ) : null}
                 </Card>
-              </div>
-            </TabsContent>
+              ) : null}
 
-            <TabsContent value="plan" className="mt-6">
-              <Card className="p-6">
-                <ResponsiveContainer width="100%" height={500}>
-                  <ScatterChart margin={{ top: 20, right: 30, bottom: 44, left: 42 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis type="number" dataKey="x" name="Easting" label={{ value: "Easting (m)", position: "bottom" }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis type="number" dataKey="y" name="Northing" label={{ value: "Northing (m)", angle: -90, position: "left" }} stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)} m`, name]} />
-                    <Scatter name="Planned Path" data={planViewData.planned} fill="#3b82f6" line={{ stroke: "#3b82f6", strokeWidth: 2 }} />
-                    <Scatter name="Actual Path" data={planViewData.actual} fill="#10b981" line={{ stroke: "#10b981", strokeWidth: 2 }} />
-                  </ScatterChart>
-                </ResponsiveContainer>
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="h-0.5 w-6 border-t-2 border-dashed border-blue-500" />
-                    <span className="text-muted-foreground">Planned Path</span>
+              <Card className="p-4 sm:p-5">
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-semibold">Depth Position</h3>
+                    <p className="text-sm text-muted-foreground">Slide through the active trajectory series.</p>
                   </div>
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="h-0.5 w-6 rounded-full bg-emerald-500" />
-                    <span className="text-muted-foreground">Actual Path</span>
-                  </div>
+                  <Badge variant="secondary" className="w-fit text-sm">{formatValue(currentReference?.md)} m MD</Badge>
+                </div>
+                <Slider value={[depthSlider]} onValueChange={(value) => setDepthSlider(value[0] ?? 100)} max={100} step={1} />
+                <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                  <span>Start</span>
+                  <span>{depthSlider}%</span>
+                  <span>Last: {formatValue(referenceSeries.at(-1)?.md, 0)} m</span>
                 </div>
               </Card>
-            </TabsContent>
 
-            <TabsContent value="3d" className="mt-6">
-              <Card className="p-6">
-                <div className="flex h-[500px] flex-col items-center justify-center text-center">
-                  <Maximize2 className="mb-4 size-16 text-muted-foreground" />
-                  <h3 className="mb-2 font-semibold">3D Visualization</h3>
-                  <p className="max-w-md text-sm text-muted-foreground">Endpoint backend untuk fitur ini belum tersedia.</p>
-                  <Button variant="outline" className="mt-4" disabled>
-                    <Target className="mr-2 size-4" />
-                    Load 3D Viewer
-                  </Button>
-                </div>
-              </Card>
-            </TabsContent>
-          </Tabs>
+              <Tabs value={view} onValueChange={(value) => setView(value as "vertical" | "plan")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
+                  <TabsTrigger value="plan">Plan View</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="vertical" className="mt-5">
+                  <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+                    <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={560} />
+                    <Card className="p-4 sm:p-5">
+                      <h3 className="mb-3 font-semibold">Trajectory Summary</h3>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <MetricTile label="First actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual[0]?.md)} m` : "-"} />
+                        <MetricTile label="Last actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual.at(-1)?.md)} m` : "-"} />
+                        <MetricTile label="First plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned[0]?.md)} m` : "-"} />
+                        <MetricTile label="Last plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned.at(-1)?.md)} m` : "-"} />
+                        <MetricTile label="Delta TVD" value={deltaTVD === null ? "-" : `${formatValue(deltaTVD, 2)} m`} />
+                        <MetricTile label="Current Inc / Azi" value={`${formatValue(currentReference?.inclination)} deg / ${formatValue(currentReference?.azimuth)} deg`} />
+                      </div>
+                    </Card>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="plan" className="mt-5">
+                  <Card className="p-4 sm:p-5">
+                    <div className="mb-4">
+                      <h3 className="font-semibold">Plan View</h3>
+                      <p className="text-sm text-muted-foreground">Northing vs Easting, rendered from survey trajectory coordinates.</p>
+                    </div>
+                    <ResponsiveContainer width="100%" height={460}>
+                      <ScatterChart margin={{ top: 20, right: 30, bottom: 44, left: 42 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" dataKey="x" name="Easting" label={{ value: "Easting (m)", position: "bottom" }} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis type="number" dataKey="y" name="Northing" label={{ value: "Northing (m)", angle: -90, position: "left" }} stroke="hsl(var(--muted-foreground))" />
+                        <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)} m`, name]} />
+                        <Scatter name="Planned Path" data={planViewData.planned} fill="#3b82f6" line={{ stroke: "#3b82f6", strokeWidth: 2 }} />
+                        <Scatter name="Actual Path" data={planViewData.actual} fill="#10b981" line={{ stroke: "#10b981", strokeWidth: 2 }} />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                    <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="h-0.5 w-6 border-t-2 border-dashed border-blue-500" />
+                        <span className="text-muted-foreground">Planned Path</span>
+                      </div>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="h-0.5 w-6 rounded-full bg-emerald-500" />
+                        <span className="text-muted-foreground">Actual Path</span>
+                      </div>
+                    </div>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
         </>
       )}
     </div>
@@ -254,7 +381,7 @@ function MetricCard({ label, value, unit }: { label: string; value: string; unit
   return (
     <Card className="p-4">
       <div className="mb-1 text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold font-mono">{value}</div>
+      <div className="font-mono text-2xl font-semibold">{value}</div>
       <div className="text-xs text-muted-foreground">{unit}</div>
     </Card>
   );
@@ -262,7 +389,7 @@ function MetricCard({ label, value, unit }: { label: string; value: string; unit
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border p-3">
+    <div className="rounded-lg border border-border/70 p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-mono text-lg font-semibold">{value}</div>
     </div>

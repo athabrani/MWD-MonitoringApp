@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api-client";
+import { logSecurityDebug } from "@/lib/security/errors";
 import { ChartDataPoint } from "@/types";
 
 type BackendMwdDataRecord = Record<string, unknown>;
@@ -37,11 +38,20 @@ export type GetHistoricalDataOptions = GetMwdDataOptions & {
 
 const timestampKeys = [
   "timestamp",
+  "timeStamp",
   "time",
   "dateTime",
   "datetime",
+  "measuredAt",
+  "measured_at",
+  "measurementTime",
+  "measurement_time",
   "recordedAt",
   "recorded_at",
+  "receivedAt",
+  "received_at",
+  "serverTimestamp",
+  "server_timestamp",
   "createdAt",
   "created_at",
 ];
@@ -172,11 +182,18 @@ function toNumber(value: unknown) {
 function toTimestamp(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
   if (typeof value === "number" && Number.isFinite(value)) {
-    const date = new Date(value);
+    const timestampMs = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value;
+    const date = new Date(timestampMs);
     return Number.isNaN(date.getTime()) ? undefined : date;
   }
   if (typeof value === "string" && value.trim()) {
-    const date = new Date(value);
+    const trimmedValue = value.trim();
+    const numericValue = Number(trimmedValue);
+    if (Number.isFinite(numericValue)) {
+      return toTimestamp(numericValue);
+    }
+
+    const date = new Date(trimmedValue);
     return Number.isNaN(date.getTime()) ? undefined : date;
   }
 
@@ -292,10 +309,29 @@ export async function getMwdData(
     method: "GET",
     token,
   });
-
-  return unwrapRecordList(response)
+  const rawRecords = unwrapRecordList(response);
+  const normalizedRecords = rawRecords
     .map(normalizeMwdDataRecord)
     .filter((record): record is MwdDataRecord => Boolean(record));
+
+  const sampleRecord = rawRecords[0];
+  logSecurityDebug("[MWD chart data] /api/mwd-data", {
+    options,
+    rawCount: rawRecords.length,
+    normalizedCount: normalizedRecords.length,
+    sampleKeys: sampleRecord ? Object.keys(sampleRecord).slice(0, 20) : [],
+    normalizedSample: normalizedRecords[0]
+      ? {
+          id: normalizedRecords[0].id,
+          sessionId: normalizedRecords[0].sessionId,
+          timestamp: normalizedRecords[0].timestamp.toISOString(),
+          depth: normalizedRecords[0].depth,
+          metricKeys: Object.keys(normalizedRecords[0].metrics),
+        }
+      : null,
+  });
+
+  return normalizedRecords;
 }
 
 export async function getMwdDataById(token: string, dataId: string): Promise<MwdDataRecord> {

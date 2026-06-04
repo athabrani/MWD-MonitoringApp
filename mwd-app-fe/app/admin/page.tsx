@@ -69,6 +69,9 @@ import {
   saveRolePageAccess,
   subscribeRolePageAccess,
 } from "@/lib/page-access";
+import { getSafeErrorMessage, logSecurityError, redactSensitive } from "@/lib/security/errors";
+import { normalizeEmailInput, sanitizeTextInput, isValidEmail } from "@/lib/security/input";
+import { canPerformAction, requireActionPermission } from "@/lib/security/permissions";
 import type { UserRole } from "@/types";
 
 const emptyNewUserForm: CreateAdminUserInput = {
@@ -101,7 +104,7 @@ function formatAuditMetadata(metadata: unknown) {
   if (typeof metadata === "string") return metadata;
 
   try {
-    return JSON.stringify(metadata, null, 2);
+    return JSON.stringify(redactSensitive(metadata), null, 2);
   } catch {
     return String(metadata);
   }
@@ -220,9 +223,12 @@ export const AdminPage: React.FC = () => {
     () =>
       Boolean(
         token &&
+          canPerformAction(user, "admin:user:create") &&
           newUserForm.username.trim() &&
           newUserForm.email.trim() &&
+          isValidEmail(normalizeEmailInput(newUserForm.email)) &&
           newUserForm.password.trim() &&
+          newUserForm.password.length >= 8 &&
           newUserForm.roleId
       ),
     [
@@ -231,6 +237,7 @@ export const AdminPage: React.FC = () => {
       newUserForm.roleId,
       newUserForm.username,
       token,
+      user,
     ]
   );
 
@@ -238,12 +245,14 @@ export const AdminPage: React.FC = () => {
     () =>
       Boolean(
         token &&
+          canPerformAction(user, "admin:user:update") &&
           selectedUser &&
           editUserForm.username.trim() &&
           editUserForm.email.trim() &&
+          isValidEmail(normalizeEmailInput(editUserForm.email)) &&
           editUserForm.roleId
       ),
-    [editUserForm.email, editUserForm.roleId, editUserForm.username, selectedUser, token]
+    [editUserForm.email, editUserForm.roleId, editUserForm.username, selectedUser, token, user]
   );
   const groupedEditablePages = useMemo(() => groupEditablePages(), []);
 
@@ -259,9 +268,7 @@ export const AdminPage: React.FC = () => {
       const users = await fetchAdminUsers(token);
       setAdminUsers(users);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load backend users.", error);
-      }
+      logSecurityError("Unable to load backend users.", error);
       setUsersError("Gagal memuat data dari backend.");
     } finally {
       setUsersLoading(false);
@@ -282,9 +289,7 @@ export const AdminPage: React.FC = () => {
         roleId: prev.roleId || roles[0]?.id || 0,
       }));
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load backend roles.", error);
-      }
+      logSecurityError("Unable to load backend roles.", error);
       setRolesError("Gagal memuat data dari backend.");
     } finally {
       setRolesLoading(false);
@@ -301,14 +306,8 @@ export const AdminPage: React.FC = () => {
       const logs = await fetchAdminAuditLogs(token);
       setAuditLogs(logs);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load backend audit logs.", error);
-      }
-      setAuditLogsError(
-        error instanceof Error
-          ? `Gagal memuat audit logs dari backend: ${error.message}`
-          : "Gagal memuat audit logs dari backend."
-      );
+      logSecurityError("Unable to load backend audit logs.", error);
+      setAuditLogsError(getSafeErrorMessage(error, "Gagal memuat audit logs dari backend."));
     } finally {
       setAuditLogsLoading(false);
     }
@@ -402,22 +401,36 @@ export const AdminPage: React.FC = () => {
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!token || !canCreateBackendUser) return;
+    const permissionError = requireActionPermission(user, "admin:user:create");
+    if (permissionError) {
+      toast.error(permissionError);
+      return;
+    }
+    if (!token) return;
+
+    const username = sanitizeTextInput(newUserForm.username, { maxLength: 80 });
+    const email = normalizeEmailInput(newUserForm.email);
+    const password = newUserForm.password;
+
+    if (!username || !isValidEmail(email) || password.length < 8 || !newUserForm.roleId) {
+      toast.error("Isi username, email valid, password minimal 8 karakter, dan role.");
+      return;
+    }
 
     setCreatingUser(true);
 
     try {
       await createAdminUser(token, {
-        username: newUserForm.username.trim(),
-        email: newUserForm.email.trim(),
-        password: newUserForm.password,
+        username,
+        email,
+        password,
         roleId: newUserForm.roleId,
       });
       toast.success("User created successfully.");
       handleAddOpenChange(false);
       await loadAdminUsers();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to create user.");
+      toast.error(getSafeErrorMessage(error, "Unable to create user."));
     } finally {
       setCreatingUser(false);
     }
@@ -426,15 +439,34 @@ export const AdminPage: React.FC = () => {
   const handleUpdateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!token || !selectedUser || !canUpdateBackendUser) return;
+    const permissionError = requireActionPermission(user, "admin:user:update");
+    if (permissionError) {
+      toast.error(permissionError);
+      return;
+    }
+    if (!token || !selectedUser) return;
+
+    const username = sanitizeTextInput(editUserForm.username, { maxLength: 80 });
+    const email = normalizeEmailInput(editUserForm.email);
+    const password = editUserForm.password?.trim() ? editUserForm.password : undefined;
+
+    if (!username || !isValidEmail(email) || !editUserForm.roleId) {
+      toast.error("Isi username, email valid, dan role.");
+      return;
+    }
+
+    if (password && password.length < 8) {
+      toast.error("Password baru minimal 8 karakter.");
+      return;
+    }
 
     setUpdatingUser(true);
 
     try {
       await updateAdminUser(token, selectedUser.id, {
-        username: editUserForm.username.trim(),
-        email: editUserForm.email.trim(),
-        password: editUserForm.password,
+        username,
+        email,
+        password,
         roleId: editUserForm.roleId,
         isActive: editUserForm.isActive,
       });
@@ -442,13 +474,18 @@ export const AdminPage: React.FC = () => {
       handleEditOpenChange(false);
       await loadAdminUsers();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update user.");
+      toast.error(getSafeErrorMessage(error, "Unable to update user."));
     } finally {
       setUpdatingUser(false);
     }
   };
 
   const handleDeleteUser = async () => {
+    const permissionError = requireActionPermission(user, "admin:user:delete");
+    if (permissionError) {
+      toast.error(permissionError);
+      return;
+    }
     if (!token || !selectedUser) return;
 
     setDeletingUser(true);
@@ -460,7 +497,7 @@ export const AdminPage: React.FC = () => {
       setSelectedUser(null);
       await loadAdminUsers();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to delete user.");
+      toast.error(getSafeErrorMessage(error, "Unable to delete user."));
     } finally {
       setDeletingUser(false);
     }
@@ -502,6 +539,11 @@ export const AdminPage: React.FC = () => {
 
   const saveAccessDialog = () => {
     if (!accessDialogRole) return;
+    const permissionError = requireActionPermission(user, "admin:role-page-access:update");
+    if (permissionError) {
+      toast.error(permissionError);
+      return;
+    }
 
     const nextAccess: RolePageAccessMap = {
       ...rolePageAccess,

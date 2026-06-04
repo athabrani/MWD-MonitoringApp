@@ -1,4 +1,5 @@
 import { ApiClientError, apiFetch, apiRequest, getApiBaseUrl } from "@/lib/api-client";
+import { logSecurityDebug } from "@/lib/security/errors";
 import { PolarisWellInformation } from "@/types/polaris";
 
 type BackendMwdSession = Record<string, unknown>;
@@ -355,16 +356,14 @@ export async function getMwdSessions(
       token,
     });
   } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.info("[MWD sessions] GET /api/mwd-sessions failed", {
-        role: options.debugRole ?? "unknown",
-        requestTargetUrl,
-        authHeaderAttached,
-        status: error instanceof ApiClientError ? error.status : undefined,
-        message: error instanceof Error ? error.message : "Unknown error",
-        rawResponseBody: error instanceof ApiClientError ? error.responseBody ?? "" : "",
-      });
-    }
+    logSecurityDebug("[MWD sessions] GET /api/mwd-sessions failed", {
+      role: options.debugRole ?? "unknown",
+      requestTargetUrl,
+      authHeaderAttached,
+      status: error instanceof ApiClientError ? error.status : undefined,
+      message: error instanceof Error ? error.message : "Unknown error",
+      rawResponseLength: error instanceof ApiClientError ? error.responseBody?.length ?? 0 : 0,
+    });
 
     throw error;
   }
@@ -383,21 +382,19 @@ export async function getMwdSessions(
     .map(normalizeBackendMwdSession)
     .filter((session): session is MwdSessionListItem => Boolean(session));
 
-  if (process.env.NODE_ENV === "development") {
-    console.info("[MWD sessions] GET /api/mwd-sessions", {
-      status: httpResponse.status,
-      role: options.debugRole ?? "unknown",
-      requestTargetUrl,
-      authHeaderAttached,
-      rawResponseBody: text,
-      rawCount: rawSessions.length,
-      normalizedCount: sessions.length,
-      normalizedSessionIds: sessions.map((session) => session.id),
-      selectedSessionId: sessions[0]?.id ?? null,
-      responseShape: describeResponseShape(response),
-      firstRawItemIdCandidates: describeIdCandidates(rawSessions[0]),
-    });
-  }
+  logSecurityDebug("[MWD sessions] GET /api/mwd-sessions", {
+    status: httpResponse.status,
+    role: options.debugRole ?? "unknown",
+    requestTargetUrl,
+    authHeaderAttached,
+    rawResponseLength: text.length,
+    rawCount: rawSessions.length,
+    normalizedCount: sessions.length,
+    normalizedSessionIds: sessions.map((session) => session.id),
+    selectedSessionId: sessions[0]?.id ?? null,
+    responseShape: describeResponseShape(response),
+    firstRawItemIdCandidates: describeIdCandidates(rawSessions[0]),
+  });
 
   if (rawSessions.length > 0 && sessions.length === 0) {
     throw new Error("Session response tidak memiliki id yang dapat dikenali.");

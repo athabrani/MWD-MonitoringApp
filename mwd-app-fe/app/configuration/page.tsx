@@ -76,6 +76,8 @@ import {
   updateWitsConfig,
   witsConfigToPayload,
 } from "@/lib/api/wits";
+import { getSafeErrorMessage, logSecurityError } from "@/lib/security/errors";
+import { canPerformAction } from "@/lib/security/permissions";
 
 const accessLevels: PolarisAccessLevel[] = ["MWD", "Guest", "None"];
 const toolTypes: PolarisToolType[] = ["Mud Pulse", "EM", "Simulator", "Memory"];
@@ -330,8 +332,8 @@ export default function ConfigurationPage({
   const [witsConfigSaving, setWitsConfigSaving] = useState(false);
   const [witsConfigDeleting, setWitsConfigDeleting] = useState(false);
   const [witsConfigError, setWitsConfigError] = useState("");
-  const canManageWitsConfig = user?.role === "engineer" || user?.role === "admin";
-  const canManageConfiguration = user?.role === "engineer" || user?.role === "admin";
+  const canManageWitsConfig = canPerformAction(user, "wits-config:write");
+  const canManageConfiguration = canPerformAction(user, "configuration:write");
   const [decoderConfig, setDecoderConfig] = useState<PolarisDecoderConfiguration>(() =>
     normalizeDecoderConfig(emptyDecoderConfiguration)
   );
@@ -376,9 +378,7 @@ export default function ConfigurationPage({
       );
       await refreshWitsConfig();
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load WITS config.", error);
-      }
+      logSecurityError("Unable to load WITS config.", error);
       const message = "Gagal memuat data dari backend.";
       setWitsIds([]);
       setSelectedWitsId("");
@@ -411,9 +411,7 @@ export default function ConfigurationPage({
       })
       .catch((error) => {
         if (cancelled) return;
-        if (process.env.NODE_ENV === "development") {
-          console.error("Unable to load MWD session detail.", error);
-        }
+        logSecurityError("Unable to load MWD session detail.", error);
         setWellSessionError("Gagal memuat data dari backend.");
       })
       .finally(() => {
@@ -530,7 +528,7 @@ export default function ConfigurationPage({
           : "MWD session created from Well and Job Information."
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save MWD session.";
+      const message = getSafeErrorMessage(error, "Unable to save MWD session.");
       setWellSessionError(message);
       toast.error(message);
     } finally {
@@ -634,9 +632,7 @@ export default function ConfigurationPage({
       const detail = await getWitsConfigById(token, recordId);
       replaceWitsRecord(detail);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load WITS config detail.", error);
-      }
+      logSecurityError("Unable to load WITS config detail.", error);
       setWitsConfigError("Gagal memuat data dari backend.");
     } finally {
       setWitsConfigDetailLoading(false);
@@ -726,7 +722,7 @@ export default function ConfigurationPage({
       setNewWitsIdError("");
       toast.success(`WITS ID ${savedRecord.numericId} added. Editor opened.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create WITS config.";
+      const message = getSafeErrorMessage(error, "Unable to create WITS config.");
       setWitsConfigError(message);
       toast.error("Unable to create WITS config", {
         description: message,
@@ -761,7 +757,7 @@ export default function ConfigurationPage({
       await loadWitsConfigFromApi(savedRecord.id);
       toast.success(`WITS ID ${savedRecord.numericId} changes saved.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save WITS config.";
+      const message = getSafeErrorMessage(error, "Unable to save WITS config.");
       setWitsConfigError(message);
       toast.error("Unable to save WITS config", {
         description: message,
@@ -797,7 +793,7 @@ export default function ConfigurationPage({
       setWitsViewMode("list");
       toast.success(`WITS ID ${activeWitsRecord.numericId} deleted.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to delete WITS config.";
+      const message = getSafeErrorMessage(error, "Unable to delete WITS config.");
       setWitsConfigError(message);
       toast.error("Unable to delete WITS config", {
         description: message,
@@ -866,7 +862,7 @@ export default function ConfigurationPage({
       setWitsViewMode("detail");
       toast.success(`Memory storage WITS ID ${savedRecord.numericId} created.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create memory storage WITS config.";
+      const message = getSafeErrorMessage(error, "Unable to create memory storage WITS config.");
       setWitsConfigError(message);
       toast.error("Unable to create memory storage WITS config", {
         description: message,

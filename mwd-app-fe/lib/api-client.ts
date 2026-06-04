@@ -1,3 +1,6 @@
+import { getSafeErrorMessage } from "@/lib/security/errors";
+import { notifyAuthSessionInvalid } from "@/lib/security/session-events";
+
 export class ApiClientError extends Error {
   status: number;
   payload?: unknown;
@@ -17,12 +20,23 @@ type ApiRequestOptions = RequestInit & {
 };
 
 export function getApiBaseUrl() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 
   if (!baseUrl) {
     throw new Error(
       "Missing NEXT_PUBLIC_API_BASE_URL. Set it in the frontend environment before calling the backend API."
     );
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL must be an absolute http(s) URL.");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL must use http or https.");
   }
 
   return baseUrl.replace(/\/$/, "");
@@ -42,26 +56,87 @@ function getErrorMessage(payload: unknown) {
   return "Backend request failed.";
 }
 
+function normalizeApiPath(path: string) {
+  if (/^https?:\/\//i.test(path)) {
+    throw new Error("API requests must use a relative backend path.");
+  }
+
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function prepareRequestHeaders(headers: HeadersInit | undefined, body: BodyInit | null | undefined, token?: string) {
+  const requestHeaders = new Headers(headers);
+  const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
+
+  if (!requestHeaders.has("Accept")) {
+    requestHeaders.set("Accept", "application/json");
+  }
+
+  if (!requestHeaders.has("Content-Type") && body !== undefined && body !== null && !isFormDataBody) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+
+  if (token?.trim()) {
+    requestHeaders.set("Authorization", `Bearer ${token.trim()}`);
+  }
+
+  return requestHeaders;
+}
+
+function isAuthInvalidMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("invalid or expired token") ||
+    normalized.includes("expired token") ||
+    normalized.includes("token expired") ||
+    normalized.includes("jwt expired") ||
+    normalized.includes("invalid token") ||
+    normalized.includes("malformed token") ||
+    normalized.includes("session expired") ||
+    normalized.includes("invalid session") ||
+    normalized.includes("unauthenticated")
+  );
+}
+
+function handleAuthFailure(status: number, message: string, token?: string) {
+  if (!token) return;
+
+  if (status === 401) {
+    notifyAuthSessionInvalid({
+      reason: isAuthInvalidMessage(message) ? "expired" : "unauthorized",
+      message: "Session expired. Please sign in again.",
+    });
+    return;
+  }
+
+  if (status === 403 && isAuthInvalidMessage(message)) {
+    notifyAuthSessionInvalid({
+      reason: "forbidden-auth",
+      message: "Session expired. Please sign in again.",
+    });
+    return;
+  }
+
+  if (isAuthInvalidMessage(message)) {
+    notifyAuthSessionInvalid({
+      reason: "invalid-token",
+      message: "Session expired. Please sign in again.",
+    });
+  }
+}
+
 export async function apiRequest<T>(
   path: string,
   { token, headers, body, ...options }: ApiRequestOptions = {}
 ): Promise<T> {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const requestHeaders = new Headers(headers);
-  const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
-
-  if (!requestHeaders.has("Content-Type") && !isFormDataBody) {
-    requestHeaders.set("Content-Type", "application/json");
-  }
-
-  if (token) {
-    requestHeaders.set("Authorization", `Bearer ${token}`);
-  }
+  const normalizedPath = normalizeApiPath(path);
+  const requestHeaders = prepareRequestHeaders(headers, body, token);
 
   const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
     ...options,
     body,
     headers: requestHeaders,
+    cache: options.cache ?? "no-store",
   });
 
   const text = await response.text();
@@ -74,7 +149,9 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    throw new ApiClientError(getErrorMessage(payload), response.status, payload, text);
+    const backendMessage = getErrorMessage(payload);
+    handleAuthFailure(response.status, backendMessage, token);
+    throw new ApiClientError(getSafeErrorMessage({ status: response.status, message: backendMessage }), response.status, payload, text);
   }
 
   return payload as T;
@@ -84,22 +161,14 @@ export async function apiFetch(
   path: string,
   { token, headers, body, ...options }: ApiRequestOptions = {}
 ): Promise<Response> {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const requestHeaders = new Headers(headers);
-  const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
-
-  if (!requestHeaders.has("Content-Type") && !isFormDataBody) {
-    requestHeaders.set("Content-Type", "application/json");
-  }
-
-  if (token) {
-    requestHeaders.set("Authorization", `Bearer ${token}`);
-  }
+  const normalizedPath = normalizeApiPath(path);
+  const requestHeaders = prepareRequestHeaders(headers, body, token);
 
   const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
     ...options,
     body,
     headers: requestHeaders,
+    cache: options.cache ?? "no-store",
   });
 
   if (!response.ok) {
@@ -112,7 +181,9 @@ export async function apiFetch(
       payload = { message: text || "Backend request failed." };
     }
 
-    throw new ApiClientError(getErrorMessage(payload), response.status, payload, text);
+    const backendMessage = getErrorMessage(payload);
+    handleAuthFailure(response.status, backendMessage, token);
+    throw new ApiClientError(getSafeErrorMessage({ status: response.status, message: backendMessage }), response.status, payload, text);
   }
 
   return response;

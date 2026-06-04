@@ -65,14 +65,18 @@ export async function loginWithPassword(
     body: JSON.stringify({ identifier, password }),
   });
 
-  if (!response.token) {
+  const token = typeof response.token === "string" ? response.token.trim() : "";
+  if (!token) {
     throw new Error("Login response did not include a token.");
   }
 
-  const currentUser = await fetchCurrentUser(response.token);
+  const currentUser = await fetchCurrentUser(token);
+  if (currentUser.isActive === false) {
+    throw new Error("User account is inactive.");
+  }
 
   return {
-    token: response.token,
+    token,
     user: currentUser,
   };
 }

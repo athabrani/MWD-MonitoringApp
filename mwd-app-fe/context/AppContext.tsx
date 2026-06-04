@@ -13,6 +13,12 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { ApiClientError } from '@/lib/api-client';
 import {
+  ACTIVE_PLOT_CONFIG_STORAGE_KEY,
+  ACTIVE_SESSION_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+} from '@/lib/security/storage';
+import { getSafeErrorMessage, getSafeRequestErrorMessage, logSecurityDebug, logSecurityError } from '@/lib/security/errors';
+import {
   buildDefaultDashboardThresholds,
   buildDashboardThresholdsFromWitsConfig,
   getDashboardThresholdStatus,
@@ -101,6 +107,7 @@ interface AppContextType {
   witsAlarmsError: string;
   refreshWitsAlarms: () => Promise<void>;
   events: Event[];
+  recordEvent: (event: Event) => void;
   toolfaceData: ToolfaceData;
   settings: UserSettings;
   updateSettings: (settings: Partial<UserSettings>) => void;
@@ -136,8 +143,6 @@ const defaultSettings: UserSettings = {
   favoriteParameters: ['rop', 'wob', 'inc', 'azi'],
 };
 
-const activePlotConfigStorageKey = 'mwd_active_plot_config_id';
-const activeMwdSessionStorageKey = 'mwd_active_session_id';
 const backendErrorMessage = 'Gagal memuat data dari backend.';
 const dashboardMetricToKpiKey: Partial<Record<string, keyof KPIData>> = {
   rop: 'rop',
@@ -161,6 +166,21 @@ const witsDataValueToMetricKey: Record<string, keyof KPIData | 'currentDepth'> =
   "0824": 'gamma',
   "0836": 'temperature',
 };
+const kpiKeyToThresholdAliases: Record<keyof KPIData, string[]> = {
+  rop: ['rop'],
+  wob: ['wob'],
+  rpm: ['rpm'],
+  flowRate: ['flowRate'],
+  standpipePressure: ['standpipePressure', 'pumpPressure', 'decoderPressure', 'spp'],
+  mudWeight: ['mudWeight', 'mudweight'],
+  inclination: ['inclination', 'inc'],
+  azimuth: ['azimuth', 'azi'],
+  gamma: ['gamma'],
+  temperature: ['temperature', 'temp'],
+};
+const connectedStatusValues = new Set(['connected', 'online', 'healthy', 'ok', 'active', 'open', 'ready']);
+const loadingStatusValues = new Set(['idle', 'connecting', 'checking', 'loading']);
+const warningStatusValues = new Set(['degraded', 'warning', 'reconnecting', 'unstable']);
 const mappedFieldToMetricKey: Record<string, keyof KPIData | 'currentDepth'> = {
   depth: 'currentDepth',
   depthMd: 'currentDepth',
@@ -236,10 +256,7 @@ function isExpectedBackendConnectivityError(error: unknown) {
 
 function logBackendError(label: string, error: unknown) {
   if (isExpectedBackendConnectivityError(error)) return;
-
-  if (process.env.NODE_ENV === 'development') {
-    console.error(label, error);
-  }
+  logSecurityError(label, error);
 }
 
 function getMwdSessionsErrorMessage(error: unknown) {
@@ -255,11 +272,7 @@ function getMwdSessionsErrorMessage(error: unknown) {
     return `Gagal memuat daftar job/session. Backend mengembalikan status ${error.status}.`;
   }
 
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return backendErrorMessage;
+  return getSafeRequestErrorMessage(error);
 }
 
 function getBackendStatusErrorMessage(source: string, error: unknown) {
@@ -283,7 +296,7 @@ function getBackendStatusErrorMessage(source: string, error: unknown) {
     return `${source} tidak dapat dijangkau dari backend API.`;
   }
 
-  return error instanceof Error && error.message ? error.message : backendErrorMessage;
+  return getSafeRequestErrorMessage(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -414,6 +427,40 @@ function resolveActiveMwdSessionId(currentSessionId: string, sessions: MwdSessio
   return sessions[0]?.id ?? '';
 }
 
+function normalizeStatusValue(value?: string | null) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function getThresholdForMetric(
+  thresholds: UserSettings['thresholds'],
+  parameter: string,
+  kpiKey?: keyof KPIData
+) {
+  const aliases = new Set([parameter, ...(kpiKey ? [kpiKey, ...kpiKeyToThresholdAliases[kpiKey]] : [])]);
+
+  return thresholds.find((threshold) => aliases.has(threshold.parameter));
+}
+
+function getThresholdBreach(value: number, threshold?: UserSettings['thresholds'][number]) {
+  if (!threshold?.enabled || !Number.isFinite(value)) return null;
+
+  if (threshold.low !== undefined && value < threshold.low) {
+    return {
+      direction: 'below',
+      threshold: threshold.low,
+    } as const;
+  }
+
+  if (threshold.high !== undefined && value > threshold.high) {
+    return {
+      direction: 'above',
+      threshold: threshold.high,
+    } as const;
+  }
+
+  return null;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, isAuthenticated, user } = useAuth();
   const [connectionState, setConnectionState] = useState<ConnectionState>({
@@ -437,6 +484,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>('idle');
   const [realtimeError, setRealtimeError] = useState('');
   const [failoverEventIds, setFailoverEventIds] = useState<Set<string>>(() => new Set());
+  const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
@@ -448,7 +496,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [mwdSessions, setMwdSessions] = useState<MwdSessionListItem[]>([]);
   const [activeMwdSessionId, setActiveMwdSessionId] = useState(() => {
     if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(activeMwdSessionStorageKey) ?? '';
+    return window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) ?? '';
   });
   const [mwdSessionsLoading, setMwdSessionsLoading] = useState(false);
   const [mwdSessionsError, setMwdSessionsError] = useState('');
@@ -477,14 +525,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [plotConfigurations, setPlotConfigurations] = useState<PlotConfiguration[]>([]);
   const [activePlotConfigId, setActivePlotConfigId] = useState(() => {
     if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(activePlotConfigStorageKey) ?? '';
+    return window.localStorage.getItem(ACTIVE_PLOT_CONFIG_STORAGE_KEY) ?? '';
   });
   const [plotTemplatesLoading, setPlotTemplatesLoading] = useState(false);
   const [plotTemplatesError, setPlotTemplatesError] = useState('');
 
   const [settings, setSettings] = useState<UserSettings>(() => {
     if (typeof window === 'undefined') return defaultSettings;
-    const stored = window.localStorage.getItem('mwd_settings');
+    const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!stored) return defaultSettings;
 
     try {
@@ -537,6 +585,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [operationalThresholds, settings]
   );
 
+  const recordEvent = useCallback((event: Event) => {
+    setEvents((current) => {
+      if (current.some((item) => item.id === event.id)) return current;
+      return [event, ...current].slice(0, 150);
+    });
+  }, []);
+
+  const updateGeneratedEventCondition = useCallback(
+    (conditionKey: string, active: boolean, buildEvent: () => Event) => {
+      const activeKeys = activeGeneratedEventKeysRef.current;
+
+      if (!active) {
+        activeKeys.delete(conditionKey);
+        return;
+      }
+
+      if (activeKeys.has(conditionKey)) return;
+
+      activeKeys.add(conditionKey);
+      recordEvent(buildEvent());
+    },
+    [recordEvent]
+  );
+
+  const updateThresholdEvent = useCallback(
+    (input: {
+      parameter: string;
+      label: string;
+      value: number;
+      threshold?: UserSettings['thresholds'][number];
+      sessionId?: string;
+      sourceId?: string;
+    }) => {
+      const breach = getThresholdBreach(input.value, input.threshold);
+      const conditionKey = `threshold:${activeMwdSessionId || input.sessionId || 'global'}:${input.sourceId ?? input.parameter}`;
+
+      updateGeneratedEventCondition(conditionKey, Boolean(breach), () => ({
+        id: `generated-${conditionKey}-${Date.now()}`,
+        timestamp: new Date(),
+        severity: 'critical',
+        type: 'alarm',
+        message: `${input.label} ${breach?.direction === 'below' ? 'below low threshold' : 'above high threshold'}`,
+        parameter: input.label,
+        value: input.value,
+        threshold: breach?.threshold,
+        source: 'primary',
+      }));
+    },
+    [activeMwdSessionId, updateGeneratedEventCondition]
+  );
+
+  const updateStatusEvent = useCallback(
+    (input: {
+      key: string;
+      label: string;
+      status?: string | null;
+      error?: string;
+      message?: string;
+      type?: Event['type'];
+    }) => {
+      const normalizedStatus = normalizeStatusValue(input.status);
+      const hasError = Boolean(input.error);
+      const isLoading = !hasError && loadingStatusValues.has(normalizedStatus);
+      const isHealthy = !hasError && connectedStatusValues.has(normalizedStatus);
+      const active = hasError || (!isHealthy && !isLoading && Boolean(normalizedStatus));
+      const severity: Event['severity'] = hasError || ['offline', 'disconnected', 'error', 'failed', 'unreachable'].includes(normalizedStatus)
+        ? 'critical'
+        : warningStatusValues.has(normalizedStatus)
+          ? 'warning'
+          : 'info';
+      const readableStatus = input.error || input.message || input.status || 'Unavailable';
+
+      updateGeneratedEventCondition(`status:${input.key}`, active, () => ({
+        id: `generated-status:${input.key}-${Date.now()}`,
+        timestamp: new Date(),
+        severity,
+        type: input.type ?? 'connection',
+        message: `${input.label}: ${readableStatus}`,
+        source: 'primary',
+      }));
+    },
+    [updateGeneratedEventCondition]
+  );
+
   const refreshMwdSessions = useCallback(async () => {
     if (!token) {
       setMwdSessions([]);
@@ -554,7 +686,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const nextActiveSessionId = resolveActiveMwdSessionId(current, sessions);
 
         if (process.env.NODE_ENV === 'development') {
-          console.info('[MWD sessions] active session resolver', {
+        logSecurityDebug('[MWD sessions] active session resolver', {
             role: user?.role ?? 'unknown',
             previousSessionId: current || null,
             nextSessionId: nextActiveSessionId || null,
@@ -684,23 +816,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, token]);
 
   const applyLatestMwdRecord = useCallback((record: MwdDataRecord) => {
+    const metricEntries = Object.entries(dashboardMetricToKpiKey) as Array<[string, keyof KPIData]>;
+
+    for (const [metricKey, kpiKey] of metricEntries) {
+      const value = record.metrics[metricKey];
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+
+      const parameter = emptyKpiDefinitions[kpiKey];
+      updateThresholdEvent({
+        parameter: metricKey,
+        label: parameter.name,
+        value,
+        threshold: getThresholdForMetric(operationalThresholds, metricKey, kpiKey),
+        sessionId: record.sessionId,
+        sourceId: metricKey,
+      });
+    }
+
     setKpiData((current) => {
       let changed = false;
       const next = { ...current };
-
-      const metricEntries = Object.entries(dashboardMetricToKpiKey) as Array<[string, keyof KPIData]>;
 
       for (const [metricKey, kpiKey] of metricEntries) {
         const value = record.metrics[metricKey];
         if (typeof value !== 'number' || !Number.isFinite(value)) continue;
 
         const currentParameter = current[kpiKey];
-        const threshold = operationalThresholds.find(
-          (item) =>
-            item.parameter === metricKey ||
-            item.parameter === currentParameter.id ||
-            item.parameter === kpiKey
-        );
+        const threshold = getThresholdForMetric(operationalThresholds, metricKey, kpiKey);
 
         next[kpiKey] = {
           ...currentParameter,
@@ -738,9 +880,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: record.metrics.mtf !== undefined ? 'MTF' : current.type,
       }));
     }
-  }, [operationalThresholds]);
+  }, [operationalThresholds, updateThresholdEvent]);
 
   const applyWitsDataValues = useCallback((values: WitsDataValue[]) => {
+    for (const item of values) {
+      const target =
+        (item.mappedField ? mappedFieldToMetricKey[item.mappedField] : undefined) ??
+        witsDataValueToMetricKey[item.witsId];
+      if (!target || target === 'currentDepth') continue;
+
+      const parameter = emptyKpiDefinitions[target];
+      const threshold =
+        getThresholdForMetric(operationalThresholds, item.witsId, target) ??
+        getThresholdForMetric(operationalThresholds, item.mappedField ?? '', target);
+
+      updateThresholdEvent({
+        parameter: item.witsId,
+        label: `${parameter.name} (${item.witsId})`,
+        value: item.value,
+        threshold,
+        sessionId: item.sessionId,
+        sourceId: item.witsId,
+      });
+    }
+
     setKpiData((current) => {
       let changed = false;
       const next = { ...current };
@@ -752,12 +915,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!target || target === 'currentDepth') continue;
 
         const currentParameter = current[target];
-        const threshold = operationalThresholds.find(
-          (thresholdItem) =>
-            thresholdItem.parameter === item.witsId ||
-            thresholdItem.parameter === currentParameter.id ||
-            thresholdItem.parameter === target
-        );
+        const threshold =
+          getThresholdForMetric(operationalThresholds, item.witsId, target) ??
+          getThresholdForMetric(operationalThresholds, item.mappedField ?? '', target);
 
         next[target] = {
           ...currentParameter,
@@ -803,7 +963,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastReceived: latestTimestamp,
       }));
     }
-  }, [operationalThresholds]);
+  }, [operationalThresholds, updateThresholdEvent]);
 
   const refreshWitsDataValues = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
@@ -1002,6 +1162,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [token]);
 
+  useEffect(() => {
+    updateStatusEvent({
+      key: 'backend-connection',
+      label: 'Backend connection',
+      status: backendConnectionStatusActive ? connectionState.status : undefined,
+      error: connectionStatusError,
+      message: connectionStatusError || (backendConnectionStatusActive ? connectionState.status : undefined),
+      type: 'connection',
+    });
+  }, [backendConnectionStatusActive, connectionState.status, connectionStatusError, updateStatusEvent]);
+
+  useEffect(() => {
+    updateStatusEvent({
+      key: 'serial-gateway',
+      label: 'Serial Gateway',
+      status: serialStatus?.status,
+      error: serialStatusError,
+      message: serialStatusError || serialStatus?.message || serialStatus?.status,
+      type: 'connection',
+    });
+  }, [serialStatus?.message, serialStatus?.status, serialStatusError, updateStatusEvent]);
+
+  useEffect(() => {
+    updateStatusEvent({
+      key: 'esp-websocket',
+      label: 'ESP WebSocket',
+      status: espWsStatus?.status,
+      error: espWsStatusError || espWsStatus?.lastError || undefined,
+      message: espWsStatusError || espWsStatus?.lastError || espWsStatus?.message || espWsStatus?.status,
+      type: 'connection',
+    });
+  }, [espWsStatus?.lastError, espWsStatus?.message, espWsStatus?.status, espWsStatusError, updateStatusEvent]);
+
+  useEffect(() => {
+    updateStatusEvent({
+      key: 'realtime-websocket',
+      label: 'Realtime WebSocket',
+      status: realtimeStatus,
+      error: realtimeError,
+      message: realtimeError || realtimeStatus,
+      type: 'connection',
+    });
+  }, [realtimeError, realtimeStatus, updateStatusEvent]);
+
   const refreshMwdData = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
       setChartData([]);
@@ -1027,6 +1231,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const scopedRecords = filterMwdDataForSession(records, activeMwdSessionId);
       const nextChartData = mwdDataRecordsToChartData(scopedRecords);
       const latestRecord = getLatestMwdDataRecord(latestScopedRecords) ?? getLatestMwdDataRecord(scopedRecords);
+
+      if (process.env.NODE_ENV === 'development') {
+        logSecurityDebug('[MWD chart data] active session transform', {
+          activeMwdSessionId,
+          latestRecordCount: latestRecords.length,
+          latestScopedRecordCount: latestScopedRecords.length,
+          recordCount: records.length,
+          scopedRecordCount: scopedRecords.length,
+          chartPointCount: nextChartData.length,
+          sampleChartPoint: nextChartData[0]
+            ? {
+                timestamp:
+                  nextChartData[0].timestamp instanceof Date
+                    ? nextChartData[0].timestamp.toISOString()
+                    : nextChartData[0].timestamp,
+                keys: Object.keys(nextChartData[0]).filter((key) => key !== 'timestamp'),
+              }
+            : null,
+        });
+      }
 
       mwdRecordKeysRef.current = new Set(scopedRecords.map(getMwdRecordKey));
       setChartData(nextChartData);
@@ -1143,6 +1367,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       applyRealtimeConnectionStatus(event.data);
     }
   }, [applyRealtimeConnectionStatus, applyRealtimeEspGatewayStatus, applyRealtimeMwdData]);
+
+  useEffect(() => {
+    if (isAuthenticated && token) return;
+
+    connectionStatusRequestInFlight.current = false;
+    failoverEventsRequestInFlight.current = false;
+    serialStatusRequestInFlight.current = false;
+    espWsStatusRequestInFlight.current = false;
+    activeGeneratedEventKeysRef.current.clear();
+    mwdRecordKeysRef.current.clear();
+
+    setMwdSessions([]);
+    setActiveMwdSessionId('');
+    setMwdSessionsError('');
+    setPlotConfigurations([]);
+    setActivePlotConfigId('');
+    setPlotTemplatesError('');
+    setWitsConfig([]);
+    setWitsConfigError('');
+    setWitsDataValuesError('');
+    setWitsAlarmsError('');
+    setWitsAlarmIds(new Set());
+    setChartData([]);
+    setLatestMwdDataRecord(null);
+    setMwdDataError('');
+    setKpiData(buildEmptyKpiData());
+    setEvents([]);
+    setFailoverEventIds(new Set());
+    setConnectionStatusError('');
+    setFailoverEventsError('');
+    setSerialStatus(null);
+    setSerialStatusError('');
+    setEspWsStatus(null);
+    setEspWsStatusError('');
+    setRealtimeError('');
+    setBackendConnectionStatusActive(false);
+  }, [isAuthenticated, token]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -1266,18 +1527,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (typeof window === 'undefined' || !activePlotConfigId) return;
-    window.localStorage.setItem(activePlotConfigStorageKey, activePlotConfigId);
+    window.localStorage.setItem(ACTIVE_PLOT_CONFIG_STORAGE_KEY, activePlotConfigId);
   }, [activePlotConfigId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     if (activeMwdSessionId) {
-      window.localStorage.setItem(activeMwdSessionStorageKey, activeMwdSessionId);
+      window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, activeMwdSessionId);
       return;
     }
 
-    window.localStorage.removeItem(activeMwdSessionStorageKey);
+    window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
   }, [activeMwdSessionId]);
 
   useEffect(() => {
@@ -1363,7 +1624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
       if (typeof window !== "undefined") {
-        window.localStorage.setItem('mwd_settings', JSON.stringify(updated));
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
       }
       return updated;
     });
@@ -1385,7 +1646,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (token && eventIsBackendWitsAlarm) {
       void acknowledgeWitsAlarm(token, eventId, note).catch((error) => {
-        setWitsAlarmsError(error instanceof Error ? error.message : 'Unable to acknowledge WITS alarm.');
+        setWitsAlarmsError(getSafeErrorMessage(error, 'Unable to acknowledge WITS alarm.'));
       });
     }
   }, [token, user?.fullName, user?.username, witsAlarmIds]);
@@ -1404,7 +1665,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (token && eventIsBackendWitsAlarm) {
       void resolveWitsAlarm(token, eventId).catch((error) => {
-        setWitsAlarmsError(error instanceof Error ? error.message : 'Unable to resolve WITS alarm.');
+        setWitsAlarmsError(getSafeErrorMessage(error, 'Unable to resolve WITS alarm.'));
       });
     }
   }, [token, witsAlarmIds]);
@@ -1471,6 +1732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       witsAlarmsError,
       refreshWitsAlarms,
       events,
+      recordEvent,
       toolfaceData,
       settings: effectiveSettings,
       updateSettings,

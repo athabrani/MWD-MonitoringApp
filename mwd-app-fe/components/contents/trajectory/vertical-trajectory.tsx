@@ -74,16 +74,22 @@ export const VerticalTrajectory: React.FC<VerticalTrajectoryProps> = ({
     [data.actual, data.planned]
   );
 
-  // Calculate visible data based on slider
-  const currentIndex = Math.max(
-    0,
-    Math.min(
-      Math.floor((currentDepthPercent / 100) * Math.max(normalizedActual.length - 1, 0)),
-      Math.max(normalizedActual.length - 1, 0)
-    )
-  );
-  const visibleActual = normalizedActual.slice(0, currentIndex + 1);
-  const visiblePlanned = normalizedPlanned.slice(0, Math.min(currentIndex + 1, normalizedPlanned.length));
+  const getVisibleByPercent = (points: NormalizedTrajectoryPoint[]) => {
+    if (points.length === 0) return [];
+
+    const currentIndex = Math.max(
+      0,
+      Math.min(
+        Math.floor((currentDepthPercent / 100) * Math.max(points.length - 1, 0)),
+        Math.max(points.length - 1, 0)
+      )
+    );
+
+    return points.slice(0, currentIndex + 1);
+  };
+
+  const visibleActual = getVisibleByPercent(normalizedActual);
+  const visiblePlanned = getVisibleByPercent(normalizedPlanned);
 
   // Get bounds
   const { minTVD, maxTVD, minHD, maxHD } = useMemo(() => {

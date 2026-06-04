@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { TrendingUp, Lock, ShieldCheck, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -9,12 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import { getSafeErrorMessage } from "@/lib/security/errors";
+import { normalizeIdentifierInput } from "@/lib/security/input";
 
 interface LoginPageProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess?: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+  const router = useRouter();
   const { login } = useAuth();
 
   const [username, setUsername] = useState("");
@@ -26,19 +30,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
+    const normalizedUsername = normalizeIdentifierInput(username);
     setError("");
+
+    if (!normalizedUsername || password.length < 1) {
+      setError("Username/email dan password wajib diisi.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const success = await login(username, password, rememberMe);
+      const success = await login(normalizedUsername, password, rememberMe);
       if (success) {
         toast.success("Berhasil login");
-        onLoginSuccess();
+        if (onLoginSuccess) {
+          onLoginSuccess();
+        } else {
+          router.replace("/");
+        }
       } else {
         setError("Invalid username or password.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to sign in. Please try again.");
+      setError(getSafeErrorMessage(err, "Unable to sign in. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -105,7 +122,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     <TrendingUp className="size-8 text-primary-foreground" />
                     </div>
                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary/80">
-                    Polaris MWD
+                    MWD Monitor
                     </p>
                     <h1 className="mt-2 text-2xl font-semibold text-white">
                     Sign in to continue
@@ -119,7 +136,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <div className="mb-6 hidden lg:block">
                     <h2 className="text-2xl font-semibold text-white">Sign in</h2>
                     <p className="mt-2 text-sm text-slate-400">
-                    Enter your account credentials to access Polaris.
+                    Enter your account credentials to access.
                     </p>
                 </div>
 
@@ -140,7 +157,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                         type="text"
                         placeholder="Enter username or email"
                         value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        onChange={(e) => setUsername(normalizeIdentifierInput(e.target.value))}
                         required
                         autoComplete="username"
                         className="h-11 border-white/10 bg-black/25 text-slate-100 placeholder:text-slate-400 backdrop-blur-sm focus:border-primary/50 focus:bg-black/35"

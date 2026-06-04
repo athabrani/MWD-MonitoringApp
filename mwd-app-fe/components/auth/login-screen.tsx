@@ -8,6 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, Lock, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { getSafeErrorMessage } from '@/lib/security/errors';
+import { normalizeIdentifierInput } from '@/lib/security/input';
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
@@ -23,18 +25,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
+    const normalizedUsername = normalizeIdentifierInput(username);
     setError('');
+
+    if (!normalizedUsername || password.length < 1) {
+      setError('Username/email and password are required.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const success = await login(username, password, rememberMe);
+      const success = await login(normalizedUsername, password, rememberMe);
       if (success) {
         onLoginSuccess();
       } else {
         setError('Invalid username or password');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
+      setError(getSafeErrorMessage(err, 'An error occurred. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -80,7 +91,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   type="text"
                   placeholder="Enter your username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => setUsername(normalizeIdentifierInput(e.target.value))}
                   required
                   autoComplete="username"
                   className="h-11"

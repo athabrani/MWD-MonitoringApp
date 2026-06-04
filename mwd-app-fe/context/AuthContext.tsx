@@ -1,9 +1,24 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { User } from '../types';
 import { ApiClientError } from '@/lib/api-client';
 import { fetchCurrentUser, loginWithPassword } from '@/lib/auth-api';
+import { toast } from 'sonner';
+import {
+  bootstrapStoredSession,
+  clearSessionScopedUiState,
+  clearStoredSession,
+  isRememberedToken,
+  writeStoredSession,
+} from '@/lib/security/storage';
+import {
+  resetAuthSessionInvalidNotification,
+  subscribeAuthSessionInvalid,
+  type AuthSessionInvalidDetail,
+} from '@/lib/security/session-events';
+import { normalizeIdentifierInput } from '@/lib/security/input';
 
 interface AuthContextType {
   user: User | null;
@@ -15,50 +30,36 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const USER_STORAGE_KEY = 'mwd_user';
-const TOKEN_STORAGE_KEY = 'mwd_auth_token';
-
-function readStoredValue(key: string) {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key);
-}
-
-function readStoredUser() {
-  const persistedUser = readStoredValue(USER_STORAGE_KEY);
-  if (!persistedUser) return null;
-
-  try {
-    return JSON.parse(persistedUser) as User;
-  } catch {
-    return null;
-  }
-}
-
-function clearStoredSession() {
-  window.localStorage.removeItem(USER_STORAGE_KEY);
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  window.sessionStorage.removeItem(USER_STORAGE_KEY);
-  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-}
-
-function writeStoredSession(user: User, token: string, rememberMe: boolean) {
-  clearStoredSession();
-  const storage = rememberMe ? window.localStorage : window.sessionStorage;
-  storage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
-  storage.setItem(TOKEN_STORAGE_KEY, token);
-}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(() => readStoredValue(TOKEN_STORAGE_KEY));
-  const [user, setUser] = useState<User | null>(() => readStoredUser());
-  const [isLoading, setIsLoading] = useState(() => Boolean(readStoredValue(TOKEN_STORAGE_KEY)));
+  const router = useRouter();
+  const [initialSession] = useState(() => bootstrapStoredSession());
+  const [token, setToken] = useState<string | null>(() => initialSession.token);
+  const [user, setUser] = useState<User | null>(() => initialSession.user);
+  const [isLoading, setIsLoading] = useState(() => Boolean(initialSession.token));
 
-  const logout = () => {
+  const clearAuthSession = () => {
     setUser(null);
     setToken(null);
     setIsLoading(false);
     clearStoredSession();
+    clearSessionScopedUiState();
   };
+
+  const logout = () => {
+    resetAuthSessionInvalidNotification();
+    clearAuthSession();
+  };
+
+  useEffect(
+    () =>
+      subscribeAuthSessionInvalid((detail: AuthSessionInvalidDetail) => {
+        clearAuthSession();
+        toast.warning(detail.message ?? "Session expired. Please sign in again.");
+        router.replace("/login");
+      }),
+    [router]
+  );
 
   useEffect(() => {
     if (!token) {
@@ -71,12 +72,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then((currentUser) => {
         if (cancelled) return;
         setUser(currentUser);
-        const remembered = window.localStorage.getItem(TOKEN_STORAGE_KEY) === token;
+        const remembered = isRememberedToken(token);
         writeStoredSession(currentUser, token, remembered);
       })
       .catch(() => {
         if (cancelled) return;
-        logout();
+        clearAuthSession();
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -89,7 +90,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string, rememberMe = false): Promise<boolean> => {
     try {
-      const session = await loginWithPassword(username, password);
+      const session = await loginWithPassword(normalizeIdentifierInput(username), password);
+      resetAuthSessionInvalidNotification();
       setUser(session.user);
       setToken(session.token);
       writeStoredSession(session.user, session.token, rememberMe);

@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api-client";
+import { logSecurityDebug } from "@/lib/security/errors";
 import { Event } from "@/types";
 import { PolarisDataSourceMode, PolarisWitsId, WitsIdDataSourceType } from "@/types/polaris";
 
@@ -435,23 +436,19 @@ export async function getWitsConfig(token: string): Promise<PolarisWitsId[]> {
     .map(normalizeWitsConfigRecord)
     .filter((record): record is PolarisWitsId => Boolean(record));
 
-  if (process.env.NODE_ENV === "development") {
-    console.info("[WITS config] GET /api/wits-config", {
-      rawCount: rawRecords.length,
-      normalizedCount: configs.length,
-      firstItemKeys: isRecord(rawRecords[0]) ? Object.keys(rawRecords[0]).slice(0, 30) : [],
-      mappedFields: configs.slice(0, 10).map((config) => ({
-        id: config.id,
-        witsId: formatWitsId(config.numericId),
-        name: config.name,
-        mappedField: config.mappedField,
-        units: config.units,
-        alarmEnabled: config.alarmEnabled,
-        alarmLow: config.alarmLow,
-        alarmHigh: config.alarmHigh,
-      })),
-    });
-  }
+  logSecurityDebug("[WITS config] GET /api/wits-config", {
+    rawCount: rawRecords.length,
+    normalizedCount: configs.length,
+    firstItemKeys: isRecord(rawRecords[0]) ? Object.keys(rawRecords[0]).slice(0, 30) : [],
+    mappedFields: configs.slice(0, 10).map((config) => ({
+      id: config.id,
+      witsId: formatWitsId(config.numericId),
+      name: config.name,
+      mappedField: config.mappedField,
+      units: config.units,
+      alarmEnabled: config.alarmEnabled,
+    })),
+  });
 
   return configs;
 }

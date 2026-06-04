@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { getDashboardThresholdStatus, type ParameterStatus } from '@/lib/dashboard-thresholds';
 import { getRenderableTracksFromPlotConfig } from '@/lib/plot-track-config';
 import { getDepthTrackingState, type DepthTrackingState } from '@/lib/depth-tracking-api';
+import { chartParameterGroups, type ChartTimeWindow } from '@/lib/chart-analytics';
 
 export const DashboardPage: React.FC = () => {
   const { token, user } = useAuth();
@@ -49,6 +50,7 @@ export const DashboardPage: React.FC = () => {
     chartData,
     latestMwdDataRecord,
     events,
+    recordEvent,
     activeWell,
     mwdSessions,
     activeMwdSession,
@@ -86,13 +88,14 @@ export const DashboardPage: React.FC = () => {
   const formatRop = (metersPerHour: number) =>
     settings.units === 'imperial' ? (metersPerHour * 3.28084).toFixed(2) : metersPerHour.toFixed(2);
   const ropUnit = settings.units === 'imperial' ? 'ft/hr' : 'm/hr';
-  const [timeWindow, setTimeWindow] = useState<'5min' | '15min' | '1hr'>('15min');
+  const [timeWindow, setTimeWindow] = useState<ChartTimeWindow>('15min');
   const [keyParameterPage, setKeyParameterPage] = useState(0);
   const [dashboardViewport, setDashboardViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
   const [viewportWidth, setViewportWidth] = useState(0);
   const [depthTrackingState, setDepthTrackingState] = useState<DepthTrackingState | null>(null);
   const [depthTrackingLoading, setDepthTrackingLoading] = useState(false);
   const [depthTrackingError, setDepthTrackingError] = useState('');
+  const activeDepthTrackingIssueRef = useRef(false);
   const thresholdByParameter = useMemo(
     () => new Map(settings.thresholds.map((threshold) => [threshold.parameter, threshold])),
     [settings.thresholds]
@@ -162,6 +165,30 @@ export const DashboardPage: React.FC = () => {
       tone: realtimeError ? 'destructive' : realtimeStatus === 'connected' ? 'secondary' : 'outline',
     },
   ] as const;
+
+  useEffect(() => {
+    const normalizedDtsStatus = (depthTrackingState?.status ?? depthTrackingState?.mode ?? '').toLowerCase();
+    const hasDtsIssue =
+      Boolean(depthTrackingError) ||
+      ['offline', 'disconnected', 'error', 'failed', 'unhealthy', 'unavailable'].includes(normalizedDtsStatus);
+
+    if (!hasDtsIssue) {
+      activeDepthTrackingIssueRef.current = false;
+      return;
+    }
+
+    if (activeDepthTrackingIssueRef.current) return;
+
+    activeDepthTrackingIssueRef.current = true;
+    recordEvent({
+      id: `generated-status:dts-${Date.now()}`,
+      timestamp: new Date(),
+      severity: depthTrackingError ? 'critical' : 'warning',
+      type: 'system',
+      message: `DTS / Depth Tracking: ${depthTrackingError || depthTrackingState?.status || depthTrackingState?.mode || 'Unavailable'}`,
+      source: 'primary',
+    });
+  }, [depthTrackingError, depthTrackingState?.mode, depthTrackingState?.status, recordEvent]);
 
   const loadDepthTrackingState = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!token || !activeMwdSessionId) {
@@ -259,19 +286,19 @@ export const DashboardPage: React.FC = () => {
   };
 
   const chartParameters = [
-    { key: 'spp', label: 'SPP', color: '#f59e0b', unit: 'psi' },
-    { key: 'flowrate', label: 'Flow Rate', color: '#10b981', unit: 'gpm' },
-    { key: 'wob', label: 'WOB', color: '#3b82f6', unit: 'klbs' },
-    { key: 'rop', label: 'ROP', color: '#8b5cf6', unit: 'm/hr' },
-  ];
+    chartParameterGroups.mud.find((parameter) => parameter.key === 'spp'),
+    chartParameterGroups.mud.find((parameter) => parameter.key === 'flowrate'),
+    chartParameterGroups.drilling.find((parameter) => parameter.key === 'wob'),
+    chartParameterGroups.drilling.find((parameter) => parameter.key === 'rop'),
+  ].filter((parameter): parameter is NonNullable<typeof parameter> => Boolean(parameter));
 
   const secondaryChartParameters = [
-    { key: 'temp', label: 'Temperature', color: '#ef4444', unit: 'degF' },
-    { key: 'rpm', label: 'RPM', color: '#8b5cf6', unit: 'rpm' },
-    { key: 'inc', label: 'Inclination', color: '#ec4899', unit: 'deg' },
-    { key: 'azi', label: 'Azimuth', color: '#06b6d4', unit: 'deg' },
-    { key: 'gamma', label: 'Gamma', color: '#84cc16', unit: 'API' },
-  ];
+    chartParameterGroups.mud.find((parameter) => parameter.key === 'temp'),
+    chartParameterGroups.drilling.find((parameter) => parameter.key === 'rpm'),
+    chartParameterGroups.directional.find((parameter) => parameter.key === 'inc'),
+    chartParameterGroups.directional.find((parameter) => parameter.key === 'azi'),
+    chartParameterGroups.formation.find((parameter) => parameter.key === 'gamma'),
+  ].filter((parameter): parameter is NonNullable<typeof parameter> => Boolean(parameter));
 
   const keyParameters = useMemo(() => {
     const toNumber = (value: unknown) => {
@@ -456,6 +483,11 @@ export const DashboardPage: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+                {/* {startupLoading ? (
+                  <Badge variant="outline" className="h-8 whitespace-nowrap px-2.5 text-xs">
+                    Loading startup data
+                  </Badge>
+                ) : null} */}
                 <Button
                   type="button"
                   variant="default"
@@ -739,12 +771,6 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
-      {startupLoading ? (
-        <Badge variant="outline" className="w-fit">
-          Loading startup data
-        </Badge>
-      ) : null}
-
       <div
         className={cn(
           'grid',
@@ -908,24 +934,39 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <RealTimeChart
-          data={chartData}
-          title="Pressure & Hydraulics"
-          availableParameters={chartParameters}
-          defaultParameters={['spp', 'flowrate']}
-          timeWindow={timeWindow}
-          onTimeWindowChange={setTimeWindow}
-        />
-        <RealTimeChart
-          data={chartData}
-          title="Temp, RPM & Directional"
-          availableParameters={secondaryChartParameters}
-          defaultParameters={['temp', 'rpm']}
-          timeWindow={timeWindow}
-          onTimeWindowChange={setTimeWindow}
-        />
-      </div>
+      <section className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold sm:text-xl">Trend Charts</h2>
+            <p className="text-sm text-muted-foreground">
+              Session history from backend MWD data. Use All to inspect the complete available range.
+            </p>
+          </div>
+          <Badge variant="outline" className="w-fit">
+            Range: {timeWindow === 'all' ? 'All' : timeWindow}
+          </Badge>
+        </div>
+        <div className="grid items-stretch gap-4 xl:grid-cols-2">
+          <RealTimeChart
+            data={chartData}
+            title="Pressure & Hydraulics"
+            description="Pressure, flow, WOB, and penetration trend context."
+            availableParameters={chartParameters}
+            defaultParameters={['spp', 'flowrate']}
+            timeWindow={timeWindow}
+            onTimeWindowChange={setTimeWindow}
+          />
+          <RealTimeChart
+            data={chartData}
+            title="Temp, RPM & Directional"
+            description="Thermal, rotary, directional, and formation response trends."
+            availableParameters={secondaryChartParameters}
+            defaultParameters={['temp', 'rpm']}
+            timeWindow={timeWindow}
+            onTimeWindowChange={setTimeWindow}
+          />
+        </div>
+      </section>
 
       <EventStream events={events} maxHeight={300} />
 

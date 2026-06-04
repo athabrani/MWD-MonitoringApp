@@ -1,3 +1,5 @@
+import { logSecurityDebug } from "@/lib/security/errors";
+
 export type RealtimeConnectionState =
   | "idle"
   | "connecting"
@@ -62,9 +64,10 @@ function normalizeRealtimeMessage(raw: string): RealtimeEvent | null {
 
   const type = readEventType(parsed);
   if (!type || !knownEventTypes.has(type as RealtimeEventType)) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("Ignoring unknown realtime event.", parsed);
-    }
+    logSecurityDebug("Ignoring unknown realtime event.", {
+      type,
+      keys: Object.keys(parsed).slice(0, 20),
+    });
     return null;
   }
 

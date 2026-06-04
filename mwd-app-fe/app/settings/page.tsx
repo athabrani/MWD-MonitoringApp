@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,7 @@ export const SettingsPage: React.FC<{
     witsConfigLoading,
     witsConfigError,
     refreshWitsConfig,
+    events,
   } = useApp();
 
   const [thresholdDrafts, setThresholdDrafts] = useState<Record<string, WitsThresholdDraft>>({});
@@ -52,6 +54,7 @@ export const SettingsPage: React.FC<{
     status: "checking",
   });
   const canManageSettings = user?.role === "engineer" || user?.role === "admin";
+  const notificationEvents = events.filter((event) => event.type !== "alarm").slice(0, 20);
 
   const thresholdRows = useMemo(
     () =>
@@ -297,7 +300,7 @@ export const SettingsPage: React.FC<{
                   <SelectTrigger className="w-36">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="border-border/70">
                     <SelectItem value="compact">Compact</SelectItem>
                     <SelectItem value="comfortable">Comfortable</SelectItem>
                   </SelectContent>
@@ -322,7 +325,7 @@ export const SettingsPage: React.FC<{
                   <SelectTrigger className="w-32">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="border-border/70">
                     <SelectItem value="1">1 sec</SelectItem>
                     <SelectItem value="5">5 sec</SelectItem>
                     <SelectItem value="10">10 sec</SelectItem>
@@ -342,7 +345,7 @@ export const SettingsPage: React.FC<{
                   <SelectTrigger className="w-36">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="border-border/70">
                     <SelectItem value="metric">Metric</SelectItem>
                     <SelectItem value="imperial">Imperial</SelectItem>
                   </SelectContent>
@@ -478,25 +481,39 @@ export const SettingsPage: React.FC<{
         </TabsContent>
 
         <TabsContent value="notifications" className="mt-0">
-          <div className="grid gap-3 md:grid-cols-3">
-            <NotificationCard
-              title="Browser Notifications"
-              description="Placeholder toggle for critical alarm browser notifications."
-              defaultChecked
-              disabled={!canManageSettings}
-            />
-            <NotificationCard
-              title="Sound Alerts"
-              description="Placeholder toggle for critical alarm sounds."
-              defaultChecked
-              disabled={!canManageSettings}
-            />
-            <NotificationCard
-              title="Email Alerts"
-              description="Placeholder until SMTP/alarm delivery is wired."
-              disabled={!canManageSettings}
-            />
-          </div>
+          <Card className="p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">Notifications</h3>
+                <p className="text-sm text-muted-foreground">
+                  Connection, failover, health, and system events generated from current backend/status state.
+                </p>
+              </div>
+              <Badge variant="outline">{notificationEvents.length} events</Badge>
+            </div>
+            {notificationEvents.length === 0 ? (
+              <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+                Belum ada notification event. Connection or health issues will appear here when detected.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {notificationEvents.map((event) => (
+                  <div key={event.id} className="rounded-xl border border-border/70 bg-background/70 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{event.message}</span>
+                      <Badge variant="outline">{event.type}</Badge>
+                      <Badge variant={event.severity === "critical" ? "destructive" : "secondary"}>
+                        {event.severity}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {event.timestamp.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         </TabsContent>
 
         <TabsContent value="system-health" className="mt-0">

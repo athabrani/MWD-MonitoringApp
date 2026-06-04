@@ -1153,6 +1153,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     mwdSessionsLoading,
     mwdSessionsError,
     refreshMwdSessions,
+    events,
   } = useApp();
   const isDark = settings.display.theme === "dark";
   const [mounted, setMounted] = useState(false);
@@ -1182,7 +1183,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     [canViewPage, mounted, user]
   );
 
-  const activeAlarms = 3;
+  const activeAlarms = useMemo(
+    () =>
+      events.filter(
+        (event) => event.type === "alarm" && !event.acknowledgedBy && !event.resolved
+      ).length,
+    [events]
+  );
   const activeSessionLabel = mwdSessionsLoading
     ? "Loading session..."
     : mwdSessionsError
@@ -1346,7 +1353,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </Button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuContent align="end" className="w-56 border-border/70">
                 <DropdownMenuLabel>
                   <div>
                     <p className="font-medium">{user?.fullName}</p>

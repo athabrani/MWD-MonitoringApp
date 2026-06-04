@@ -72,6 +72,9 @@ const sectionDefaultTargets: Partial<Record<PageAccessKey, PageAccessKey>> = {
   "data-management": "data-management-survey-data",
   trajectory: "trajectory-analysis",
 };
+const pagePathAliases: Record<string, PageAccessKey> = {
+  "/dashboard": "dashboard",
+};
 
 export const defaultRolePageAccess: RolePageAccessMap = {
   engineer: allPageKeys.filter((key) => key !== "admin"),
@@ -172,6 +175,8 @@ export function getPageAccessLabel(page: PageAccessKey) {
 
 export function getPageAccessKeyForPath(pathname: string): PageAccessKey | null {
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
+  if (pagePathAliases[normalizedPath]) return pagePathAliases[normalizedPath];
+
   const sortedPages = [...pageAccessRegistry].sort((left, right) => right.path.length - left.path.length);
 
   return sortedPages.find((page) => page.path === normalizedPath)?.key ?? null;

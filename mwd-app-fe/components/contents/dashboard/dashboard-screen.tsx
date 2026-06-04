@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Bell, BellOff, Check, AlertTriangle, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
+import type { ChartTimeWindow } from '@/lib/chart-analytics';
 
 export const DashboardScreen: React.FC = () => {
   const { user } = useAuth();
@@ -30,7 +31,7 @@ export const DashboardScreen: React.FC = () => {
     toolfaceData
   } = useApp();
 
-  const [timeWindow, setTimeWindow] = useState<'5min' | '15min' | '1hr'>('15min');
+  const [timeWindow, setTimeWindow] = useState<ChartTimeWindow>('15min');
 
   const activeAlarms = events.filter(e => 
     e.type === 'alarm' && !e.acknowledgedBy && !e.resolved
