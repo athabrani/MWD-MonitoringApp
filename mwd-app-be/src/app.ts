@@ -32,7 +32,11 @@ import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js
 import { validateSecurityEnvironment } from "./utils/security-env.js";
 
 const app = express();
-const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
+const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = new Set(corsOrigins);
 
 validateSecurityEnvironment();
 
@@ -90,7 +94,13 @@ app.set("trust proxy", 1);
 app.use(securityHeaders);
 app.use(
   cors({
-    origin: corsOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedCorsOrigins.has(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
     credentials: true,
   }),
 );
