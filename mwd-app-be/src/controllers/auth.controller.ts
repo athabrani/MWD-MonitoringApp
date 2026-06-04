@@ -8,6 +8,14 @@ const normalizeString = (value: unknown) => {
   return typeof value === "string" ? value.trim() : "";
 };
 
+const getClientIp = (req: Request) => {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const forwardedIp =
+    typeof forwardedFor === "string" ? forwardedFor.split(",")[0]?.trim() : "";
+
+  return forwardedIp || req.ip || req.socket.remoteAddress || null;
+};
+
 export const login = async (req: Request, res: Response) => {
   try {
     const identifier = normalizeString(req.body?.identifier);
@@ -21,7 +29,13 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Password is required" });
     }
 
-    const result = await authService.login(identifier, password);
+    const result = await authService.login(identifier, password, {
+      ip: getClientIp(req),
+      userAgent:
+        typeof req.headers["user-agent"] === "string"
+          ? req.headers["user-agent"]
+          : null,
+    });
 
     if (!result) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -40,6 +54,14 @@ export const login = async (req: Request, res: Response) => {
       csrfToken,
     });
   } catch (error: unknown) {
+    if (error instanceof authService.LoginLockedError) {
+      res.setHeader("Retry-After", String(error.retryAfterSeconds));
+      return res.status(423).json({
+        message: error.message,
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+    }
+
     const message =
       error instanceof Error ? error.message : "Internal server error";
     res.status(500).json({ message });

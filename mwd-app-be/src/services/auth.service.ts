@@ -12,6 +12,44 @@ type JwtPayload = {
   roleName: string;
 };
 
+type LoginRequestContext = {
+  ip?: string | null;
+  userAgent?: string | null;
+};
+
+type LoginFailureReason =
+  | "invalid_credentials"
+  | "inactive_user"
+  | "locked";
+
+type FailedLoginEntry = {
+  count: number;
+  firstFailedAt: number;
+  lockedUntil?: number;
+};
+
+const failedLoginStore = new Map<string, FailedLoginEntry>();
+
+const LOGIN_FAILURE_WINDOW_MS = Number(
+  process.env.LOGIN_FAILURE_WINDOW_MS ?? 15 * 60 * 1000,
+);
+const LOGIN_LOCKOUT_MS = Number(
+  process.env.LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000,
+);
+const LOGIN_MAX_FAILED_ATTEMPTS = Number(
+  process.env.LOGIN_MAX_FAILED_ATTEMPTS ?? 5,
+);
+
+export class LoginLockedError extends Error {
+  retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super("Too many failed login attempts. Please try again later.");
+    this.name = "LoginLockedError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 const getJwtSecret = () => {
   const secret = process.env.JWT_SECRET;
 
@@ -22,7 +60,117 @@ const getJwtSecret = () => {
   return secret;
 };
 
-export const login = async (identifier: string, password: string) => {
+const getLoginKey = (identifier: string) => identifier.trim().toLowerCase();
+
+const getRetryAfterSeconds = (lockedUntil: number) =>
+  Math.max(1, Math.ceil((lockedUntil - Date.now()) / 1000));
+
+const getFailedEntry = (key: string, now: number) => {
+  const entry = failedLoginStore.get(key);
+
+  if (!entry) {
+    return { count: 0, firstFailedAt: now };
+  }
+
+  if (entry.lockedUntil && entry.lockedUntil > now) {
+    return entry;
+  }
+
+  if (entry.firstFailedAt + LOGIN_FAILURE_WINDOW_MS <= now) {
+    failedLoginStore.delete(key);
+    return { count: 0, firstFailedAt: now };
+  }
+
+  return entry;
+};
+
+const cleanupFailedLoginStore = (now: number) => {
+  if (failedLoginStore.size < 10_000) {
+    return;
+  }
+
+  for (const [key, entry] of failedLoginStore.entries()) {
+    const expiresAt = entry.lockedUntil ?? entry.firstFailedAt + LOGIN_FAILURE_WINDOW_MS;
+
+    if (expiresAt <= now) {
+      failedLoginStore.delete(key);
+    }
+
+    if (failedLoginStore.size < 8_000) {
+      break;
+    }
+  }
+};
+
+const recordLoginFailure = async (
+  identifier: string,
+  user: { id: number; username: string; email: string } | null,
+  reason: LoginFailureReason,
+  context: LoginRequestContext,
+) => {
+  const now = Date.now();
+  const key = getLoginKey(identifier);
+  const entry = getFailedEntry(key, now);
+  const nextCount = entry.count + 1;
+  const shouldLock = nextCount >= LOGIN_MAX_FAILED_ATTEMPTS;
+  const lockedUntil = shouldLock ? now + LOGIN_LOCKOUT_MS : entry.lockedUntil;
+
+  failedLoginStore.set(key, {
+    count: nextCount,
+    firstFailedAt: entry.firstFailedAt,
+    ...(lockedUntil ? { lockedUntil } : {}),
+  });
+  cleanupFailedLoginStore(now);
+
+  await createAuditLog({
+    userId: user?.id ?? null,
+    action: "login.failed",
+    details: `Failed login attempt for ${identifier}`,
+    metadata: {
+      identifier,
+      username: user?.username ?? null,
+      email: user?.email ?? null,
+      ip: context.ip ?? null,
+      userAgent: context.userAgent ?? null,
+      reason,
+      attemptCount: nextCount,
+      lockedUntil: lockedUntil ? new Date(lockedUntil).toISOString() : null,
+    },
+  });
+
+  if (shouldLock && lockedUntil) {
+    throw new LoginLockedError(getRetryAfterSeconds(lockedUntil));
+  }
+};
+
+const clearLoginFailures = (identifier: string) => {
+  failedLoginStore.delete(getLoginKey(identifier));
+};
+
+export const login = async (
+  identifier: string,
+  password: string,
+  context: LoginRequestContext = {},
+) => {
+  const now = Date.now();
+  const key = getLoginKey(identifier);
+  const failedEntry = getFailedEntry(key, now);
+
+  if (failedEntry.lockedUntil && failedEntry.lockedUntil > now) {
+    await createAuditLog({
+      action: "login.locked",
+      details: `Blocked locked login attempt for ${identifier}`,
+      metadata: {
+        identifier,
+        ip: context.ip ?? null,
+        userAgent: context.userAgent ?? null,
+        lockedUntil: new Date(failedEntry.lockedUntil).toISOString(),
+      },
+    });
+
+    throw new LoginLockedError(getRetryAfterSeconds(failedEntry.lockedUntil));
+  }
+
   const user = await prisma.user.findFirst({
     where: {
       OR: [{ email: identifier.toLowerCase() }, { username: identifier }],
@@ -37,15 +185,24 @@ export const login = async (identifier: string, password: string) => {
     },
   });
 
-  if (!user || !user.isActive) {
+  if (!user) {
+    await recordLoginFailure(identifier, null, "invalid_credentials", context);
+    return null;
+  }
+
+  if (!user.isActive) {
+    await recordLoginFailure(identifier, user, "inactive_user", context);
     return null;
   }
 
   const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
   if (!isPasswordValid) {
+    await recordLoginFailure(identifier, user, "invalid_credentials", context);
     return null;
   }
+
+  clearLoginFailures(identifier);
 
   await prisma.user.update({
     where: { id: user.id },
@@ -60,6 +217,8 @@ export const login = async (identifier: string, password: string) => {
       username: user.username,
       email: user.email,
       role: user.role.name,
+      ip: context.ip ?? null,
+      userAgent: context.userAgent ?? null,
     },
   });
 
