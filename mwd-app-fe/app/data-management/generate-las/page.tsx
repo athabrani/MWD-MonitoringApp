@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Copy, Download, Plus, RefreshCw, Save } from "lucide-react";
+import { Copy, Download, Plus, RefreshCw, Save, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, AppPage, getAppPagePath } from "@/components/layouts/app-layout";
 import { ConfirmDeleteButton } from "@/components/contents/data-management/confirm-delete-button";
@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   downloadBlob,
   exportLas,
@@ -220,6 +221,7 @@ export default function GenerateLasPage({
   const [exportRecords, setExportRecords] = useState<ExportRecord[]>([]);
   const [exportRecordsLoading, setExportRecordsLoading] = useState(false);
   const [exportRecordsError, setExportRecordsError] = useState("");
+  const [witsSearchQuery, setWitsSearchQuery] = useState("");
   const canExport = user?.role === "admin" || user?.role === "engineer";
 
   const activePreset = useMemo(
@@ -250,8 +252,29 @@ export default function GenerateLasPage({
       ),
     [activePreset?.columns, backendLasColumns]
   );
-  const selectedColumnIds = new Set(activePresetColumns.map((column) => column.id));
-  const availableColumns = backendLasColumns.filter((column) => !selectedColumnIds.has(column.id));
+  const selectedColumnIds = useMemo(
+    () => new Set(activePresetColumns.map((column) => column.id)),
+    [activePresetColumns]
+  );
+  const availableColumns = useMemo(
+    () => backendLasColumns.filter((column) => !selectedColumnIds.has(column.id)),
+    [backendLasColumns, selectedColumnIds]
+  );
+  const filteredAvailableColumns = useMemo(() => {
+    const query = witsSearchQuery.trim().toLowerCase();
+
+    if (!query) return availableColumns;
+
+    return availableColumns.filter((column) =>
+      [
+        column.id,
+        column.witsId,
+        column.mnemonic,
+        column.unit,
+        column.description,
+      ].some((value) => String(value ?? "").toLowerCase().includes(query))
+    );
+  }, [availableColumns, witsSearchQuery]);
   const lasExportRecords = useMemo(
     () =>
       exportRecords.filter((record) => {
@@ -638,30 +661,68 @@ export default function GenerateLasPage({
               <Card className="rounded-2xl p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold">Available WITS IDs</h2>
-                  <Badge variant="outline">{availableColumns.length} available</Badge>
+                  <Badge variant="outline">
+                    {witsSearchQuery.trim()
+                      ? `${filteredAvailableColumns.length} of ${availableColumns.length}`
+                      : `${availableColumns.length} available`}
+                  </Badge>
                 </div>
-                <div className="mt-4 space-y-2">
-                  {backendLasColumns.length === 0 && !witsConfigLoading ? (
-                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-                      Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.
-                    </div>
+                <div className="relative mt-4">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={witsSearchQuery}
+                    onChange={(event) => setWitsSearchQuery(event.target.value)}
+                    placeholder="Search WITS ID, mnemonic, description, or unit"
+                    className="pl-9 pr-10"
+                    aria-label="Search available WITS IDs"
+                  />
+                  {witsSearchQuery ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 size-8 -translate-y-1/2"
+                      onClick={() => setWitsSearchQuery("")}
+                      aria-label="Clear WITS ID search"
+                    >
+                      <X className="size-4" />
+                    </Button>
                   ) : null}
-                  {availableColumns.map((column) => (
-                    <div key={column.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono text-sm font-semibold">{column.witsId} / {column.mnemonic}</div>
-                        <div className="text-sm text-muted-foreground">{column.description} ({column.unit})</div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateActivePreset({ columns: [...activePresetColumns, column] })}
-                      >
-                        Add
-                      </Button>
-                    </div>
-                  ))}
                 </div>
+                <ScrollArea className="mt-4 h-[320px] rounded-xl border sm:h-[360px] xl:h-[420px]">
+                  <div className="space-y-2 p-3">
+                    {backendLasColumns.length === 0 && !witsConfigLoading ? (
+                      <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                        Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu.
+                      </div>
+                    ) : null}
+                    {backendLasColumns.length > 0 && availableColumns.length === 0 ? (
+                      <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                        Semua WITS ID yang tersedia sudah dipilih untuk preset ini.
+                      </div>
+                    ) : null}
+                    {availableColumns.length > 0 && filteredAvailableColumns.length === 0 ? (
+                      <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                        No WITS ID found for this keyword.
+                      </div>
+                    ) : null}
+                    {filteredAvailableColumns.map((column) => (
+                      <div key={column.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-sm font-semibold">{column.witsId} / {column.mnemonic}</div>
+                          <div className="text-sm text-muted-foreground">{column.description} ({column.unit})</div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateActivePreset({ columns: [...activePresetColumns, column] })}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               </Card>
 
               <Card className="rounded-2xl p-5">
@@ -669,7 +730,13 @@ export default function GenerateLasPage({
                   <h2 className="text-lg font-semibold">Selected LAS Columns</h2>
                   <Badge variant="secondary">{activePresetColumns.length} columns</Badge>
                 </div>
-                <div className="mt-4 space-y-2">
+                <ScrollArea className="mt-4 h-[320px] rounded-xl border sm:h-[360px] xl:h-[420px]">
+                  <div className="space-y-2 p-3">
+                  {activePresetColumns.length === 0 ? (
+                    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                      Belum ada kolom LAS yang dipilih. Tambahkan WITS ID dari panel kiri.
+                    </div>
+                  ) : null}
                   {activePresetColumns.map((column: LasExportColumn, index) => (
                     <div key={column.id} className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[1fr_auto_auto_auto]">
                       <div className="min-w-0">
@@ -694,7 +761,8 @@ export default function GenerateLasPage({
                       />
                     </div>
                   ))}
-                </div>
+                  </div>
+                </ScrollArea>
               </Card>
             </div>
 

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Activity, FileText, RefreshCw, Trash2, UserPen, Users } from "lucide-react";
+import { Activity, Eye, EyeOff, FileText, RefreshCw, Trash2, UserPen, Users } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -48,6 +48,7 @@ import { useAuth } from "@/context/AuthContext";
 import { SystemHealthPanel } from "@/components/system-health-panel";
 import { AdminAuditLogListItem, fetchAdminAuditLogs } from "@/lib/admin-audit-logs-api";
 import {
+  BACKEND_REACHABILITY_PROBE_PATH,
   BackendReachability,
   checkBackendReachability,
 } from "@/lib/admin-backend-health-api";
@@ -72,6 +73,7 @@ import {
 import { getSafeErrorMessage, logSecurityError, redactSensitive } from "@/lib/security/errors";
 import { normalizeEmailInput, sanitizeTextInput, isValidEmail } from "@/lib/security/input";
 import { canPerformAction, requireActionPermission } from "@/lib/security/permissions";
+import { cn } from "@/lib/utils";
 import type { UserRole } from "@/types";
 
 const emptyNewUserForm: CreateAdminUserInput = {
@@ -89,6 +91,33 @@ const emptyEditUserForm: UpdateAdminUserInput = {
   isActive: true,
 };
 const configurableRoles: Exclude<UserRole, "admin">[] = ["engineer", "operator"];
+const backendReachabilityProbePath = BACKEND_REACHABILITY_PROBE_PATH;
+const createPasswordRequirementMessage =
+  "Password harus minimal 10 karakter dan mengandung huruf serta angka.";
+
+function validateCreatePassword(password: string) {
+  const missingRequirements: string[] = [];
+
+  if (password.length < 10) {
+    missingRequirements.push("minimal 10 karakter");
+  }
+
+  if (!/[A-Za-z]/.test(password)) {
+    missingRequirements.push("huruf");
+  }
+
+  if (!/\d/.test(password)) {
+    missingRequirements.push("angka");
+  }
+
+  return {
+    isValid: missingRequirements.length === 0,
+    message:
+      missingRequirements.length === 0
+        ? createPasswordRequirementMessage
+        : `Belum memenuhi: ${missingRequirements.join(", ")}.`,
+  };
+}
 
 function formatAuditTimestamp(value?: string) {
   if (!value) return "-";
@@ -136,8 +165,9 @@ function AuditLogDetails({ log }: { log: AdminAuditLogListItem }) {
 
 function backendStatusLabel(status: BackendReachability["status"]) {
   if (status === "checking") return "Checking";
-  if (status === "online") return "Online";
-  if (status === "offline") return "Offline";
+  if (status === "online") return "Connected";
+  if (status === "offline") return "Disconnected";
+  if (status === "unsupported") return "Unsupported";
   if (status === "auth-error") return "Auth Error";
   return "Error";
 }
@@ -156,8 +186,9 @@ function backendStatusBadgeClassName(status: BackendReachability["status"]) {
 
 function backendStatusDescription(status: BackendReachability["status"], errorMessage?: string) {
   if (status === "checking") return "Checking backend connection...";
-  if (status === "online") return "Backend API reachable.";
+  if (status === "online") return `Backend API reachable via ${backendReachabilityProbePath}.`;
   if (status === "offline") return errorMessage || "Backend API unreachable.";
+  if (status === "unsupported") return errorMessage || `Backend probe ${backendReachabilityProbePath} is not available.`;
   if (status === "auth-error") return "Backend reachable, but token/permission failed.";
   return errorMessage || "Backend returned an error.";
 }
@@ -195,6 +226,7 @@ export const AdminPage: React.FC = () => {
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [deleteUserOpen, setDeleteUserOpen] = useState(false);
+  const [newUserPasswordVisible, setNewUserPasswordVisible] = useState(false);
   const [accessDialogRole, setAccessDialogRole] = useState<Exclude<UserRole, "admin"> | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUserListItem | null>(null);
   const [newUserForm, setNewUserForm] =
@@ -218,6 +250,11 @@ export const AdminPage: React.FC = () => {
   const [creatingUser, setCreatingUser] = useState(false);
   const [updatingUser, setUpdatingUser] = useState(false);
   const [deletingUser, setDeletingUser] = useState(false);
+  const newUserPasswordValidation = useMemo(
+    () => validateCreatePassword(newUserForm.password),
+    [newUserForm.password]
+  );
+  const showNewUserPasswordFeedback = newUserForm.password.length > 0;
 
   const canCreateBackendUser = useMemo(
     () =>
@@ -228,7 +265,7 @@ export const AdminPage: React.FC = () => {
           newUserForm.email.trim() &&
           isValidEmail(normalizeEmailInput(newUserForm.email)) &&
           newUserForm.password.trim() &&
-          newUserForm.password.length >= 8 &&
+          newUserPasswordValidation.isValid &&
           newUserForm.roleId
       ),
     [
@@ -236,6 +273,7 @@ export const AdminPage: React.FC = () => {
       newUserForm.password,
       newUserForm.roleId,
       newUserForm.username,
+      newUserPasswordValidation.isValid,
       token,
       user,
     ]
@@ -329,7 +367,7 @@ export const AdminPage: React.FC = () => {
       errorMessage: undefined,
     }));
 
-    const health = await checkBackendReachability(token);
+    const health = await checkBackendReachability(token, backendReachabilityProbePath);
     setBackendReachability(health);
   }, [token]);
 
@@ -370,7 +408,10 @@ export const AdminPage: React.FC = () => {
 
   const handleAddOpenChange = (open: boolean) => {
     setAddUserOpen(open);
-    if (!open) resetCreateDialog();
+    if (!open) {
+      setNewUserPasswordVisible(false);
+      resetCreateDialog();
+    }
   };
 
   const handleEditOpenChange = (open: boolean) => {
@@ -412,8 +453,14 @@ export const AdminPage: React.FC = () => {
     const email = normalizeEmailInput(newUserForm.email);
     const password = newUserForm.password;
 
-    if (!username || !isValidEmail(email) || password.length < 8 || !newUserForm.roleId) {
-      toast.error("Isi username, email valid, password minimal 8 karakter, dan role.");
+    const passwordValidation = validateCreatePassword(password);
+
+    if (!username || !isValidEmail(email) || !password.trim() || !passwordValidation.isValid || !newUserForm.roleId) {
+      toast.error(
+        !passwordValidation.isValid
+          ? createPasswordRequirementMessage
+          : "Isi username, email valid, password, dan role."
+      );
       return;
     }
 
@@ -455,8 +502,8 @@ export const AdminPage: React.FC = () => {
       return;
     }
 
-    if (password && password.length < 8) {
-      toast.error("Password baru minimal 8 karakter.");
+    if (password && password.length < 10) {
+      toast.error("Password baru minimal 10 karakter.");
       return;
     }
 
@@ -588,12 +635,12 @@ export const AdminPage: React.FC = () => {
           </div>
         </Card>
         <Card className="p-4">
-          <div className="mb-1 text-sm text-muted-foreground">API Latency</div>
+          <div className="mb-1 text-sm text-muted-foreground">API Probe Latency</div>
           <div className="text-2xl font-bold">
             {formatApiLatency(backendReachability)}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Last checked {formatHealthCheckedAt(backendReachability.lastCheckedAt)}
+            Probe {backendReachabilityProbePath} · Last checked {formatHealthCheckedAt(backendReachability.lastCheckedAt)}
           </div>
         </Card>
         <Card className="p-4">
@@ -1081,18 +1128,50 @@ export const AdminPage: React.FC = () => {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new-user-password">Password</Label>
-                <Input
-                  id="new-user-password"
-                  type="password"
-                  value={newUserForm.password}
-                  onChange={(event) =>
-                    setNewUserForm((prev) => ({
-                      ...prev,
-                      password: event.target.value,
-                    }))
-                  }
-                  placeholder="Temporary password"
-                />
+                <div className="relative">
+                  <Input
+                    id="new-user-password"
+                    type={newUserPasswordVisible ? "text" : "password"}
+                    value={newUserForm.password}
+                    onChange={(event) =>
+                      setNewUserForm((prev) => ({
+                        ...prev,
+                        password: event.target.value,
+                      }))
+                    }
+                    placeholder="Temporary password"
+                    className="pr-10"
+                    aria-invalid={showNewUserPasswordFeedback && !newUserPasswordValidation.isValid}
+                    aria-describedby="new-user-password-requirements"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setNewUserPasswordVisible((visible) => !visible)}
+                    aria-label={newUserPasswordVisible ? "Hide password" : "Show password"}
+                  >
+                    {newUserPasswordVisible ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                  </Button>
+                </div>
+                <p
+                  id="new-user-password-requirements"
+                  className={cn(
+                    "text-sm leading-snug",
+                    showNewUserPasswordFeedback && !newUserPasswordValidation.isValid
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {showNewUserPasswordFeedback
+                    ? newUserPasswordValidation.message
+                    : createPasswordRequirementMessage}
+                </p>
               </div>
 
               <div className="space-y-2">

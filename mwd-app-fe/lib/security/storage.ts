@@ -104,7 +104,6 @@ export function writeStoredSession(user: User, token: string, rememberMe: boolea
 
   clearStoredSession();
   const storage = rememberMe ? window.localStorage : window.sessionStorage;
-  safeSet(storage, USER_STORAGE_KEY, JSON.stringify(sanitizeStoredUser(user)));
   safeSet(storage, TOKEN_STORAGE_KEY, token);
 }
 
@@ -112,14 +111,16 @@ export function bootstrapStoredSession() {
   if (!isBrowser()) return { token: null, user: null };
 
   const token = readStoredToken();
-  const user = readStoredUser();
 
-  if (!token || !user) {
+  if (!token) {
     clearStoredSession();
     return { token: null, user: null };
   }
 
-  return { token, user };
+  safeRemove(window.localStorage, USER_STORAGE_KEY);
+  safeRemove(window.sessionStorage, USER_STORAGE_KEY);
+
+  return { token, user: null };
 }
 
 export function isRememberedToken(token: string) {

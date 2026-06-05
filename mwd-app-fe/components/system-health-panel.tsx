@@ -1,11 +1,20 @@
 "use client";
 
-import { Activity, CheckCircle2, Clock, RefreshCw, Signal, WifiOff } from "lucide-react";
+import { useState } from "react";
+import { Activity, CheckCircle2, Clock, Eye, RefreshCw, Signal, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useApp } from "@/context/AppContext";
-import type { BackendReachability } from "@/lib/admin-backend-health-api";
+import { useAuth } from "@/context/AuthContext";
+import {
+  BACKEND_REACHABILITY_PROBE_PATH,
+  type BackendReachability,
+} from "@/lib/admin-backend-health-api";
+import {
+  getGatewayRawPacketById,
+  type GatewayRawPacket,
+} from "@/lib/gateway-raw-packets-api";
 import { cn } from "@/lib/utils";
 
 type HealthLevel = "connected" | "degraded" | "disconnected" | "loading" | "unknown";
@@ -19,6 +28,7 @@ type HealthItem = {
   updatedAt?: string | Date;
   detail?: string;
   rawPacket?: string;
+  affectsSummary?: boolean;
 };
 
 type SystemHealthPanelProps = {
@@ -70,6 +80,7 @@ function backendBadgeLabel(status: BackendReachability["status"]) {
   if (status === "checking") return "Checking";
   if (status === "online") return "Connected";
   if (status === "offline") return "Disconnected";
+  if (status === "unsupported") return "Unsupported";
   if (status === "auth-error") return "Auth Error";
   return "Error";
 }
@@ -86,12 +97,50 @@ function backendBadgeClassName(status: BackendReachability["status"]) {
   return undefined;
 }
 
+function formatBackendProbeLatency(health: BackendReachability) {
+  if (health.status === "checking") return "Checking...";
+  if (
+    (health.status === "online" || health.status === "auth-error") &&
+    typeof health.latencyMs === "number" &&
+    Number.isFinite(health.latencyMs)
+  ) {
+    return `${health.latencyMs} ms`;
+  }
+
+  return "- ms";
+}
+
 function getSummaryLevel(items: HealthItem[]): HealthLevel {
   if (items.some((item) => item.level === "disconnected")) return "disconnected";
   if (items.some((item) => item.level === "degraded" || item.level === "loading" || item.level === "unknown")) {
     return "degraded";
   }
   return "connected";
+}
+
+const RAW_PACKET_STALE_AFTER_MS = 2 * 60 * 1000;
+
+function parseTimestamp(value?: string | Date) {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatPacketFreshness(receivedAt?: string) {
+  const parsed = parseTimestamp(receivedAt);
+  if (!parsed) return "Timestamp unavailable";
+
+  const ageSeconds = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 1000));
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+
+  const ageMinutes = Math.round(ageSeconds / 60);
+  return `${ageMinutes}m ago`;
+}
+
+function packetPreview(packet: GatewayRawPacket) {
+  const source = packet.packet ?? JSON.stringify(packet.raw);
+  return source.length > 180 ? `${source.slice(0, 180)}...` : source;
 }
 
 export function SystemHealthPanel({
@@ -103,6 +152,10 @@ export function SystemHealthPanel({
   backendReachability,
   onRefreshBackendReachability,
 }: SystemHealthPanelProps) {
+  const { token } = useAuth();
+  const [selectedRawPacket, setSelectedRawPacket] = useState<GatewayRawPacket | null>(null);
+  const [rawPacketDetailLoadingId, setRawPacketDetailLoadingId] = useState("");
+  const [rawPacketDetailError, setRawPacketDetailError] = useState("");
   const {
     activeMwdSession,
     activeMwdSessionId,
@@ -120,6 +173,15 @@ export function SystemHealthPanel({
     espWsStatusLoading,
     espWsStatusError,
     refreshEspWsStatus,
+    systemHealth,
+    systemHealthLoading,
+    systemHealthError,
+    refreshSystemHealth,
+    gatewayRawPackets,
+    gatewayRawPacketsLoading,
+    gatewayRawPacketsError,
+    gatewayRawPacketsReachable,
+    refreshGatewayRawPackets,
     realtimeStatus,
     realtimeError,
   } = useApp();
@@ -140,6 +202,40 @@ export function SystemHealthPanel({
       ? "disconnected"
       : normalizeLevel(espWsStatus?.status);
   const realtimeLevel = realtimeError ? "disconnected" : normalizeLevel(realtimeStatus);
+  const systemHealthLevel = systemHealthLoading
+    ? "loading"
+    : systemHealthError
+      ? "disconnected"
+      : normalizeLevel(systemHealth?.status);
+  const latestRawPacket = gatewayRawPackets[0];
+  const latestRawPacketTimestamp = parseTimestamp(latestRawPacket?.receivedAt);
+  const latestRawPacketAgeMs = latestRawPacketTimestamp ? Date.now() - latestRawPacketTimestamp.getTime() : undefined;
+  const rawPacketLevel = gatewayRawPacketsLoading
+    ? "loading"
+    : gatewayRawPacketsError
+      ? "degraded"
+      : !latestRawPacket
+        ? gatewayRawPacketsReachable
+          ? "connected"
+          : "unknown"
+        : typeof latestRawPacketAgeMs === "number"
+          ? latestRawPacketAgeMs <= RAW_PACKET_STALE_AFTER_MS
+            ? "connected"
+            : "degraded"
+          : "unknown";
+  const rawPacketValue = gatewayRawPacketsLoading
+    ? "Loading"
+    : gatewayRawPacketsError
+      ? "Unavailable"
+      : !latestRawPacket
+        ? gatewayRawPacketsReachable
+          ? "Reachable"
+          : "No packets"
+        : typeof latestRawPacketAgeMs === "number"
+          ? latestRawPacketAgeMs <= RAW_PACKET_STALE_AFTER_MS
+            ? "Active"
+            : "Stale"
+          : "Logs available";
   const sessionLevel = activeMwdSessionId ? "connected" : "unknown";
 
   const signalDetails = [
@@ -148,11 +244,27 @@ export function SystemHealthPanel({
     espWsStatus?.signal?.quality ? `Quality ${espWsStatus.signal.quality}` : null,
     espWsStatus?.signal?.sequence ? `Seq ${espWsStatus.signal.sequence}` : null,
   ].filter(Boolean).join(" | ");
-  const espRawPacket =
-    espWsStatus?.lastRawMessage ??
-    espWsStatus?.lastPayload ??
-    espWsStatus?.lastLine ??
-    espWsStatus?.rawPacket;
+  const loadRawPacketDetail = async (packet: GatewayRawPacket) => {
+    if (!token) {
+      setRawPacketDetailError("Please sign in before loading raw packet detail.");
+      return;
+    }
+
+    setRawPacketDetailLoadingId(packet.id);
+    setRawPacketDetailError("");
+
+    try {
+      const detail = await getGatewayRawPacketById(token, packet.id);
+      setSelectedRawPacket(detail);
+    } catch (error) {
+      setSelectedRawPacket(packet);
+      setRawPacketDetailError(
+        error instanceof Error ? error.message : "Unable to load gateway raw packet detail."
+      );
+    } finally {
+      setRawPacketDetailLoadingId("");
+    }
+  };
 
   const items: HealthItem[] = [
     {
@@ -185,7 +297,42 @@ export function SystemHealthPanel({
       description: espWsStatusError || espWsStatus?.lastError || espWsStatus?.message || "ESP WS status endpoint unavailable or no status returned.",
       updatedAt: espWsStatus?.lastReceivedAt,
       detail: signalDetails || (typeof espWsStatus?.clientCount === "number" ? `${espWsStatus.clientCount} clients` : undefined),
-      rawPacket: espRawPacket,
+    },
+    {
+      key: "system-health",
+      label: "Backend System Health",
+      level: systemHealthLevel,
+      value: systemHealthLoading ? "Loading" : systemHealth?.status ?? "Unavailable",
+      description:
+        systemHealthError ||
+        [
+          systemHealth?.version ? `Version ${systemHealth.version}` : null,
+          systemHealth?.databaseStatus ? `DB ${systemHealth.databaseStatus}` : null,
+          typeof systemHealth?.uptimeSeconds === "number" ? `Uptime ${systemHealth.uptimeSeconds}s` : null,
+        ].filter(Boolean).join(" | ") ||
+        "System health endpoint returned no status.",
+      updatedAt: systemHealth?.checkedAt,
+      detail: systemHealth?.dependencies.length ? `${systemHealth.dependencies.length} dependencies` : undefined,
+    },
+    {
+      key: "raw-packets",
+      label: "Gateway Raw Packets",
+      level: rawPacketLevel,
+      value: rawPacketValue,
+      description:
+        gatewayRawPacketsError ||
+        [
+          latestRawPacket?.source ? `Source ${latestRawPacket.source}` : null,
+          latestRawPacket?.status ? `Status ${latestRawPacket.status}` : null,
+          latestRawPacket ? `Freshness ${formatPacketFreshness(latestRawPacket.receivedAt)}` : null,
+        ].filter(Boolean).join(" | ") ||
+        (gatewayRawPacketsReachable
+          ? "GET /api/gateway-raw-packets returned no packet logs."
+          : "GET /api/gateway-raw-packets has not returned packet logs yet."),
+      updatedAt: latestRawPacket?.receivedAt,
+      detail: `${gatewayRawPackets.length} recent packets`,
+      rawPacket: latestRawPacket?.packet,
+      affectsSummary: false,
     },
     {
       key: "realtime",
@@ -205,13 +352,15 @@ export function SystemHealthPanel({
     },
   ];
 
-  const summaryLevel = getSummaryLevel(items);
+  const summaryLevel = getSummaryLevel(items.filter((item) => item.affectsSummary !== false));
   const gridClass = mode === "admin" ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-5";
   const healthLoading =
     connectionStatusLoading ||
     failoverEventsLoading ||
     serialStatusLoading ||
     espWsStatusLoading ||
+    systemHealthLoading ||
+    gatewayRawPacketsLoading ||
     backendReachability?.status === "checking";
 
   const handleRefresh = () => {
@@ -220,6 +369,8 @@ export function SystemHealthPanel({
     void refreshFailoverEvents();
     void refreshSerialStatus();
     void refreshEspWsStatus();
+    void refreshSystemHealth();
+    void refreshGatewayRawPackets();
   };
 
   return (
@@ -243,6 +394,11 @@ export function SystemHealthPanel({
           </div>
           {description ? (
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          ) : null}
+          {backendReachability ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              API probe latency: {formatBackendProbeLatency(backendReachability)} via {BACKEND_REACHABILITY_PROBE_PATH}.
+            </p>
           ) : null}
         </div>
         {showRefresh ? (
@@ -296,20 +452,70 @@ export function SystemHealthPanel({
                   </span>
                 ) : null}
               </div>
-              {item.key === "esp" ? (
+              {item.key === "raw-packets" ? (
                 <div className="mt-3 rounded-lg border border-border/70 bg-muted/40 p-2">
                   <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                    ESP raw packet stream
+                    Gateway raw packet diagnostics
                   </div>
-                  {item.rawPacket ? (
-                    <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground">
-                      {item.rawPacket}
-                    </pre>
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    Diagnostic signal only. System health still comes from connection, serial, ESP WS, and backend health endpoints.
+                  </p>
+                  {gatewayRawPackets.length > 0 ? (
+                    <div className="space-y-2">
+                      {gatewayRawPackets.slice(0, 5).map((packet) => (
+                        <div key={packet.id} className="rounded-md border bg-background/80 p-2">
+                          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 text-[11px]">
+                              <span className="font-medium">{packet.source ?? "Unknown source"}</span>
+                              <span className="text-muted-foreground"> · {formatDateTime(packet.receivedAt)}</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => void loadRawPacketDetail(packet)}
+                              disabled={rawPacketDetailLoadingId === packet.id}
+                            >
+                              <Eye className="mr-1 size-3" />
+                              {rawPacketDetailLoadingId === packet.id ? "Loading" : "Detail"}
+                            </Button>
+                          </div>
+                          <pre className="max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground">
+                            {packetPreview(packet)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      ESP raw packet stream belum tersedia dari backend.
+                      {gatewayRawPacketsReachable
+                        ? "GET /api/gateway-raw-packets returned no packet logs."
+                        : "No raw packets returned by the backend for this token/session context."}
                     </p>
                   )}
+                  {rawPacketDetailError ? (
+                    <p className="mt-2 text-xs text-destructive">{rawPacketDetailError}</p>
+                  ) : null}
+                  {selectedRawPacket ? (
+                    <div className="mt-3 rounded-md border bg-background/80 p-2">
+                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] font-medium">Selected packet detail</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => setSelectedRawPacket(null)}
+                        >
+                          Close
+                        </Button>
+                      </div>
+                      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground">
+                        {JSON.stringify(selectedRawPacket.raw, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

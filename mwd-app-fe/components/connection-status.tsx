@@ -28,7 +28,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   compact = false,
   showMetricsInCompact = false,
 }) => {
-  const { status, latency, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+  const { status, latency, latencySource, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -62,6 +62,18 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   };
 
   const timeSinceLastData = Math.floor((now - lastReceived.getTime()) / 1000);
+  const formatLatency = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(0)} ms` : '- ms';
+  const formatPacketLoss = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}%` : '- %';
+  const latencyLabel =
+    latencySource === 'api-probe' ? 'API' : latencySource === 'connection-status' ? 'Conn' : 'Latency';
+  const latencyTitle =
+    latencySource === 'api-probe'
+      ? 'Backend API probe latency via /api/mwd-sessions.'
+      : latencySource === 'connection-status'
+        ? 'Connection status latency from /api/connection-status.'
+        : 'Latency metric unavailable.';
 
   if (compact) {
     return (
@@ -72,12 +84,17 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </Badge>
         {showMetricsInCompact && (
           <>
-            <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground"
+              title={latencyTitle}
+              aria-label={`${latencyLabel} latency ${formatLatency(latency)}`}
+            >
               <Activity className="size-3" />
-              <span>{latency.toFixed(0)} ms</span>
+              <span className="font-medium">{latencyLabel}</span>
+              <span>{formatLatency(latency)}</span>
             </div>
             <div className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
-              Loss {packetLoss.toFixed(1)}%
+              Loss {formatPacketLoss(packetLoss)}
             </div>
             <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
               <Clock className="size-3" />
@@ -121,13 +138,18 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </Badge>
       </div>
 
-      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+      <div
+        className="flex items-center gap-1 text-sm text-muted-foreground"
+        title={latencyTitle}
+        aria-label={`${latencyLabel} latency ${formatLatency(latency)}`}
+      >
         <Activity className="size-3" />
-        <span>{latency.toFixed(0)} ms</span>
+        <span>{latencyLabel}:</span>
+        <span>{formatLatency(latency)}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
-        <span>Loss: {packetLoss.toFixed(1)}%</span>
+        <span>Loss: {formatPacketLoss(packetLoss)}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">

@@ -959,6 +959,9 @@ export function WellPlotPanel({
               <Badge variant="outline">Trajectory / Well Plot</Badge>
               <Badge variant="secondary">{activeDepthCorrection}</Badge>
               <Badge variant="outline">{activeDepthScale}</Badge>
+              {selectedPlotConfig ? (
+                <Badge variant="outline">Plot config: {selectedPlotConfig.name}</Badge>
+              ) : null}
               {activeMwdSession ? (
                 <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
               ) : null}
@@ -970,7 +973,7 @@ export function WellPlotPanel({
           </div>
         ) : null}
         <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
-          Belum ada plot template.
+          No active tracks configured in the selected Plotting configuration.
         </Card>
       </div>
     );
@@ -986,6 +989,9 @@ export function WellPlotPanel({
                 <Badge variant="outline">Trajectory / Well Plot</Badge>
                 <Badge variant="secondary">{activeDepthCorrection}</Badge>
                 <Badge variant="outline">{activeDepthScale}</Badge>
+                {selectedPlotConfig ? (
+                  <Badge variant="outline">Plot config: {selectedPlotConfig.name}</Badge>
+                ) : null}
                 {activeMwdSession ? (
                   <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
                 ) : null}
@@ -1010,6 +1016,9 @@ export function WellPlotPanel({
               <Badge variant="outline">Trajectory / Well Plot</Badge>
               <Badge variant="secondary">{activeDepthCorrection}</Badge>
               <Badge variant="outline">{activeDepthScale}</Badge>
+              {selectedPlotConfig ? (
+                <Badge variant="outline">Plot config: {selectedPlotConfig.name}</Badge>
+              ) : null}
               {activeMwdSession ? (
                 <Badge variant="secondary">Session: {activeMwdSession.name}</Badge>
               ) : null}

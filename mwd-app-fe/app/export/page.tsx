@@ -1,288 +1,910 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Download, Calendar as CalendarIcon, FileSpreadsheet, FileJson } from 'lucide-react';
-import { format } from 'date-fns';
+import Link from 'next/link';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Archive,
+  Database,
+  Download,
+  ExternalLink,
+  FileClock,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
+  RefreshCw,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { useAuth } from '@/context/AuthContext';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   downloadBlob,
   exportHistorical,
-  ExportFormat,
+  exportPdfPlot,
+  exportSurveys,
+  getExportRecords,
+  type ExportFormat,
+  type ExportRecord,
+  type HistoricalExportPayload,
+  type PdfPlotExportPayload,
+  type SurveyExportPayload,
 } from '@/lib/exports-api';
+import { plotConfigToTemplatePayload } from '@/lib/plot-templates-api';
+import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from '@/lib/survey-defaults';
+import { cn } from '@/lib/utils';
+import type { PlotConfiguration } from '@/types/plotting';
+
+type ExportJobKey = 'historical' | 'surveys' | 'pdf-plot';
+
+type ExportCapability = {
+  key: string;
+  label: string;
+  endpoint: string;
+  format: string;
+  access: string;
+  readiness: 'Direct export' | 'Builder flow' | 'Records';
+};
+
+const exportCapabilities: ExportCapability[] = [
+  {
+    key: 'historical',
+    label: 'Historical Data',
+    endpoint: 'POST /api/exports/historical',
+    format: 'CSV, JSON',
+    access: 'Admin, Engineer',
+    readiness: 'Direct export',
+  },
+  {
+    key: 'surveys',
+    label: 'Survey Records',
+    endpoint: 'POST /api/exports/surveys',
+    format: 'CSV',
+    access: 'Admin, Engineer',
+    readiness: 'Direct export',
+  },
+  {
+    key: 'pdf-plot',
+    label: 'PDF Plot',
+    endpoint: 'POST /api/exports/pdf-plot',
+    format: 'PDF',
+    access: 'Admin, Engineer',
+    readiness: 'Direct export',
+  },
+  {
+    key: 'las',
+    label: 'LAS Export',
+    endpoint: 'POST /api/exports/las',
+    format: 'LAS',
+    access: 'Admin, Engineer',
+    readiness: 'Builder flow',
+  },
+  {
+    key: 'records',
+    label: 'Export Records',
+    endpoint: 'GET /api/exports/records',
+    format: 'Metadata',
+    access: 'Admin, Engineer',
+    readiness: 'Records',
+  },
+];
+
+function readOptionalNumber(value: string, label: string) {
+  if (!value.trim()) return undefined;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be a valid number.`);
+  }
+
+  return parsed;
+}
+
+function readOptionalDateTime(value: string, label: string) {
+  if (!value.trim()) return undefined;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${label} must be a valid date/time.`);
+  }
+
+  return parsed;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '-';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString();
+}
+
+function formatSessionRange(start?: string, end?: string) {
+  if (!start && !end) return 'No time range provided';
+  return `${formatDateTime(start)} - ${formatDateTime(end)}`;
+}
+
+function getPlotDepthRange(config: PlotConfiguration | null) {
+  if (!config) return null;
+
+  const start = config.general.depthRange?.start ?? config.general.measuredDepthStart;
+  const end = config.general.depthRange?.end ?? config.general.measuredDepthEnd;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+
+  return { start, end };
+}
+
+function statusClassName(status?: string) {
+  const normalized = status?.toLowerCase() ?? '';
+
+  if (['completed', 'complete', 'success', 'succeeded', 'ready'].includes(normalized)) {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+
+  if (['failed', 'error', 'cancelled'].includes(normalized)) {
+    return 'border-red-200 bg-red-50 text-red-700';
+  }
+
+  if (['running', 'pending', 'processing'].includes(normalized)) {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
+
+  return 'border-border bg-muted text-muted-foreground';
+}
+
+const capabilityTone: Record<ExportCapability['readiness'], string> = {
+  'Direct export': 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  'Builder flow': 'border-blue-200 bg-blue-50 text-blue-700',
+  Records: 'border-slate-200 bg-slate-50 text-slate-700',
+};
 
 export const ExportPage: React.FC = () => {
   const { token, user } = useAuth();
-  const { activeMwdSessionId, activeMwdSession } = useApp();
-  const [startDate, setStartDate] = useState<Date | undefined>(new Date());
-  const [endDate, setEndDate] = useState<Date | undefined>(new Date());
-  const [depthMin, setDepthMin] = useState('');
-  const [depthMax, setDepthMax] = useState('');
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
-  const [exporting, setExporting] = useState(false);
+  const {
+    activeMwdSession,
+    activeMwdSessionId,
+    activePlotConfig,
+    activePlotConfigId,
+    mwdSessions,
+    mwdSessionsError,
+    mwdSessionsLoading,
+    plotConfigurations,
+    plotTemplatesError,
+    plotTemplatesLoading,
+    refreshMwdSessions,
+    refreshPlotTemplates,
+    setActiveMwdSessionId,
+    setActivePlotConfigId,
+  } = useApp();
+
+  const [historicalFormat, setHistoricalFormat] = useState<ExportFormat>('csv');
+  const [historicalFrom, setHistoricalFrom] = useState('');
+  const [historicalTo, setHistoricalTo] = useState('');
+  const [historicalDepthMin, setHistoricalDepthMin] = useState('');
+  const [historicalDepthMax, setHistoricalDepthMax] = useState('');
+  const [surveyStationType, setSurveyStationType] = useState('actual');
+  const [selectedPlotConfigId, setSelectedPlotConfigId] = useState(activePlotConfigId);
+  const [pdfDepthMin, setPdfDepthMin] = useState('');
+  const [pdfDepthMax, setPdfDepthMax] = useState('');
+  const [runningJob, setRunningJob] = useState<ExportJobKey | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
+  const [exportRecords, setExportRecords] = useState<ExportRecord[]>([]);
+
   const canExport = user?.role === 'admin' || user?.role === 'engineer';
+  const hasActiveSession = Boolean(activeMwdSessionId);
+  const canRunDirectExport = Boolean(token && canExport && hasActiveSession);
 
-  const readDepthFilter = (value: string, label: string) => {
-    if (!value.trim()) return undefined;
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) {
-      throw new Error(`${label} must be a valid number.`);
-    }
-    return parsed;
-  };
-
-  const buildHistoricalExportPayload = () => {
-    if (startDate && endDate && endDate < startDate) {
-      throw new Error('Start date must be before or equal to end date.');
+  const selectedPlotConfig = useMemo(() => {
+    if (selectedPlotConfigId) {
+      return plotConfigurations.find((config) => config.id === selectedPlotConfigId) ?? null;
     }
 
-    const parsedDepthMin = readDepthFilter(depthMin, 'Depth min');
-    const parsedDepthMax = readDepthFilter(depthMax, 'Depth max');
+    return activePlotConfig ?? plotConfigurations[0] ?? null;
+  }, [activePlotConfig, plotConfigurations, selectedPlotConfigId]);
+
+  const selectedPlotRange = useMemo(() => getPlotDepthRange(selectedPlotConfig), [selectedPlotConfig]);
+
+  const loadExportRecords = useCallback(async () => {
+    if (!token || !canExport) {
+      setExportRecords([]);
+      setRecordsError('');
+      return;
+    }
+
+    setRecordsLoading(true);
+    setRecordsError('');
+
+    try {
+      const records = await getExportRecords(token);
+      setExportRecords(records);
+    } catch (error) {
+      setExportRecords([]);
+      setRecordsError(
+        error instanceof Error ? error.message : 'Unable to load export records.'
+      );
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, [canExport, token]);
+
+  useEffect(() => {
+    if (selectedPlotConfigId) return;
+
+    const nextPlotConfigId = activePlotConfigId || activePlotConfig?.id || plotConfigurations[0]?.id;
+    if (nextPlotConfigId) {
+      setSelectedPlotConfigId(nextPlotConfigId);
+    }
+  }, [activePlotConfig?.id, activePlotConfigId, plotConfigurations, selectedPlotConfigId]);
+
+  useEffect(() => {
+    void loadExportRecords();
+  }, [loadExportRecords]);
+
+  const buildHistoricalPayload = (): HistoricalExportPayload => {
+    if (!activeMwdSessionId) {
+      throw new Error('Select an active MWD session before exporting historical data.');
+    }
+
+    const measuredFrom = readOptionalDateTime(historicalFrom, 'Measured from');
+    const measuredTo = readOptionalDateTime(historicalTo, 'Measured to');
+
+    if (measuredFrom && measuredTo && measuredTo < measuredFrom) {
+      throw new Error('Measured from must be before or equal to measured to.');
+    }
+
+    const depthMin = readOptionalNumber(historicalDepthMin, 'Depth min');
+    const depthMax = readOptionalNumber(historicalDepthMax, 'Depth max');
 
     if (
-      typeof parsedDepthMin === 'number' &&
-      typeof parsedDepthMax === 'number' &&
-      parsedDepthMin > parsedDepthMax
+      typeof depthMin === 'number' &&
+      typeof depthMax === 'number' &&
+      depthMin > depthMax
     ) {
       throw new Error('Depth min must be less than or equal to depth max.');
     }
 
-    const payload: {
-      sessionId: string;
-      format: ExportFormat;
-      measuredFrom?: string;
-      measuredTo?: string;
-      depthMin?: number;
-      depthMax?: number;
-    } = {
+    return {
       sessionId: activeMwdSessionId,
-      format: exportFormat,
+      format: historicalFormat,
+      ...(measuredFrom ? { measuredFrom: measuredFrom.toISOString() } : {}),
+      ...(measuredTo ? { measuredTo: measuredTo.toISOString() } : {}),
+      ...(typeof depthMin === 'number' ? { depthMin } : {}),
+      ...(typeof depthMax === 'number' ? { depthMax } : {}),
     };
-
-    if (startDate) {
-      payload.measuredFrom = new Date(
-        startDate.getFullYear(),
-        startDate.getMonth(),
-        startDate.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).toISOString();
-    }
-
-    if (endDate) {
-      payload.measuredTo = new Date(
-        endDate.getFullYear(),
-        endDate.getMonth(),
-        endDate.getDate(),
-        23,
-        59,
-        59,
-        999
-      ).toISOString();
-    }
-
-    if (typeof parsedDepthMin === 'number') payload.depthMin = parsedDepthMin;
-    if (typeof parsedDepthMax === 'number') payload.depthMax = parsedDepthMax;
-
-    return payload;
   };
 
-  const handleExport = async () => {
+  const buildSurveyPayload = (): SurveyExportPayload => {
+    if (!activeMwdSessionId) {
+      throw new Error('Select an active MWD session before exporting survey records.');
+    }
+
+    return {
+      sessionId: activeMwdSessionId,
+      format: 'csv',
+      stationType: surveyStationType,
+      verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
+    };
+  };
+
+  const buildPdfPlotPayload = (): PdfPlotExportPayload => {
+    if (!activeMwdSessionId) {
+      throw new Error('Select an active MWD session before exporting a PDF plot.');
+    }
+
+    if (!selectedPlotConfig) {
+      throw new Error('Select a plot template before exporting a PDF plot.');
+    }
+
+    const fallbackRange = getPlotDepthRange(selectedPlotConfig);
+    const depthMin = readOptionalNumber(pdfDepthMin, 'Plot depth min') ?? fallbackRange?.start;
+    const depthMax = readOptionalNumber(pdfDepthMax, 'Plot depth max') ?? fallbackRange?.end;
+
+    if (typeof depthMin !== 'number' || typeof depthMax !== 'number') {
+      throw new Error('PDF plot export needs a valid depth range.');
+    }
+
+    if (depthMin >= depthMax) {
+      throw new Error('Plot depth min must be less than plot depth max.');
+    }
+
+    const basePayload = {
+      sessionId: activeMwdSessionId,
+      depthMin,
+      depthMax,
+    };
+
+    if (!selectedPlotConfig.id.startsWith('plot-config-')) {
+      return {
+        ...basePayload,
+        templateId: selectedPlotConfig.id,
+      };
+    }
+
+    return {
+      ...basePayload,
+      template: plotConfigToTemplatePayload(selectedPlotConfig).config,
+    };
+  };
+
+  const runExport = async (job: ExportJobKey) => {
     if (!token) {
-      toast.error('Please sign in before exporting data');
+      toast.error('Please sign in before exporting data.');
       return;
     }
 
     if (!canExport) {
-      toast.error('Your role does not have export access');
+      toast.error('Your role does not have export access.');
       return;
     }
 
     if (!activeMwdSessionId) {
-      toast.error('Select an active MWD session before exporting');
+      toast.error('Select an active MWD session before exporting.');
       return;
     }
 
-    setExporting(true);
+    setRunningJob(job);
 
     try {
-      const blob = await exportHistorical(token, buildHistoricalExportPayload());
-      downloadBlob(blob, `historical-data.${exportFormat}`);
+      if (job === 'historical') {
+        const payload = buildHistoricalPayload();
+        const blob = await exportHistorical(token, payload);
+        downloadBlob(blob, `historical-data-session-${activeMwdSessionId}.${payload.format}`);
+        toast.success('Historical data export downloaded.');
+      }
 
-      toast.success('Historical export downloaded', {
-        description: activeMwdSession ? activeMwdSession.name : undefined,
-      });
+      if (job === 'surveys') {
+        const blob = await exportSurveys(token, buildSurveyPayload());
+        downloadBlob(blob, `survey-records-session-${activeMwdSessionId}.csv`);
+        toast.success('Survey records export downloaded.');
+      }
+
+      if (job === 'pdf-plot') {
+        const blob = await exportPdfPlot(token, buildPdfPlotPayload());
+        downloadBlob(blob, `pdf-plot-session-${activeMwdSessionId}.pdf`);
+        toast.success('PDF plot export downloaded.');
+      }
+
+      void loadExportRecords();
     } catch (error) {
       toast.error('Export failed', {
-        description: error instanceof Error ? error.message : 'Unable to export historical data.',
+        description: error instanceof Error ? error.message : 'Unable to complete export.',
       });
     } finally {
-      setExporting(false);
+      setRunningJob(null);
     }
   };
 
+  const refreshContext = () => {
+    void refreshMwdSessions();
+    void refreshPlotTemplates();
+    void loadExportRecords();
+  };
+
+  const renderActionDisabledReason = () => {
+    if (!canExport) return 'Export access is limited to Admin and Engineer roles.';
+    if (!activeMwdSessionId) return 'Select an active MWD session to enable exports.';
+    return null;
+  };
+
+  const disabledReason = renderActionDisabledReason();
+  const recentRecords = exportRecords.slice(0, 8);
+
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Export Data</h1>
-        <p className="text-muted-foreground">
-          Export drilling data, reports, and analysis for offline use
-        </p>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">Export Center</h1>
+            <Badge variant="outline">Admin / Engineer</Badge>
+          </div>
+          <p className="max-w-3xl text-muted-foreground">
+            Centralized export hub for backend-supported historical data, survey records,
+            PDF plots, LAS builder workflow, and export history.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={refreshContext}
+          disabled={mwdSessionsLoading || plotTemplatesLoading || recordsLoading}
+        >
+          <RefreshCw
+            className={cn(
+              'size-4',
+              (mwdSessionsLoading || plotTemplatesLoading || recordsLoading) && 'animate-spin'
+            )}
+          />
+          Refresh Context
+        </Button>
       </div>
 
-      <Card className="p-6">
-        <h3 className="font-semibold mb-6">Export Configuration</h3>
+      {disabledReason ? (
+        <Card className="border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          {disabledReason}
+        </Card>
+      ) : null}
 
-        <div className="space-y-6">
-          {/* Date Range */}
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label>Measured From</Label>
-                {startDate ? (
-                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setStartDate(undefined)}>
-                    Clear
-                  </Button>
-                ) : null}
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
+        <Card className="p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Database className="size-4" />
+                Session Context
               </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left",
-                      !startDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 size-4" />
-                    {startDate ? format(startDate, "PPP") : "Pick a date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={startDate}
-                    onSelect={setStartDate}
-                  />
-                </PopoverContent>
-              </Popover>
+              <h2 className="text-xl font-semibold">
+                {activeMwdSession?.name ?? 'No active MWD session'}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Exports run against the selected active session unless the downstream builder
+                asks for more configuration.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label>Measured To</Label>
-                {endDate ? (
-                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setEndDate(undefined)}>
-                    Clear
-                  </Button>
-                ) : null}
+            <div className="w-full md:w-80">
+              <Label htmlFor="export-session">Active MWD Session</Label>
+              <Select
+                value={activeMwdSessionId || undefined}
+                onValueChange={setActiveMwdSessionId}
+                disabled={mwdSessionsLoading || mwdSessions.length === 0}
+              >
+                <SelectTrigger id="export-session" className="mt-2">
+                  <SelectValue placeholder={mwdSessionsLoading ? 'Loading sessions...' : 'Select session'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {mwdSessions.map((session) => (
+                    <SelectItem key={session.id} value={session.id}>
+                      {session.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {mwdSessionsError ? (
+                <p className="mt-2 text-xs text-destructive">{mwdSessionsError}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 text-sm md:grid-cols-4">
+            <div>
+              <div className="text-muted-foreground">Session ID</div>
+              <div className="font-medium">{activeMwdSessionId || '-'}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Status</div>
+              <div className="font-medium capitalize">{activeMwdSession?.status ?? '-'}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Well / Rig</div>
+              <div className="font-medium">
+                {[activeMwdSession?.wellName, activeMwdSession?.rigName].filter(Boolean).join(' / ') || '-'}
               </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left",
-                      !endDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 size-4" />
-                    {endDate ? format(endDate, "PPP") : "Pick a date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={endDate}
-                    onSelect={setEndDate}
-                  />
-                </PopoverContent>
-              </Popover>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Time Range</div>
+              <div className="font-medium">
+                {formatSessionRange(activeMwdSession?.startTime, activeMwdSession?.endTime)}
+              </div>
             </div>
           </div>
+        </Card>
 
-          {/* Format Selection */}
-          <div className="space-y-2">
-            <Label>Export Format</Label>
-            <div className="grid grid-cols-2 gap-4">
-              <Card 
-                className={cn(
-                  "p-4 cursor-pointer transition-colors",
-                  exportFormat === 'csv' && "border-primary bg-primary/5"
-                )}
-                onClick={() => setExportFormat('csv')}
-              >
-                <FileSpreadsheet className="size-8 mb-2" />
-                <div className="font-medium">CSV</div>
-                <div className="text-xs text-muted-foreground">Raw data table</div>
-              </Card>
-
-              <Card 
-                className={cn(
-                  "p-4 cursor-pointer transition-colors",
-                  exportFormat === 'json' && "border-primary bg-primary/5"
-                )}
-                onClick={() => setExportFormat('json')}
-              >
-                <FileJson className="size-8 mb-2" />
-                <div className="font-medium">JSON</div>
-                <div className="text-xs text-muted-foreground">Structured data</div>
-              </Card>
-            </div>
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <FileClock className="size-4" />
+            Capability Registry
           </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="export-depth-min">Depth Min</Label>
-              <Input
-                id="export-depth-min"
-                type="number"
-                inputMode="decimal"
-                value={depthMin}
-                onChange={(event) => setDepthMin(event.target.value)}
-                placeholder="Optional start depth"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="export-depth-max">Depth Max</Label>
-              <Input
-                id="export-depth-max"
-                type="number"
-                inputMode="decimal"
-                value={depthMax}
-                onChange={(event) => setDepthMax(event.target.value)}
-                placeholder="Optional end depth"
-              />
-            </div>
+          <div className="space-y-3">
+            {exportCapabilities.map((capability) => (
+              <div key={capability.key} className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{capability.label}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {capability.endpoint} · {capability.format}
+                  </div>
+                </div>
+                <Badge variant="outline" className={cn('shrink-0', capabilityTone[capability.readiness])}>
+                  {capability.readiness}
+                </Badge>
+              </div>
+            ))}
           </div>
+        </Card>
+      </section>
 
-          <Button onClick={() => void handleExport()} className="w-full" size="lg" disabled={exporting || !canExport}>
-            <Download className="size-4 mr-2" />
-            {exporting ? 'Exporting...' : 'Export Data'}
-          </Button>
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-xl font-semibold">Data Exports</h2>
+          <p className="text-sm text-muted-foreground">
+            Direct file exports backed by existing export endpoints.
+          </p>
         </div>
-      </Card>
 
-      <Card className="p-6 bg-muted">
-        <h4 className="font-medium mb-2">Export Guidelines</h4>
-        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-          <li>Date range and depth range are sent to /api/exports/historical when filled.</li>
-          <li>If both filter types are filled, backend should apply AND filtering.</li>
-          <li>CSV format is best for data analysis in spreadsheets</li>
-          <li>JSON format is ideal for programmatic access</li>
-          <li>Empty filter fields are omitted from the export payload.</li>
-        </ul>
-      </Card>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="size-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Historical Data Export</h3>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Exports historical records for the active session with optional date/time and depth filters.
+                </p>
+              </div>
+              <Badge variant="outline">CSV / JSON</Badge>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="historical-from">Measured From</Label>
+                <Input
+                  id="historical-from"
+                  type="datetime-local"
+                  value={historicalFrom}
+                  onChange={(event) => setHistoricalFrom(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="historical-to">Measured To</Label>
+                <Input
+                  id="historical-to"
+                  type="datetime-local"
+                  value={historicalTo}
+                  onChange={(event) => setHistoricalTo(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="historical-depth-min">Depth Min</Label>
+                <Input
+                  id="historical-depth-min"
+                  type="number"
+                  inputMode="decimal"
+                  value={historicalDepthMin}
+                  onChange={(event) => setHistoricalDepthMin(event.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="historical-depth-max">Depth Max</Label>
+                <Input
+                  id="historical-depth-max"
+                  type="number"
+                  inputMode="decimal"
+                  value={historicalDepthMax}
+                  onChange={(event) => setHistoricalDepthMax(event.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="historical-format">Format</Label>
+                <Select
+                  value={historicalFormat}
+                  onValueChange={(value) => setHistoricalFormat(value as ExportFormat)}
+                >
+                  <SelectTrigger id="historical-format">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="csv">CSV table</SelectItem>
+                    <SelectItem value="json">JSON structured data</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              className="mt-5 w-full"
+              disabled={!canRunDirectExport || runningJob === 'historical'}
+              onClick={() => void runExport('historical')}
+            >
+              <Download className="size-4" />
+              {runningJob === 'historical' ? 'Exporting Historical...' : 'Export Historical Data'}
+            </Button>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="size-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Survey Records Export</h3>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Exports survey stations for the active session using the existing survey export endpoint.
+                </p>
+              </div>
+              <Badge variant="outline">CSV</Badge>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <Label htmlFor="survey-station-type">Station Type</Label>
+              <Select value={surveyStationType} onValueChange={setSurveyStationType}>
+                <SelectTrigger id="survey-station-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="actual">Actual stations</SelectItem>
+                  <SelectItem value="plan">Plan stations</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Vertical section azimuth follows the existing survey default ({DEFAULT_VERTICAL_SECTION_AZIMUTH} deg).
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              className="mt-5 w-full"
+              disabled={!canRunDirectExport || runningJob === 'surveys'}
+              onClick={() => void runExport('surveys')}
+            >
+              <Download className="size-4" />
+              {runningJob === 'surveys' ? 'Exporting Surveys...' : 'Export Survey CSV'}
+            </Button>
+          </Card>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-xl font-semibold">Reports & Logs</h2>
+          <p className="text-sm text-muted-foreground">
+            Plot and LAS exports that need plotting or column configuration.
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileText className="size-5 text-primary" />
+                  <h3 className="text-lg font-semibold">PDF Plot Export</h3>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Uses the active plot template payload from the plotting module and sends it to the PDF plot export endpoint.
+                </p>
+              </div>
+              <Badge variant="outline">PDF</Badge>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="plot-template">Plot Template</Label>
+                <Select
+                  value={selectedPlotConfig?.id || undefined}
+                  onValueChange={(value) => {
+                    setSelectedPlotConfigId(value);
+                    setActivePlotConfigId(value);
+                  }}
+                  disabled={plotTemplatesLoading || plotConfigurations.length === 0}
+                >
+                  <SelectTrigger id="plot-template">
+                    <SelectValue placeholder={plotTemplatesLoading ? 'Loading plot templates...' : 'Select template'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plotConfigurations.map((config) => (
+                      <SelectItem key={config.id} value={config.id}>
+                        {config.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {plotTemplatesError ? (
+                  <p className="text-xs text-destructive">{plotTemplatesError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Template range: {selectedPlotRange ? `${selectedPlotRange.start} - ${selectedPlotRange.end}` : 'not set'}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pdf-depth-min">Depth Min</Label>
+                <Input
+                  id="pdf-depth-min"
+                  type="number"
+                  inputMode="decimal"
+                  value={pdfDepthMin}
+                  onChange={(event) => setPdfDepthMin(event.target.value)}
+                  placeholder={selectedPlotRange ? String(selectedPlotRange.start) : 'Required'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pdf-depth-max">Depth Max</Label>
+                <Input
+                  id="pdf-depth-max"
+                  type="number"
+                  inputMode="decimal"
+                  value={pdfDepthMax}
+                  onChange={(event) => setPdfDepthMax(event.target.value)}
+                  placeholder={selectedPlotRange ? String(selectedPlotRange.end) : 'Required'}
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={!canRunDirectExport || !selectedPlotConfig || runningJob === 'pdf-plot'}
+                onClick={() => void runExport('pdf-plot')}
+              >
+                <Download className="size-4" />
+                {runningJob === 'pdf-plot' ? 'Exporting Plot...' : 'Export PDF Plot'}
+              </Button>
+              {canExport ? (
+                <Button asChild type="button" variant="outline">
+                  <Link href="/data-management/plotting">
+                    <ExternalLink className="size-4" />
+                    Open Plot Builder
+                  </Link>
+                </Button>
+              ) : (
+                <Button type="button" variant="outline" disabled>
+                  <ExternalLink className="size-4" />
+                  Open Plot Builder
+                </Button>
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Archive className="size-5 text-primary" />
+                  <h3 className="text-lg font-semibold">LAS Export</h3>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  LAS generation is supported by the backend, but it depends on column selection,
+                  well info, depth step, precision, null value, and survey options configured in the LAS builder.
+                </p>
+              </div>
+              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                Builder
+              </Badge>
+            </div>
+
+            <div className="mt-5 rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
+              <div className="font-medium text-foreground">Backend flow</div>
+              <div className="mt-1">POST /api/exports/las</div>
+              <div className="mt-3 font-medium text-foreground">Why this opens a builder</div>
+              <div className="mt-1">
+                The existing LAS flow builds a validated column payload from WITS config and session well info.
+                Export Center links to that real flow instead of sending an incomplete LAS payload.
+              </div>
+            </div>
+
+            {canExport ? (
+              <Button asChild className="mt-5 w-full">
+                <Link href="/data-management/generate-las">
+                  <ExternalLink className="size-4" />
+                  Open LAS Builder
+                </Link>
+              </Button>
+            ) : (
+              <Button className="mt-5 w-full" disabled>
+                <ExternalLink className="size-4" />
+                Open LAS Builder
+              </Button>
+            )}
+          </Card>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Card className="p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <FileClock className="size-5 text-primary" />
+                <h2 className="text-xl font-semibold">Export Records</h2>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Recent export metadata from the backend records endpoint.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void loadExportRecords()}
+              disabled={recordsLoading || !canExport}
+            >
+              <RefreshCw className={cn('size-4', recordsLoading && 'animate-spin')} />
+              Refresh
+            </Button>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-md border">
+            <div className="grid grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 bg-muted px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div>File</div>
+              <div>Type</div>
+              <div>Created</div>
+              <div className="text-right">Action</div>
+            </div>
+
+            {recordsLoading ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                Loading export records...
+              </div>
+            ) : recordsError ? (
+              <div className="px-4 py-8 text-center text-sm text-destructive">{recordsError}</div>
+            ) : recentRecords.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No export records returned by the backend yet.
+              </div>
+            ) : (
+              recentRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="grid grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 border-t px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{record.fileName ?? record.id}</div>
+                    <Badge variant="outline" className={cn('mt-1', statusClassName(record.status))}>
+                      {record.status ?? 'unknown'}
+                    </Badge>
+                  </div>
+                  <div className="text-muted-foreground">{record.type ?? '-'}</div>
+                  <div className="text-muted-foreground">{formatDateTime(record.createdAt)}</div>
+                  <div className="text-right">
+                    {record.downloadUrl ? (
+                      <Button asChild variant="ghost" size="sm">
+                        <a href={record.downloadUrl} target="_blank" rel="noreferrer">
+                          <Download className="size-4" />
+                        </a>
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No URL</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <FileJson className="size-5 text-primary" />
+            <h2 className="text-xl font-semibold">Excluded From Center</h2>
+          </div>
+          <div className="mt-4 space-y-4 text-sm text-muted-foreground">
+            <div>
+              <div className="font-medium text-foreground">System backup / restore</div>
+              <p className="mt-1">
+                Backup and restore endpoints are admin-oriented system utilities, not normal operational data exports.
+                They remain outside the primary export actions.
+              </p>
+            </div>
+            <div>
+              <div className="font-medium text-foreground">Unsupported formats</div>
+              <p className="mt-1">
+                Formats not backed by existing endpoints are not shown as active export buttons.
+              </p>
+            </div>
+          </div>
+        </Card>
+      </section>
     </div>
   );
 };

@@ -25,8 +25,8 @@ export type FailoverEventsQuery = {
 export type ConnectionStatusRecord = {
   id: string;
   status: ConnectionStatus;
-  latency: number;
-  packetLoss: number;
+  latency?: number;
+  packetLoss?: number;
   lastReceived: Date;
   dataSource: DataSource;
   message?: string;
@@ -137,8 +137,20 @@ function normalizeConnectionStatus(record: BackendRecord, index = 0): Connection
   return {
     id: readString(record, ["id", "_id", "statusId", "status_id"]) ?? `connection-status-${index}`,
     status,
-    latency: readNumber(record, ["latency", "latencyMs", "latency_ms", "rttMs", "rtt_ms"]) ?? 0,
-    packetLoss: readNumber(record, ["packetLoss", "packet_loss", "packetLossPercent", "packet_loss_percent"]) ?? 0,
+    latency: readNumber(record, [
+      "latency",
+      "latencyMs",
+      "latency_ms",
+      "responseMs",
+      "response_ms",
+      "pingMs",
+      "ping_ms",
+      "roundTripMs",
+      "round_trip_ms",
+      "rttMs",
+      "rtt_ms",
+    ]),
+    packetLoss: readNumber(record, ["packetLoss", "packet_loss", "packetLossPercent", "packet_loss_percent"]),
     lastReceived: readDate(record, ["lastReceived", "last_received", "timestamp", "time", "updatedAt", "updated_at", "createdAt", "created_at"]),
     dataSource,
     message: readString(record, ["message", "summary", "description", "note"]),

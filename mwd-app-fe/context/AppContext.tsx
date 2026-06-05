@@ -55,11 +55,30 @@ import {
 } from '@/lib/connection-api';
 import { getSerialStatus, type SerialStatus } from '@/lib/serial-api';
 import { getEspWsStatus, type EspWsStatus } from '@/lib/esp-ws-api';
+import { getSystemHealth, type BackendSystemHealth } from '@/lib/system-health-api';
+import { getGatewayRawPackets, type GatewayRawPacket } from '@/lib/gateway-raw-packets-api';
 import {
   getRealtimeClient,
   type RealtimeConnectionState,
   type RealtimeEvent,
 } from '@/lib/realtime-client';
+import {
+  BACKEND_REACHABILITY_PROBE_PATH,
+  checkBackendReachability,
+  type BackendReachability,
+} from '@/lib/admin-backend-health-api';
+
+function getReachabilityLatencyMs(health: BackendReachability) {
+  if (
+    (health.status === 'online' || health.status === 'auth-error') &&
+    typeof health.latencyMs === 'number' &&
+    Number.isFinite(health.latencyMs)
+  ) {
+    return health.latencyMs;
+  }
+
+  return undefined;
+}
 
 interface AppContextType {
   connectionState: ConnectionState;
@@ -78,6 +97,15 @@ interface AppContextType {
   espWsStatusLoading: boolean;
   espWsStatusError: string;
   refreshEspWsStatus: () => Promise<void>;
+  systemHealth: BackendSystemHealth | null;
+  systemHealthLoading: boolean;
+  systemHealthError: string;
+  refreshSystemHealth: () => Promise<void>;
+  gatewayRawPackets: GatewayRawPacket[];
+  gatewayRawPacketsLoading: boolean;
+  gatewayRawPacketsError: string;
+  gatewayRawPacketsReachable: boolean;
+  refreshGatewayRawPackets: () => Promise<void>;
   realtimeStatus: RealtimeConnectionState;
   realtimeError: string;
   wells: Well[];
@@ -241,6 +269,10 @@ function normalizeAngle(value: number) {
 }
 
 function isExpectedBackendConnectivityError(error: unknown) {
+  if (error instanceof ApiClientError) {
+    return error.status === 404 || error.status === 405 || error.status === 501;
+  }
+
   if (!(error instanceof Error)) return false;
 
   const message = error.message.toLowerCase();
@@ -465,8 +497,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const { token, isAuthenticated, user } = useAuth();
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'offline',
-    latency: 0,
-    packetLoss: 0,
     lastReceived: new Date(),
     dataSource: 'primary'
   });
@@ -481,6 +511,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [espWsStatus, setEspWsStatus] = useState<EspWsStatus | null>(null);
   const [espWsStatusLoading, setEspWsStatusLoading] = useState(false);
   const [espWsStatusError, setEspWsStatusError] = useState('');
+  const [systemHealth, setSystemHealth] = useState<BackendSystemHealth | null>(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [systemHealthError, setSystemHealthError] = useState('');
+  const [gatewayRawPackets, setGatewayRawPackets] = useState<GatewayRawPacket[]>([]);
+  const [gatewayRawPacketsLoading, setGatewayRawPacketsLoading] = useState(false);
+  const [gatewayRawPacketsError, setGatewayRawPacketsError] = useState('');
+  const [gatewayRawPacketsReachable, setGatewayRawPacketsReachable] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>('idle');
   const [realtimeError, setRealtimeError] = useState('');
   const [failoverEventIds, setFailoverEventIds] = useState<Set<string>>(() => new Set());
@@ -490,6 +527,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const failoverEventsRequestInFlight = useRef(false);
   const serialStatusRequestInFlight = useRef(false);
   const espWsStatusRequestInFlight = useRef(false);
+  const systemHealthRequestInFlight = useRef(false);
+  const gatewayRawPacketsRequestInFlight = useRef(false);
 
   const [wells] = useState<Well[]>([]);
   const [activeWell, setActiveWell] = useState<Well | null>(null);
@@ -1043,6 +1082,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) {
       setConnectionStatusError('');
       setBackendConnectionStatusActive(false);
+      setConnectionState((current) => ({
+        ...current,
+        latency: undefined,
+        latencySource: undefined,
+        packetLoss: undefined,
+      }));
       return;
     }
     if (connectionStatusRequestInFlight.current) return;
@@ -1052,24 +1097,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setConnectionStatusError('');
 
     try {
-      const status = await getCurrentConnectionStatus(token, {
-        sessionId: activeMwdSessionId || undefined,
-        limit: 10,
-      });
+      const [connectionStatusResult, reachabilityResult] = await Promise.allSettled([
+        getCurrentConnectionStatus(token, {
+          sessionId: activeMwdSessionId || undefined,
+          limit: 10,
+        }),
+        checkBackendReachability(token, BACKEND_REACHABILITY_PROBE_PATH),
+      ]);
+      const status =
+        connectionStatusResult.status === 'fulfilled' ? connectionStatusResult.value : null;
+      const reachability =
+        reachabilityResult.status === 'fulfilled' ? reachabilityResult.value : undefined;
+      const reachabilityLatencyMs = reachability ? getReachabilityLatencyMs(reachability) : undefined;
 
       if (status) {
+        const nextConnectionState = connectionStatusToState(status);
+
         setConnectionState((current) => ({
           ...current,
-          ...connectionStatusToState(status),
+          ...nextConnectionState,
+          latency: nextConnectionState.latency ?? reachabilityLatencyMs,
+          latencySource:
+            typeof nextConnectionState.latency === 'number'
+              ? 'connection-status'
+              : typeof reachabilityLatencyMs === 'number'
+                ? 'api-probe'
+                : undefined,
           reconnecting: current.reconnecting,
         }));
         setBackendConnectionStatusActive(true);
       } else {
         setBackendConnectionStatusActive(false);
+        setConnectionState((current) => ({
+          ...current,
+          latency: reachabilityLatencyMs,
+          latencySource: typeof reachabilityLatencyMs === 'number' ? 'api-probe' : undefined,
+          packetLoss: undefined,
+        }));
+      }
+
+      if (connectionStatusResult.status === 'rejected') {
+        logBackendError('Unable to load connection status.', connectionStatusResult.reason);
+        setConnectionStatusError(getBackendStatusErrorMessage('Connection status', connectionStatusResult.reason));
       }
     } catch (error) {
       logBackendError('Unable to load connection status.', error);
       setConnectionStatusError(getBackendStatusErrorMessage('Connection status', error));
+      setConnectionState((current) => ({
+        ...current,
+        latency: undefined,
+        latencySource: undefined,
+        packetLoss: undefined,
+      }));
     } finally {
       connectionStatusRequestInFlight.current = false;
       setConnectionStatusLoading(false);
@@ -1159,6 +1238,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       espWsStatusRequestInFlight.current = false;
       setEspWsStatusLoading(false);
+    }
+  }, [token]);
+
+  const refreshSystemHealth = useCallback(async () => {
+    if (!token) {
+      setSystemHealth(null);
+      setSystemHealthError('');
+      return;
+    }
+    if (systemHealthRequestInFlight.current) return;
+
+    systemHealthRequestInFlight.current = true;
+    setSystemHealthLoading(true);
+    setSystemHealthError('');
+
+    try {
+      const health = await getSystemHealth(token);
+      setSystemHealth(health);
+    } catch (error) {
+      logBackendError('Unable to load system health.', error);
+      setSystemHealth(null);
+      setSystemHealthError(getBackendStatusErrorMessage('System health', error));
+    } finally {
+      systemHealthRequestInFlight.current = false;
+      setSystemHealthLoading(false);
+    }
+  }, [token]);
+
+  const refreshGatewayRawPackets = useCallback(async () => {
+    if (!token) {
+      setGatewayRawPackets([]);
+      setGatewayRawPacketsError('');
+      setGatewayRawPacketsReachable(false);
+      return;
+    }
+    if (gatewayRawPacketsRequestInFlight.current) return;
+
+    gatewayRawPacketsRequestInFlight.current = true;
+    setGatewayRawPacketsLoading(true);
+    setGatewayRawPacketsError('');
+
+    try {
+      const packets = await getGatewayRawPackets(token, 10);
+      setGatewayRawPackets(packets);
+      setGatewayRawPacketsReachable(true);
+    } catch (error) {
+      logBackendError('Unable to load gateway raw packets.', error);
+      setGatewayRawPackets([]);
+      setGatewayRawPacketsError(getBackendStatusErrorMessage('Gateway raw packets', error));
+      setGatewayRawPacketsReachable(false);
+    } finally {
+      gatewayRawPacketsRequestInFlight.current = false;
+      setGatewayRawPacketsLoading(false);
     }
   }, [token]);
 
@@ -1375,6 +1507,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     failoverEventsRequestInFlight.current = false;
     serialStatusRequestInFlight.current = false;
     espWsStatusRequestInFlight.current = false;
+    systemHealthRequestInFlight.current = false;
+    gatewayRawPacketsRequestInFlight.current = false;
     activeGeneratedEventKeysRef.current.clear();
     mwdRecordKeysRef.current.clear();
 
@@ -1401,6 +1535,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSerialStatusError('');
     setEspWsStatus(null);
     setEspWsStatusError('');
+    setSystemHealth(null);
+    setSystemHealthError('');
+    setGatewayRawPackets([]);
+    setGatewayRawPacketsError('');
+    setGatewayRawPacketsReachable(false);
     setRealtimeError('');
     setBackendConnectionStatusActive(false);
   }, [isAuthenticated, token]);
@@ -1468,6 +1607,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSerialStatusError('');
       setEspWsStatus(null);
       setEspWsStatusError('');
+      setSystemHealth(null);
+      setSystemHealthError('');
+      setGatewayRawPackets([]);
+      setGatewayRawPacketsError('');
+      setGatewayRawPacketsReachable(false);
       setBackendConnectionStatusActive(false);
       setFailoverEventIds(new Set());
       return;
@@ -1477,13 +1621,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void refreshFailoverEvents();
     void refreshSerialStatus();
     void refreshEspWsStatus();
+    void refreshSystemHealth();
+    void refreshGatewayRawPackets();
   }, [
     activeMwdSessionId,
     isAuthenticated,
     refreshConnectionStatus,
     refreshEspWsStatus,
     refreshFailoverEvents,
+    refreshGatewayRawPackets,
     refreshSerialStatus,
+    refreshSystemHealth,
     token,
   ]);
 
@@ -1495,6 +1643,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       void refreshConnectionStatus();
       void refreshSerialStatus();
       void refreshEspWsStatus();
+      void refreshSystemHealth();
+      void refreshGatewayRawPackets();
     }, 10000);
 
     return () => window.clearInterval(interval);
@@ -1502,7 +1652,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isAuthenticated,
     refreshConnectionStatus,
     refreshEspWsStatus,
+    refreshGatewayRawPackets,
     refreshSerialStatus,
+    refreshSystemHealth,
     settings.display.autoRefresh,
     token,
   ]);
@@ -1613,12 +1765,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const reconnect = useCallback(() => {
-    setConnectionState(prev => ({ ...prev, reconnecting: true }));
-    
-    setTimeout(() => {
-      setConnectionState(prev => ({ ...prev, reconnecting: false }));
-    }, 2000);
-  }, []);
+    if (!isAuthenticated || !token) {
+      setConnectionStatusError('Sign in before reconnecting to backend services.');
+      return;
+    }
+
+    const client = getRealtimeClient();
+    client.disconnect();
+    client.connect();
+
+    if (activeMwdSessionId) {
+      client.subscribeSession(activeMwdSessionId);
+    }
+
+    void refreshConnectionStatus();
+    void refreshSerialStatus();
+    void refreshEspWsStatus();
+    void refreshSystemHealth();
+    void refreshGatewayRawPackets();
+  }, [
+    activeMwdSessionId,
+    isAuthenticated,
+    refreshConnectionStatus,
+    refreshEspWsStatus,
+    refreshGatewayRawPackets,
+    refreshSerialStatus,
+    refreshSystemHealth,
+    token,
+  ]);
 
   const updateSettings = useCallback((newSettings: Partial<UserSettings>) => {
     setSettings(prev => {
@@ -1703,6 +1877,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       espWsStatusLoading,
       espWsStatusError,
       refreshEspWsStatus,
+      systemHealth,
+      systemHealthLoading,
+      systemHealthError,
+      refreshSystemHealth,
+      gatewayRawPackets,
+      gatewayRawPacketsLoading,
+      gatewayRawPacketsError,
+      gatewayRawPacketsReachable,
+      refreshGatewayRawPackets,
       realtimeStatus,
       realtimeError,
       wells,

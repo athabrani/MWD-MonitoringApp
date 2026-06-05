@@ -52,11 +52,6 @@ import {
   MemoryFileRecord,
 } from "@/lib/memory-files-api";
 import {
-  applyCorrelationSettings,
-  buildCompareRows,
-  createGapFillRequest,
-  createMemoryStorageChannel,
-  importMemorySegment,
   parseMemoryCsv,
   validateMemoryWitsId,
 } from "@/lib/memory-import";
@@ -73,11 +68,11 @@ import { cn } from "@/lib/utils";
 type WizardStep = "storage" | "upload" | "scan" | "import" | "correlate";
 
 const steps: Array<{ id: WizardStep; title: string; description: string }> = [
-  { id: "storage", title: "Storage WITS ID", description: "Create or select memory storage" },
+  { id: "storage", title: "Storage WITS ID", description: "Review backend memory target" },
   { id: "upload", title: "Upload CSV", description: "Load vendor export file" },
   { id: "scan", title: "Scan Segment", description: "Review detected runs" },
-  { id: "import", title: "Import", description: "Store selected samples locally" },
-  { id: "correlate", title: "Correlate", description: "Shift, rescale, compare, fill gaps" },
+  { id: "import", title: "Import", description: "Submit to backend" },
+  { id: "correlate", title: "Correlate", description: "Backend dry-run and apply" },
 ];
 
 const initialChannels: MemoryStorageChannel[] = [];
@@ -284,7 +279,14 @@ export function MemoryImportWizard() {
     return completed;
   }, [activeDataset, gapFillRequests.length, importFile, selectedSegment, selectedStorage]);
 
-  const compareRows = useMemo(() => buildCompareRows(activeDataset, []), [activeDataset]);
+  const compareRows = useMemo<Array<{
+    sampleId: string;
+    depth: number;
+    importedValue: number;
+    nearestRealtimeDepth: number | null;
+    nearestRealtimeValue: number | null;
+    delta: number | null;
+  }>>(() => [], []);
 
   const activeSourceField =
     correlationSourceField.trim() ||
@@ -400,20 +402,9 @@ export function MemoryImportWizard() {
       return;
     }
 
-    const channel = createMemoryStorageChannel({
-      witsId: storageDraft.witsId.trim(),
-      name: storageDraft.name.trim() || `Memory ${storageDraft.witsId}`,
-      decimalPlaces: storageDraft.decimalPlaces,
-      scaleFactor: storageDraft.scaleFactor,
-      bitOffset: storageDraft.bitOffset,
-      sensorSpacing: storageDraft.sensorSpacing,
-      plotScaleInfo: storageDraft.plotScaleInfo,
+    toast.warning("Backend endpoint required", {
+      description: "Registering memory storage channels locally is disabled. Use a backend-backed memory storage endpoint when available.",
     });
-
-    setStorageChannels((current) => [channel, ...current]);
-    setSelectedStorageId(channel.id);
-    setActiveStep("upload");
-    toast.success(`Storage WITS ID ${channel.witsId} registered locally`);
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -431,7 +422,9 @@ export function MemoryImportWizard() {
       setActiveStep("scan");
 
       if (!token || !canManageMemoryFiles) {
-        toast.warning("Memory file scanned locally. Backend import requires admin or engineer access.");
+        toast.warning("Backend import not available for this user", {
+          description: "The file was parsed only for browser-side preview. No memory data was stored.",
+        });
         return;
       }
 
@@ -463,30 +456,20 @@ export function MemoryImportWizard() {
   };
 
   const handleImportSegment = () => {
-    if (!selectedStorage || !importFile || !selectedSegment) {
-      toast.error("Select storage and segment before import");
+    if (!importFile || !selectedSegment) {
+      toast.error("Select a parsed memory segment before import.");
       return;
     }
 
-    const dataset = importMemorySegment(selectedStorage, importFile, selectedSegment);
-    setDatasets((current) => [dataset, ...current]);
-    setActiveDatasetId(dataset.id);
-    setActiveStep("correlate");
-    toast.success(`${dataset.samples.length} samples imported to WITS ID ${dataset.storageWitsId}`);
+    toast.warning("Local memory import disabled", {
+      description: "Use POST /api/memory-files/import from the upload step. The frontend no longer creates local runtime memory datasets.",
+    });
   };
 
   const handleApplyCorrelation = () => {
-    if (!activeDataset) {
-      toast.error("Import a segment before correlation");
-      return;
-    }
-
-    const settings = { ...correlationSettings, updatedAt: new Date().toISOString() };
-    setDatasets((current) =>
-      current.map((dataset) => (dataset.id === activeDataset.id ? applyCorrelationSettings(dataset, settings) : dataset))
-    );
-    setCorrelationSettings(settings);
-    toast.success("Correlation settings applied locally");
+    toast.warning("Local-only correlation disabled", {
+      description: "Run backend dry-run preview and apply through POST /api/memory-files/:id/correlate.",
+    });
   };
 
   const buildCorrelationPayload = (dryRun: boolean) => {
@@ -578,25 +561,9 @@ export function MemoryImportWizard() {
   };
 
   const handleGapFill = () => {
-    if (!activeDataset || activeDataset.samples.length === 0) {
-      toast.error("No imported dataset available for gap fill");
-      return;
-    }
-
-    const depths = activeDataset.samples.map((sample) => sample.depth);
-    const request = createGapFillRequest({
-      dataset: activeDataset,
-      targetWitsId: gapTargetWitsId,
-      startDepth: Math.min(...depths),
-      endDepth: Math.max(...depths),
-      mode: gapMode,
+    toast.warning("Backend endpoint required", {
+      description: "Local gap-fill staging is disabled. Add a backend gap-fill endpoint before enabling this action.",
     });
-
-    setGapFillRequests((current) => [request, ...current]);
-    setDatasets((current) =>
-      current.map((dataset) => (dataset.id === activeDataset.id ? { ...dataset, status: "gap-fill-staged" } : dataset))
-    );
-    toast.success(`${request.affectedSamples} imported samples staged for local gap fill`);
   };
 
   const handleDeleteBackendMemoryFile = async (fileId: string) => {
@@ -634,8 +601,8 @@ export function MemoryImportWizard() {
     <div className="space-y-5">
       <WorkspaceSection
         title="Memory File Import"
-        description="Operational wizard for vendor CSV memory exports. Storage, parsing, import, correlation, and gap fill are local demo workflows until a backend store is connected."
-        badge="Backend memory files + local scan"
+        description="Operational wizard for backend memory files. Browser parsing is used only to preview an upload payload before POST /api/memory-files/import."
+        badge="Backend memory files"
       >
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[1.5fr_1fr]">
@@ -839,7 +806,7 @@ export function MemoryImportWizard() {
 
       {activeStep === "storage" ? (
         <div className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
-          <WorkspaceSection title="Select Existing Memory Storage" description="Local state storage channels available for this browser session.">
+          <WorkspaceSection title="Memory Storage" description="Storage channels must come from backend memory endpoints. No browser-local storage channel is created.">
             <div className="space-y-3">
               {storageChannels.map((channel) => (
                 <button
@@ -868,12 +835,12 @@ export function MemoryImportWizard() {
             </div>
           </WorkspaceSection>
 
-          <WorkspaceSection title="Create/Register Storage WITS ID" description="Registers a local UI storage channel; no backend or decoder setting is changed.">
+          <WorkspaceSection title="Create/Register Storage WITS ID" description="Registration requires a backend endpoint. This form is disabled until that contract exists.">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>WITS ID</Label>
                 <Input value={storageDraft.witsId} onChange={(event) => setStorageDraft((current) => ({ ...current, witsId: event.target.value }))} />
-                {storageValidation ? <p className="text-xs text-destructive">{storageValidation}</p> : <p className="text-xs text-emerald-600">Available for local memory storage.</p>}
+                {storageValidation ? <p className="text-xs text-destructive">{storageValidation}</p> : <p className="text-xs text-muted-foreground">Backend registration endpoint required.</p>}
               </div>
               <div className="space-y-2">
                 <Label>Name</Label>
@@ -902,7 +869,7 @@ export function MemoryImportWizard() {
             </div>
             <Button className="mt-4" onClick={handleCreateStorage} disabled={Boolean(storageValidation)}>
               <Plus className="mr-2 size-4" />
-              Register local storage
+              Register storage
             </Button>
           </WorkspaceSection>
         </div>
@@ -991,11 +958,11 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "import" ? (
-        <WorkspaceSection title="Import to Storage" description="Selected segment is copied into the chosen memory WITS storage as a separate local dataset. Existing log data is not overwritten.">
+        <WorkspaceSection title="Import to Storage" description="Selected segments must be stored by POST /api/memory-files/import. The frontend does not create runtime memory datasets.">
           <div className="grid gap-4 lg:grid-cols-3">
             <SummaryCard icon={Database} label="Target storage" value={selectedStorage ? `${selectedStorage.witsId} - ${selectedStorage.name}` : "None"} />
             <SummaryCard icon={FileSearch} label="Selected segment" value={selectedSegment ? `${selectedSegment.name}, ${selectedSegment.sampleCount} samples` : "None"} />
-            <SummaryCard icon={Check} label="Existing datasets" value={`${datasets.length} local dataset(s)`} />
+            <SummaryCard icon={Check} label="Runtime datasets" value="Disabled" />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setActiveStep("scan")}>Back to scan</Button>
@@ -1035,7 +1002,7 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "correlate" ? (
-        <WorkspaceSection title="Correlate Imported Data" description="Apply local time/depth/value adjustments and compare imported memory samples against existing real-time log data.">
+        <WorkspaceSection title="Correlate Imported Data" description="Use backend dry-run and apply endpoints to correlate memory files with MWD data.">
           {selectedBackendFile ? (
             <Tabs defaultValue="correlate" className="space-y-4">
               <TabsList className="h-auto flex-wrap justify-start">
@@ -1155,7 +1122,7 @@ export function MemoryImportWizard() {
                     </AlertDialogContent>
                   </AlertDialog>
                   <Button variant="ghost" onClick={handleApplyCorrelation}>
-                    Apply local-only correlation
+                    Apply backend correlation
                   </Button>
                 </div>
                 {correlationPreview ? (
@@ -1266,12 +1233,12 @@ export function MemoryImportWizard() {
                   <div className="flex items-end">
                     <Button onClick={handleGapFill}>
                       <Copy className="mr-2 size-4" />
-                      Stage local gap fill
+                      Stage gap fill
                     </Button>
                   </div>
                 </div>
                 <PlaceholderNote>
-                  Gap fill helper stages a local request and reports affected samples. It does not write to a backend or mutate real-time channels permanently.
+                  Gap fill requires a backend endpoint. The frontend no longer stages local gap-fill requests.
                 </PlaceholderNote>
                 {gapFillRequests.length > 0 ? (
                   <Table>

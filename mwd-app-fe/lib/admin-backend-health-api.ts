@@ -4,6 +4,7 @@ export type BackendReachabilityStatus =
   | "checking"
   | "online"
   | "offline"
+  | "unsupported"
   | "auth-error"
   | "error";
 
@@ -13,6 +14,8 @@ export type BackendReachability = {
   lastCheckedAt?: string;
   errorMessage?: string;
 };
+
+export const BACKEND_REACHABILITY_PROBE_PATH = "/api/mwd-sessions";
 
 function getNowMs() {
   return performance.now();
@@ -32,7 +35,7 @@ function isNetworkError(error: unknown) {
   );
 }
 
-export async function checkBackendReachability(token: string, path = "/api/roles"): Promise<BackendReachability> {
+export async function checkBackendReachability(token: string, path = "/api/health"): Promise<BackendReachability> {
   const startedAt = getNowMs();
 
   try {
@@ -57,6 +60,15 @@ export async function checkBackendReachability(token: string, path = "/api/roles
           latencyMs,
           lastCheckedAt,
           errorMessage: "Backend reachable, but authentication failed.",
+        };
+      }
+
+      if (error.status === 404) {
+        return {
+          status: "unsupported",
+          latencyMs,
+          lastCheckedAt,
+          errorMessage: `Backend reachable, but ${path} is not implemented.`,
         };
       }
 

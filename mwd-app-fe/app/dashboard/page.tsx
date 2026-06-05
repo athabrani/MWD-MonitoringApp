@@ -165,6 +165,97 @@ export const DashboardPage: React.FC = () => {
       tone: realtimeError ? 'destructive' : realtimeStatus === 'connected' ? 'secondary' : 'outline',
     },
   ] as const;
+  const latestDashboardDepth = useMemo(() => {
+    const toNumber = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+
+      return undefined;
+    };
+    const parseTime = (value?: string | Date) => {
+      if (!value) return 0;
+      const parsed = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    };
+    const readLatestMwdDepth = () => {
+      if (!latestMwdDataRecord) return undefined;
+
+      const metricDepth =
+        latestMwdDataRecord.metrics.depthMd ??
+        latestMwdDataRecord.metrics.bitDepth ??
+        latestMwdDataRecord.metrics.holeDepth;
+      const rawDepth =
+        toNumber(latestMwdDataRecord.raw.depthMd) ??
+        toNumber(latestMwdDataRecord.raw.depth_md) ??
+        toNumber(latestMwdDataRecord.raw.measuredDepth) ??
+        toNumber(latestMwdDataRecord.raw.measured_depth) ??
+        toNumber(latestMwdDataRecord.raw.bitDepth) ??
+        toNumber(latestMwdDataRecord.raw.bit_depth) ??
+        toNumber(latestMwdDataRecord.raw.holeDepth) ??
+        toNumber(latestMwdDataRecord.raw.hole_depth);
+
+      return latestMwdDataRecord.depth ?? metricDepth ?? rawDepth;
+    };
+
+    const candidates = [
+      {
+        value: readLatestMwdDepth(),
+        timestamp: latestMwdDataRecord?.timestamp.getTime() ?? 0,
+      },
+      {
+        value: depthTrackingState?.bitDepth ?? depthTrackingState?.currentDepth ?? depthTrackingState?.holeDepth,
+        timestamp: parseTime(depthTrackingState?.currentTime ?? depthTrackingState?.updatedAt),
+      },
+      {
+        value:
+          typeof activeWell?.activeJob?.currentDepth === 'number' && activeWell.activeJob.currentDepth > 0
+            ? activeWell.activeJob.currentDepth
+            : undefined,
+        timestamp: 0,
+      },
+    ]
+      .filter((candidate): candidate is { value: number; timestamp: number } =>
+        typeof candidate.value === 'number' && Number.isFinite(candidate.value)
+      )
+      .sort((left, right) => right.timestamp - left.timestamp);
+
+    return candidates[0]?.value;
+  }, [activeWell?.activeJob?.currentDepth, depthTrackingState, latestMwdDataRecord]);
+  const dashboardTargetDepth = useMemo(() => {
+    const toNumber = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+
+      return undefined;
+    };
+    const raw = activeMwdSession?.raw ?? {};
+    const sessionTarget =
+      toNumber(raw.targetDepth) ??
+      toNumber(raw.target_depth) ??
+      toNumber(raw.endDepth) ??
+      toNumber(raw.end_depth) ??
+      toNumber(raw.plannedDepth) ??
+      toNumber(raw.planned_depth) ??
+      toNumber(raw.totalDepth) ??
+      toNumber(raw.total_depth) ??
+      toNumber(raw.td);
+    const activeJobTarget =
+      typeof activeWell?.activeJob?.targetDepth === 'number' && activeWell.activeJob.targetDepth > 0
+        ? activeWell.activeJob.targetDepth
+        : undefined;
+
+    return sessionTarget ?? activeJobTarget;
+  }, [activeMwdSession?.raw, activeWell?.activeJob?.targetDepth]);
+  const dashboardDepthLabel =
+    typeof latestDashboardDepth === 'number' ? `${formatDepth(latestDashboardDepth)} ${depthUnit}` : '-';
+  const dashboardTargetDepthLabel =
+    typeof dashboardTargetDepth === 'number' ? `${formatDepth(dashboardTargetDepth)} ${depthUnit}` : '-';
 
   useEffect(() => {
     const normalizedDtsStatus = (depthTrackingState?.status ?? depthTrackingState?.mode ?? '').toLowerCase();
@@ -584,10 +675,10 @@ export const DashboardPage: React.FC = () => {
               <TrendingUp className="size-3.5 text-muted-foreground" />
               <span className="text-xs font-medium uppercase text-muted-foreground">Depth</span>
               <span className="text-sm font-semibold leading-none">
-                {formatDepth(activeWell?.activeJob?.currentDepth ?? 0)} {depthUnit}
+                {dashboardDepthLabel}
               </span>
               <span className="text-xs text-muted-foreground">
-                Target {formatDepth(activeWell?.activeJob?.targetDepth ?? 0)} {depthUnit}
+                Target {dashboardTargetDepthLabel}
               </span>
             </div>
             {dashboardHealthItems.map((item) => (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -50,7 +50,7 @@ import {
   plotConfigToTemplatePayload,
   updatePlotTemplate,
 } from "@/lib/plot-templates-api";
-import { getRenderableTracksFromPlotConfig } from "@/lib/plot-track-config";
+import { getRenderableTracksFromPlotConfig, isTrackEnabled } from "@/lib/plot-track-config";
 import { cn } from "@/lib/utils";
 import {
   AzimuthalPlotSettings,
@@ -145,6 +145,9 @@ const emptyPlotConfiguration: PlotConfiguration = {
   },
 };
 
+const MIN_PLOT_TRACKS = 2;
+const MAX_PLOT_TRACKS = 5;
+
 function uid(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID()}`;
@@ -170,19 +173,29 @@ function clonePlotConfiguration(source: PlotConfiguration, name?: string): PlotC
   };
 }
 
+function createDefaultTrack(index: number): TrackConfig {
+  return {
+    id: uid("track"),
+    name: `Track ${index + 1}`,
+    scaleType: "Linear",
+    densityTicMarks: false,
+    curves: [],
+  };
+}
+
 function ensurePlotTracks(tracks: TrackConfig[]): TrackConfig[] {
-  return Array.from({ length: 5 }, (_, index) => {
-    const existing = tracks[index];
-    return (
-      existing ?? {
-        id: uid("track"),
-        name: `Track ${index + 1}`,
-        scaleType: "Linear",
-        densityTicMarks: false,
-        curves: [],
-      }
-    );
-  });
+  const safeTracks = Array.isArray(tracks) ? tracks : [];
+
+  if (safeTracks.length >= MIN_PLOT_TRACKS) {
+    return safeTracks;
+  }
+
+  return [
+    ...safeTracks,
+    ...Array.from({ length: MIN_PLOT_TRACKS - safeTracks.length }, (_, index) =>
+      createDefaultTrack(safeTracks.length + index)
+    ),
+  ];
 }
 
 function normalizePlotConfiguration(config?: PlotConfiguration | null): PlotConfiguration {
@@ -1200,6 +1213,7 @@ function TrackFormattingEditor({
 }) {
   const normalizedTracks = useMemo(() => ensurePlotTracks(tracks), [tracks]);
   const [editingCurve, setEditingCurve] = useState<{ trackId: string; curveId: string } | null>(null);
+  const [activeTrackId, setActiveTrackId] = useState(normalizedTracks[0]?.id ?? "");
   const patchTrack = (trackId: string, patch: Partial<TrackConfig>) =>
     onTracksChange(normalizedTracks.map((track) => (track.id === trackId ? { ...track, ...patch } : track)));
   const patchCurve = (trackId: string, curveId: string, patch: Partial<CurveConfig>) =>
@@ -1222,19 +1236,53 @@ function TrackFormattingEditor({
 
     return witsConfig.find((item) => String(item.numericId).padStart(4, "0") === witsId.padStart(4, "0"));
   };
-  const trackOptions = normalizedTracks.map((track, index) => ({ track, value: `track-${index + 1}` }));
-  const enabledTrackCount = normalizedTracks.filter((track) => track.curves.some((curve) => curve.dataSource !== "None")).length;
+  const trackOptions = normalizedTracks.map((track) => ({ track, value: track.id }));
+  const enabledTrackCount = normalizedTracks.filter(isTrackEnabled).length;
+  const hasReachedTrackLimit = normalizedTracks.length >= MAX_PLOT_TRACKS;
+
+  useEffect(() => {
+    if (normalizedTracks.some((track) => track.id === activeTrackId)) return;
+    setActiveTrackId(normalizedTracks[0]?.id ?? "");
+  }, [activeTrackId, normalizedTracks]);
+
   const addTrack = () => {
-    onTracksChange([
-      ...normalizedTracks,
-      {
-        id: uid("track"),
-        name: `Track ${normalizedTracks.length + 1}`,
-        scaleType: "Linear",
-        densityTicMarks: false,
-        curves: [],
-      },
-    ]);
+    if (hasReachedTrackLimit) {
+      toast.info(`Track limit reached. Plot configuration supports up to ${MAX_PLOT_TRACKS} tracks.`);
+      return;
+    }
+
+    const nextTrack = createDefaultTrack(normalizedTracks.length);
+    onTracksChange([...normalizedTracks, nextTrack]);
+    setActiveTrackId(nextTrack.id);
+    toast.success(`${nextTrack.name} added`);
+  };
+  const removeEmptyTrack = (trackId: string) => {
+    const targetTrack = normalizedTracks.find((track) => track.id === trackId);
+
+    if (!targetTrack) return;
+
+    if (normalizedTracks.length <= MIN_PLOT_TRACKS) {
+      toast.info(`At least ${MIN_PLOT_TRACKS} tracks are required in a plot configuration.`);
+      return;
+    }
+
+    if (isTrackEnabled(targetTrack)) {
+      toast.warning("Only empty tracks can be removed from this quick action. Delete curves first.");
+      return;
+    }
+
+    const targetIndex = normalizedTracks.findIndex((track) => track.id === trackId);
+    const nextTracks = normalizedTracks.filter((track) => track.id !== trackId);
+    const nextActiveTrack = nextTracks[Math.min(targetIndex, nextTracks.length - 1)] ?? nextTracks[0];
+
+    onTracksChange(nextTracks);
+    setActiveTrackId(nextActiveTrack?.id ?? "");
+
+    if (editingCurve?.trackId === trackId) {
+      setEditingCurve(null);
+    }
+
+    toast.success(`${targetTrack.name || "Empty track"} removed`);
   };
 
   return (
@@ -1243,20 +1291,26 @@ function TrackFormattingEditor({
         <div>
           <h2 className="text-lg font-semibold">Track Configuration</h2>
           <p className="text-sm text-muted-foreground">
-            Configure plot tracks. A track with every curve set to None is treated as disabled.
+            Configure plot tracks. Active tracks and curves are used by the Well Plot viewer.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{enabledTrackCount}/{normalizedTracks.length} active</Badge>
+          <Badge variant="outline">{normalizedTracks.length}/{MAX_PLOT_TRACKS} tracks</Badge>
           <Badge variant="outline">Up to 16 curves per track</Badge>
-          <Button variant="outline" size="sm" onClick={addTrack}>
+          <Button variant="outline" size="sm" onClick={addTrack} disabled={hasReachedTrackLimit}>
             <Plus className="mr-2 size-4" />
             Add Track
           </Button>
         </div>
       </div>
+      {hasReachedTrackLimit ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Track limit reached. Remove or repurpose an existing track before adding another one.
+        </div>
+      ) : null}
 
-      <Tabs defaultValue="track-1" className="space-y-4">
+      <Tabs value={activeTrackId} onValueChange={setActiveTrackId} className="space-y-4">
         <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
           {trackOptions.map(({ track, value }, index) => (
             <TabsTrigger key={track.id} value={value}>
@@ -1266,10 +1320,32 @@ function TrackFormattingEditor({
         </TabsList>
 
         {trackOptions.map(({ track, value }, index) => {
-          const disabled = track.curves.length === 0 || track.curves.every((curve) => curve.dataSource === "None");
+          const disabled = !isTrackEnabled(track);
+          const canRemoveEmptyTrack = disabled && normalizedTracks.length > MIN_PLOT_TRACKS;
           return (
             <TabsContent key={track.id} value={value}>
               <Card className={cn("rounded-2xl p-5", disabled && "border-dashed")}>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{track.name || `Track ${index + 1}`}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {disabled
+                        ? "Empty track. It will not render in Well Plot until an active curve is selected."
+                        : "Active track. Curves in this track will render in Well Plot."}
+                    </div>
+                  </div>
+                  {disabled ? (
+                    <ConfirmDeleteButton
+                      title="Remove empty track?"
+                      description={`${track.name || `Track ${index + 1}`} has no active curves and will be removed from this plot configuration.`}
+                      triggerLabel="Remove Empty Track"
+                      size="sm"
+                      variant="outline"
+                      disabled={!canRemoveEmptyTrack}
+                      onConfirm={() => removeEmptyTrack(track.id)}
+                    />
+                  ) : null}
+                </div>
                 <div className="grid gap-3 lg:grid-cols-[1fr_220px_190px]">
                   <Field label={`Track ${index + 1} Name`}>
                     <Input value={track.name} onChange={(event) => patchTrack(track.id, { name: event.target.value })} />
