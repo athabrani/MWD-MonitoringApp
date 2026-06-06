@@ -13,13 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SlidersHorizontal,
@@ -39,7 +32,6 @@ import {
   HelpCircle,
   User,
   LogOut,
-  Menu,
   Moon,
   Sun,
   Gauge,
@@ -55,6 +47,7 @@ import { ConnectionStatus } from "@/components/connection-status";
 import {
   canAccessPage,
   getAccessiblePageTarget,
+  pageAccessRegistry,
   readRolePageAccess,
   RolePageAccessMap,
   subscribeRolePageAccess,
@@ -119,7 +112,7 @@ const navigationItems: NavigationItem[] = [
   },
   {
     id: "trajectory-analysis",
-    label: "Trajectory Analysis",
+    label: "Trajectory",
     icon: Radar,
     roles: ["engineer", "admin", "operator"],
   },
@@ -302,6 +295,207 @@ function getParentSection(page: AppPage): AppPage {
     return "trajectory-analysis";
   }
   return page;
+}
+
+function getRegistryItem(page: AppPage) {
+  return pageAccessRegistry.find((item) => item.key === page);
+}
+
+function isPrimaryNavigationItem(item: NavigationItem) {
+  return !getRegistryItem(item.id)?.parent;
+}
+
+function isCurrentPage(currentPage: AppPage, page: AppPage) {
+  if (currentPage === page) return true;
+  return currentPage === "trajectory" && page === "trajectory-analysis";
+}
+
+function getSecondaryNavLabel(page: AppPage) {
+  if (page === "configuration") return "General";
+
+  return getRegistryItem(page)?.label ?? page;
+}
+
+function getSecondaryNavigationItems(
+  activeSection: AppPage,
+  canViewPage: (page: AppPage) => boolean
+) {
+  const includeParent =
+    activeSection === "configuration" || activeSection === "trajectory-analysis";
+  const childItems = pageAccessRegistry.filter(
+    (item) => item.parent === activeSection && item.key !== "trajectory"
+  );
+  const sourceItems = [
+    ...(includeParent ? [getRegistryItem(activeSection)] : []),
+    ...childItems,
+  ].filter(Boolean);
+
+  return sourceItems
+    .map((item) => ({
+      id: item!.key as AppPage,
+      label: getSecondaryNavLabel(item!.key as AppPage),
+    }))
+    .filter((item) => canViewPage(item.id));
+}
+
+function isVerticallyScrollable(element: HTMLElement) {
+  const style = window.getComputedStyle(element);
+  const overflowY = style.overflowY;
+  const canScroll = overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";
+
+  return canScroll && element.scrollHeight > element.clientHeight;
+}
+
+function getPageScrollContainer(contentElement: HTMLElement | null) {
+  if (!contentElement || typeof window === "undefined") return null;
+
+  const explicitContainer = contentElement.querySelector<HTMLElement>("[data-page-scroll-container]");
+
+  if (explicitContainer && isVerticallyScrollable(explicitContainer)) {
+    return explicitContainer;
+  }
+
+  if (isVerticallyScrollable(contentElement)) {
+    return contentElement;
+  }
+
+  return null;
+}
+
+function TopNavigation({
+  items,
+  currentPage,
+  onNavigate,
+  onActiveClick,
+  activeAlarms,
+  isDark,
+}: {
+  items: NavigationItem[];
+  currentPage: AppPage;
+  onNavigate: (page: AppPage) => void;
+  onActiveClick: () => void;
+  activeAlarms: number;
+  isDark: boolean;
+}) {
+  const activeSection = getParentSection(currentPage);
+
+  return (
+    <nav
+      aria-label="Primary navigation"
+      className={cn(
+        "sticky top-20 z-40 border-b backdrop-blur",
+        isDark
+          ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
+          : "border-border/70 bg-card/95 supports-[backdrop-filter]:bg-card/80"
+      )}
+    >
+      <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-h-14 min-w-max items-center gap-1 px-3 py-2 md:px-6">
+          {items.map((item) => {
+            const isActive = activeSection === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (isActive) {
+                    onActiveClick();
+                    return;
+                  }
+
+                  onNavigate(item.id);
+                }}
+                className={cn(
+                  "flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors md:px-3.5",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <span>{item.label}</span>
+                {item.id === "alerts" && activeAlarms > 0 ? (
+                  <Badge
+                    variant={isActive ? "secondary" : "destructive"}
+                    className="h-5 min-w-5 justify-center px-1.5 text-[10px]"
+                  >
+                    {activeAlarms}
+                  </Badge>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function SecondaryNavigation({
+  currentPage,
+  activeSection,
+  onNavigate,
+  onActiveClick,
+  canViewPage,
+  isDark,
+}: {
+  currentPage: AppPage;
+  activeSection: AppPage;
+  onNavigate: (page: AppPage) => void;
+  onActiveClick: () => void;
+  canViewPage: (page: AppPage) => boolean;
+  isDark: boolean;
+}) {
+  const items = getSecondaryNavigationItems(activeSection, canViewPage);
+
+  if (items.length === 0) return null;
+
+  return (
+    <nav
+      aria-label="Section navigation"
+      className={cn(
+        "border-b",
+        isDark ? "border-white/10 bg-[#122037]" : "border-border/70 bg-background/80"
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-3 px-3 py-2 md:px-6">
+        <div className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:block">
+          {getRegistryItem(activeSection)?.label ?? "Section"}
+        </div>
+
+        <div className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-max items-center gap-1.5">
+            {items.map((item) => {
+              const isActive = isCurrentPage(currentPage, item.id);
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    if (isActive) {
+                      onActiveClick();
+                      return;
+                    }
+
+                    onNavigate(item.id);
+                  }}
+                  className={cn(
+                    "h-8 shrink-0 rounded-md px-3 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/12 text-primary ring-1 ring-primary/25"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
 }
 
 function getSectionMeta(activeSection: AppPage) {
@@ -773,7 +967,7 @@ function IconRailButton({
   );
 }
 
-function IconRail({
+export function IconRail({
   activeSection,
   onChange,
   allowedItems,
@@ -878,7 +1072,7 @@ function DetailNavItem({
   );
 }
 
-function DesktopDetailSidebar({
+export function DesktopDetailSidebar({
   currentPage,
   onNavigate,
   activeSection,
@@ -1099,7 +1293,7 @@ function CollapsedActionButton({
   );
 }
 
-function MobileNav({
+export function MobileNav({
   items,
   currentPage,
   onNavigate,
@@ -1156,10 +1350,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     events,
   } = useApp();
   const isDark = settings.display.theme === "dark";
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(false);
   const [rolePageAccess, setRolePageAccess] = useState<RolePageAccessMap>(() => readRolePageAccess());
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AppPage>(
     getParentSection(currentPage)
   );
@@ -1178,7 +1372,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const filteredNavItems = useMemo(
     () =>
       (mounted ? navigationItems : []).filter(
-        (item) => user && item.roles.includes(user.role) && canViewPage(item.id)
+        (item) =>
+          isPrimaryNavigationItem(item) &&
+          user &&
+          item.roles.includes(user.role) &&
+          canViewPage(item.id)
       ),
     [canViewPage, mounted, user]
   );
@@ -1217,6 +1415,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     });
   };
 
+  const scrollActivePageToTop = () => {
+    const scrollContainer = getPageScrollContainer(contentRef.current);
+
+    if (scrollContainer) {
+      scrollContainer.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const handleNavigate = (page: AppPage) => {
     const targetPage = getAccessiblePageTarget(
       user?.role,
@@ -1224,9 +1433,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       "dashboard",
       rolePageAccess
     ) as AppPage;
+
+    if (isCurrentPage(currentPage, targetPage)) {
+      scrollActivePageToTop();
+      return;
+    }
+
     setActiveSection(getParentSection(targetPage));
     onNavigate(targetPage);
-    setMobileMenuOpen(false);
   };
 
   React.useEffect(() => {
@@ -1244,31 +1458,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         )}
       >
         <div className="flex min-h-20 items-center gap-3 px-4 py-2 md:px-6">
-          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-            <SheetTrigger asChild className="lg:hidden">
-              <Button variant="ghost" size="icon" className="rounded-xl">
-                <Menu className="size-5" />
-              </Button>
-            </SheetTrigger>
-
-            <SheetContent side="left" className="w-[300px] sm:w-[360px]">
-              <SheetHeader>
-                <SheetTitle className="sr-only">Navigation</SheetTitle>
-              </SheetHeader>
-
-              <div className="py-4">
-            
-
-                <MobileNav
-                  items={filteredNavItems}
-                  currentPage={currentPage}
-                  onNavigate={handleNavigate}
-                  activeAlarms={activeAlarms}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-
           <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center md:gap-4">
             <div className="min-w-0 shrink-0">
               <h1 className="truncate text-xl font-semibold sm:text-3xl">
@@ -1397,37 +1586,38 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         </div>
       </header>
 
-      
-        <div className="flex min-h-[calc(100vh-5rem)] min-w-0 items-start">
-          <IconRail
-            activeSection={activeSection}
-            onChange={setActiveSection}
-            allowedItems={filteredNavItems}
-            isDark={isDark}
-          />
+      <TopNavigation
+        items={filteredNavItems}
+        currentPage={currentPage}
+        onNavigate={handleNavigate}
+        onActiveClick={scrollActivePageToTop}
+        activeAlarms={activeAlarms}
+        isDark={isDark}
+      />
 
-          <DesktopDetailSidebar
-            currentPage={currentPage}
-            onNavigate={handleNavigate}
-            activeSection={activeSection}
-            setActiveSection={setActiveSection}
-            activeAlarms={activeAlarms}
-            isDark={isDark}
-            canViewPage={canViewPage}
-          />
+      <SecondaryNavigation
+        currentPage={currentPage}
+        activeSection={activeSection}
+        onNavigate={handleNavigate}
+        onActiveClick={scrollActivePageToTop}
+        canViewPage={canViewPage}
+        isDark={isDark}
+      />
 
-         <main className="min-w-0 flex-1 p-1.5 md:p-3 xl:p-3">
+      <div className="min-h-[calc(100vh-8.5rem)] min-w-0">
+        <main className="min-w-0 flex-1 p-1.5 md:p-3 xl:p-3">
           <div
+            ref={contentRef}
             className={cn(
-              "min-h-[calc(100vh-5rem)] min-w-0 overflow-hidden rounded-r-3xl border border-l-0 bg-card p-2 shadow-sm transition-colors duration-300 md:p-3 xl:p-3",
+              "min-h-[calc(100vh-8.5rem)] min-w-0 overflow-hidden rounded-2xl border bg-card p-2 shadow-sm transition-colors duration-300 md:p-3 xl:p-3",
               pageThemeClasses[currentPage]
             )}
           >
             {children}
           </div>
         </main>
-        </div>
       </div>
+    </div>
   
   );
 };
