@@ -12,7 +12,7 @@ export function MonitoringModeToggle({
   onChange: (mode: MonitoringMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-xl border border-muted bg-muted/30 p-1">
+    <div className="inline-flex rounded-lg border border-muted bg-muted/30 p-0.5">
       {(["raw", "details"] as const).map((item) => (
         <Button
           key={item}
@@ -20,7 +20,7 @@ export function MonitoringModeToggle({
           size="sm"
           variant="ghost"
           className={cn(
-            "rounded-lg capitalize",
+            "h-8 rounded-md px-2.5 text-xs capitalize",
             mode === item && "bg-background shadow-sm"
           )}
           onClick={() => onChange(item)}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Camera, RefreshCw } from "lucide-react";
 import {
   CartesianGrid,
@@ -104,7 +104,12 @@ function getClosestByMd(points: TrajectoryPoint[], md?: number) {
   );
 }
 
-export const TrajectoryPage: React.FC = () => {
+type TrajectoryPageProps = {
+  onNavigate?: (page: "trajectory-well-plot") => void;
+};
+
+export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ onNavigate }) => {
+  const router = useRouter();
   const { token, user } = useAuth();
   const { activeMwdSessionId, activeMwdSession } = useApp();
   const [view, setView] = useState<"vertical" | "plan">("vertical");
@@ -211,6 +216,15 @@ export const TrajectoryPage: React.FC = () => {
     }
   };
 
+  const openWellPlots = () => {
+    if (onNavigate) {
+      onNavigate("trajectory-well-plot");
+      return;
+    }
+
+    router.push("/trajectory/well-plot");
+  };
+
   const handleGenerateActual = async () => {
     if (!token || !activeMwdSessionId || !canGenerateActual) return;
 
@@ -235,17 +249,17 @@ export const TrajectoryPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 border-b border-border/70 pb-4 sm:gap-4 sm:pb-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Trajectory Analysis</h1>
-          <p className="mt-1 max-w-3xl text-muted-foreground">
+          <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Trajectory Analysis</h1>
+          <p className="mt-1 max-w-3xl text-sm leading-snug text-muted-foreground sm:text-base sm:leading-normal">
             Planned and actual trajectory from session surveys. Source: GET /api/surveys by active session.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" asChild>
-            <Link href="/trajectory/well-plot">Well Plots</Link>
+          <Button variant="secondary" size="sm" onClick={openWellPlots}>
+            Well Plots
           </Button>
           <Button variant="outline" size="sm" onClick={() => void loadTrajectory()} disabled={loading}>
             <RefreshCw className="mr-2 size-4" />
@@ -270,7 +284,7 @@ export const TrajectoryPage: React.FC = () => {
         <Card className="p-6 text-sm text-muted-foreground">Loading trajectory survey...</Card>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
             <MetricCard label="Actual Stations" value={String(actualSurveys.length)} unit="survey" />
             <MetricCard label="Planned Stations" value={String(plannedSurveys.length)} unit="survey" />
             <MetricCard label="Reference MD" value={formatValue(currentReference?.md)} unit="m" />
@@ -323,12 +337,12 @@ export const TrajectoryPage: React.FC = () => {
                   <TabsTrigger value="plan">Plan View</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="vertical" className="mt-5">
-                  <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+                <TabsContent value="vertical" className="mt-4 sm:mt-5">
+                  <div className="grid gap-3 sm:gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
                     <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={560} />
-                    <Card className="p-4 sm:p-5">
-                      <h3 className="mb-3 font-semibold">Trajectory Summary</h3>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                    <Card className="p-2.5 sm:p-5">
+                      <h3 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">Trajectory Summary</h3>
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
                         <MetricTile label="First actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual[0]?.md)} m` : "-"} />
                         <MetricTile label="Last actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual.at(-1)?.md)} m` : "-"} />
                         <MetricTile label="First plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned[0]?.md)} m` : "-"} />
@@ -379,19 +393,19 @@ export const TrajectoryPage: React.FC = () => {
 
 function MetricCard({ label, value, unit }: { label: string; value: string; unit: string }) {
   return (
-    <Card className="p-4">
-      <div className="mb-1 text-xs text-muted-foreground">{label}</div>
-      <div className="font-mono text-2xl font-semibold">{value}</div>
-      <div className="text-xs text-muted-foreground">{unit}</div>
+    <Card className="min-w-0 p-2.5 sm:p-4">
+      <div className="truncate text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">{label}</div>
+      <div className="mt-1 min-w-0 break-words font-mono text-lg font-semibold leading-none sm:text-2xl">{value}</div>
+      <div className="mt-1 text-[10px] leading-none text-muted-foreground sm:text-xs">{unit}</div>
     </Card>
   );
 }
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border/70 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-mono text-lg font-semibold">{value}</div>
+    <div className="min-w-0 rounded-lg border border-border/70 p-2 sm:p-3">
+      <div className="truncate text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">{label}</div>
+      <div className="mt-1 min-w-0 break-words font-mono text-sm font-semibold leading-tight sm:text-lg">{value}</div>
     </div>
   );
 }

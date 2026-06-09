@@ -34,6 +34,18 @@ const knownEventTypes = new Set<RealtimeEventType>([
   "esp-gateway-status",
   "connection-status",
 ]);
+const silentlyIgnoredEventTypes = new Set([
+  "health",
+  "heartbeat",
+  "ping",
+  "pong",
+  "keepalive",
+  "keep-alive",
+  "connected",
+  "subscription",
+  "subscribed",
+  "unsubscribed",
+]);
 
 function getWsUrl() {
   return process.env.NEXT_PUBLIC_WS_URL?.trim() ?? "";
@@ -64,6 +76,10 @@ function normalizeRealtimeMessage(raw: string): RealtimeEvent | null {
 
   const type = readEventType(parsed);
   if (!type || !knownEventTypes.has(type as RealtimeEventType)) {
+    if (type && silentlyIgnoredEventTypes.has(type.toLowerCase())) {
+      return null;
+    }
+
     logSecurityDebug("Ignoring unknown realtime event.", {
       type,
       keys: Object.keys(parsed).slice(0, 20),
@@ -121,15 +137,18 @@ class RealtimeClient {
     this.manualDisconnect = false;
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
 
+    let socket: WebSocket;
     try {
-      this.socket = new WebSocket(url);
+      socket = new WebSocket(url);
+      this.socket = socket;
     } catch (error) {
       this.setStatus("error", error instanceof Error ? error.message : "Unable to create WebSocket.");
       this.scheduleReconnect();
       return;
     }
 
-    this.socket.addEventListener("open", () => {
+    socket.addEventListener("open", () => {
+      if (this.socket !== socket) return;
       this.reconnectAttempt = 0;
       this.setStatus("connected");
       if (this.subscribedSessionId) {
@@ -137,7 +156,8 @@ class RealtimeClient {
       }
     });
 
-    this.socket.addEventListener("message", (message) => {
+    socket.addEventListener("message", (message) => {
+      if (this.socket !== socket) return;
       if (typeof message.data !== "string") return;
 
       const event = normalizeRealtimeMessage(message.data);
@@ -146,7 +166,8 @@ class RealtimeClient {
       this.listeners.event.forEach((listener) => listener(event));
     });
 
-    this.socket.addEventListener("close", () => {
+    socket.addEventListener("close", () => {
+      if (this.socket !== socket) return;
       this.socket = null;
       if (this.manualDisconnect) {
         this.setStatus("idle");
@@ -157,7 +178,8 @@ class RealtimeClient {
       this.scheduleReconnect();
     });
 
-    this.socket.addEventListener("error", () => {
+    socket.addEventListener("error", () => {
+      if (this.socket !== socket) return;
       this.setStatus("error", "Realtime WebSocket error.");
     });
   }

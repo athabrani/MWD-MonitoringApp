@@ -13,7 +13,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   SlidersHorizontal,
   LayoutDashboard,
@@ -41,6 +55,8 @@ import {
   Search,
   Wrench,
   RefreshCw,
+  Menu,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/connection-status";
@@ -362,6 +378,19 @@ function getPageScrollContainer(contentElement: HTMLElement | null) {
   return null;
 }
 
+function getConnectionStatusClasses(status: "connected" | "degraded" | "offline") {
+  switch (status) {
+    case "connected":
+      return "border-green-500/25 bg-green-500/10 text-green-600 dark:text-green-400";
+    case "degraded":
+      return "border-yellow-500/25 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400";
+    case "offline":
+      return "border-red-500/25 bg-red-500/10 text-red-600 dark:text-red-400";
+    default:
+      return "border-border/70 bg-background/80 text-muted-foreground";
+  }
+}
+
 function TopNavigation({
   items,
   currentPage,
@@ -383,14 +412,14 @@ function TopNavigation({
     <nav
       aria-label="Primary navigation"
       className={cn(
-        "sticky top-20 z-40 border-b backdrop-blur",
+        "sticky top-16 z-40 hidden border-b backdrop-blur sm:top-20 xl:block",
         isDark
           ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
           : "border-border/70 bg-card/95 supports-[backdrop-filter]:bg-card/80"
       )}
     >
-      <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-h-14 min-w-max items-center gap-1 px-3 py-2 md:px-6">
+      <div className="overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-h-12 min-w-max items-center gap-1 px-2 py-1.5 sm:min-h-14 sm:px-3 sm:py-2 md:px-6">
           {items.map((item) => {
             const isActive = activeSection === item.id;
 
@@ -407,7 +436,7 @@ function TopNavigation({
                   onNavigate(item.id);
                 }}
                 className={cn(
-                  "flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors md:px-3.5",
+                  "flex h-9 shrink-0 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors sm:h-10 sm:px-3 sm:text-sm md:px-3.5",
                   isActive
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -454,16 +483,12 @@ function SecondaryNavigation({
     <nav
       aria-label="Section navigation"
       className={cn(
-        "border-b",
+        "hidden border-b xl:block",
         isDark ? "border-white/10 bg-[#122037]" : "border-border/70 bg-background/80"
       )}
     >
       <div className="flex min-w-0 items-center gap-3 px-3 py-2 md:px-6">
-        <div className="hidden shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:block">
-          {getRegistryItem(activeSection)?.label ?? "Section"}
-        </div>
-
-        <div className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-max items-center gap-1.5">
             {items.map((item) => {
               const isActive = isCurrentPage(currentPage, item.id);
@@ -481,7 +506,7 @@ function SecondaryNavigation({
                     onNavigate(item.id);
                   }}
                   className={cn(
-                    "h-8 shrink-0 rounded-md px-3 text-sm font-medium transition-colors",
+                    "h-8 shrink-0 rounded-md px-2.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
                     isActive
                       ? "bg-primary/12 text-primary ring-1 ring-primary/25"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -495,6 +520,343 @@ function SecondaryNavigation({
         </div>
       </div>
     </nav>
+  );
+}
+
+function ResponsiveMobileNavigation({
+  items,
+  currentPage,
+  onNavigate,
+  onActiveClick,
+  canViewPage,
+  activeAlarms,
+  isDark,
+}: {
+  items: NavigationItem[];
+  currentPage: AppPage;
+  onNavigate: (page: AppPage) => void;
+  onActiveClick: () => void;
+  canViewPage: (page: AppPage) => boolean;
+  activeAlarms: number;
+  isDark: boolean;
+}) {
+  const activeSection = getParentSection(currentPage);
+  const [open, setOpen] = useState(false);
+  const [openSections, setOpenSections] = useState<string[]>([activeSection]);
+  const navRef = React.useRef<HTMLElement | null>(null);
+  const anchorRef = React.useRef<HTMLDivElement | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
+  const [navHeight, setNavHeight] = useState(0);
+  const utilityItems = (["alerts", "settings", "help"] as AppPage[])
+    .filter((page) => canViewPage(page))
+    .map((page) => ({
+      id: page,
+      label: getRegistryItem(page)?.label ?? page,
+    }));
+  const utilityActive = utilityItems.some((item) => isCurrentPage(currentPage, item.id));
+  const visibleItems = items.filter(
+    (item) => !utilityItems.some((utilityItem) => utilityItem.id === item.id)
+  );
+
+  useEffect(() => {
+    // Keep the active mobile section expanded when navigation changes outside the sheet.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenSections((current) =>
+      current.includes(activeSection) ? current : [...current, activeSection]
+    );
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (!utilityActive) return;
+
+    // Keep utility pages reachable when a utility route becomes active externally.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenSections((current) =>
+      current.includes("utilities") ? current : [...current, "utilities"]
+    );
+  }, [utilityActive]);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const anchor = anchorRef.current;
+    if (!nav || !anchor) return;
+
+    let frame = 0;
+
+    const updatePinnedState = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const nextHeight = nav.getBoundingClientRect().height;
+        const anchorTop = anchor.getBoundingClientRect().top;
+
+        setNavHeight(nextHeight);
+        setIsPinned(anchorTop <= 0);
+      });
+    };
+
+    updatePinnedState();
+    window.addEventListener("scroll", updatePinnedState, { passive: true });
+    window.addEventListener("resize", updatePinnedState);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updatePinnedState);
+      window.removeEventListener("resize", updatePinnedState);
+    };
+  }, []);
+
+  const handleItemNavigate = (page: AppPage) => {
+    if (isCurrentPage(currentPage, page)) {
+      onActiveClick();
+    } else {
+      onNavigate(page);
+    }
+
+    setOpen(false);
+  };
+
+  return (
+    <>
+    <div ref={anchorRef} className="xl:hidden" aria-hidden="true" />
+    {isPinned ? <div className="xl:hidden" style={{ height: navHeight }} aria-hidden="true" /> : null}
+    <nav
+      ref={navRef}
+      aria-label="Mobile primary navigation"
+      className={cn(
+        "z-40 shrink-0 border-b shadow-sm backdrop-blur xl:hidden",
+        isPinned && "fixed inset-x-0 top-0",
+        isDark
+          ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
+          : "border-border/70 bg-card/95 supports-[backdrop-filter]:bg-card/80"
+      )}
+    >
+      <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5 sm:min-h-12 sm:gap-3 sm:px-4 sm:py-2 md:px-6">
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "relative h-9 w-9 shrink-0 rounded-xl border",
+                isDark
+                  ? "border-white/10 bg-white/5 hover:bg-white/10"
+                  : "border-border/60 bg-background/70 hover:bg-muted"
+              )}
+            >
+              <Menu className="size-4" />
+              {activeAlarms > 0 ? (
+                <Badge
+                  variant="destructive"
+                  className="absolute -right-1.5 -top-1.5 h-4 min-w-4 justify-center rounded-full px-1 text-[9px] leading-none shadow-sm"
+                >
+                  {activeAlarms}
+                </Badge>
+              ) : null}
+            </Button>
+          </SheetTrigger>
+
+          <SheetContent
+            side="left"
+            className={cn(
+              "flex w-[min(88vw,320px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md",
+              isDark ? "bg-[#0f1b2d]" : "bg-background"
+            )}
+          >
+            <SheetHeader className="border-b border-border/70 px-4 py-4 text-left">
+              <div className="flex items-start justify-between gap-3 pr-8">
+                <div className="min-w-0">
+                  <SheetTitle className="text-base">Navigation</SheetTitle>
+                  <SheetDescription className="mt-1 text-xs">
+                    Browse modules and section pages.
+                  </SheetDescription>
+                </div>
+              </div>
+            </SheetHeader>
+
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-3 px-3 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-3">
+                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Main menu
+                </div>
+                <Accordion
+                  type="multiple"
+                  value={openSections}
+                  onValueChange={setOpenSections}
+                  className="space-y-1.5"
+                >
+                  {visibleItems.map((item) => {
+                    const sectionItems = getSecondaryNavigationItems(item.id, canViewPage);
+                    const hasChildren = sectionItems.length > 0;
+                    const isSectionActive = activeSection === item.id;
+                    const isSingleActive = isCurrentPage(currentPage, item.id);
+
+                    if (!hasChildren) {
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleItemNavigate(item.id)}
+                          aria-current={isSingleActive ? "page" : undefined}
+                          className={cn(
+                            "group flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors",
+                            isSingleActive
+                              ? "bg-primary/12 text-primary ring-1 ring-primary/25"
+                              : "text-foreground hover:bg-muted/70"
+                          )}
+                        >
+                          <span className="min-w-0 break-words">{item.label}</span>
+                          {item.id === "alerts" && activeAlarms > 0 ? (
+                            <Badge
+                              variant="destructive"
+                              className="h-5 shrink-0 rounded-full px-1.5 text-[10px]"
+                            >
+                              {activeAlarms}
+                            </Badge>
+                          ) : null}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <AccordionItem
+                        key={item.id}
+                        value={item.id}
+                        className={cn(
+                          "overflow-hidden rounded-xl border px-0 transition-colors",
+                          isSectionActive
+                            ? "border-primary/30 bg-primary/5 shadow-sm"
+                            : "border-transparent bg-transparent hover:border-border/70 hover:bg-muted/30"
+                        )}
+                      >
+                        <AccordionTrigger
+                          className={cn(
+                            "min-h-11 gap-3 px-3 py-2.5 text-left text-sm font-semibold hover:no-underline [&>svg]:size-4",
+                            isSectionActive ? "text-primary" : "text-foreground"
+                          )}
+                        >
+                          <span className="min-w-0 flex-1 break-words">{item.label}</span>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-2 pb-2">
+                          <div
+                            className={cn(
+                              "ml-4 space-y-1 border-l py-1 pl-2",
+                              isSectionActive ? "border-primary/25" : "border-border/70"
+                            )}
+                          >
+                            {sectionItems.map((child) => {
+                              const isChildActive = isCurrentPage(currentPage, child.id);
+
+                              return (
+                                <button
+                                  key={child.id}
+                                  type="button"
+                                  onClick={() => handleItemNavigate(child.id)}
+                                  aria-current={isChildActive ? "page" : undefined}
+                                  className={cn(
+                                    "flex min-h-9 w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                                    isChildActive
+                                      ? "bg-primary text-primary-foreground shadow-sm"
+                                      : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                                  )}
+                                >
+                                  <span className="min-w-0 break-words">{child.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                  {utilityItems.length > 0 ? (
+                    <AccordionItem
+                      value="utilities"
+                      className={cn(
+                        "overflow-hidden rounded-xl border px-0 transition-colors",
+                        utilityActive
+                          ? "border-primary/30 bg-primary/5 shadow-sm"
+                          : "border-transparent bg-transparent hover:border-border/70 hover:bg-muted/30"
+                      )}
+                    >
+                      <AccordionTrigger
+                        className={cn(
+                          "min-h-11 gap-3 px-3 py-2.5 text-left text-sm font-semibold hover:no-underline [&>svg]:size-4",
+                          utilityActive ? "text-primary" : "text-foreground"
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 break-words">Utilities</span>
+                        {activeAlarms > 0 ? (
+                          <Badge
+                            variant="destructive"
+                            className="mr-2 h-5 shrink-0 rounded-full px-1.5 text-[10px]"
+                          >
+                            {activeAlarms}
+                          </Badge>
+                        ) : null}
+                      </AccordionTrigger>
+                      <AccordionContent className="px-2 pb-2">
+                        <div
+                          className={cn(
+                            "ml-4 space-y-1 border-l py-1 pl-2",
+                            utilityActive ? "border-primary/25" : "border-border/70"
+                          )}
+                        >
+                          {utilityItems.map((child) => {
+                            const isChildActive = isCurrentPage(currentPage, child.id);
+
+                            return (
+                              <button
+                                key={child.id}
+                                type="button"
+                                onClick={() => handleItemNavigate(child.id)}
+                                aria-current={isChildActive ? "page" : undefined}
+                                className={cn(
+                                  "flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                                  isChildActive
+                                    ? "bg-primary text-primary-foreground shadow-sm"
+                                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                                )}
+                              >
+                                <span className="min-w-0 break-words">{child.label}</span>
+                                {child.id === "alerts" && activeAlarms > 0 ? (
+                                  <Badge
+                                    variant="destructive"
+                                    className="h-5 shrink-0 rounded-full px-1.5 text-[10px]"
+                                  >
+                                    {activeAlarms}
+                                  </Badge>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ) : null}
+                </Accordion>
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
+
+        <button
+          type="button"
+          onClick={onActiveClick}
+          className="min-w-0 flex-1 rounded-lg px-1.5 py-1 text-left leading-tight transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Scroll current page to top"
+          title="Scroll to top"
+        >
+          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Navigation
+          </div>
+          <div className="truncate text-sm font-semibold">
+            {getRegistryItem(currentPage)?.label ?? getRegistryItem(activeSection)?.label ?? "Current page"}
+          </div>
+        </button>
+      </div>
+    </nav>
+    </>
   );
 }
 
@@ -516,23 +878,7 @@ function getSectionMeta(activeSection: AppPage) {
               },
             ],
           },
-          // {
-          //   title: "Focus",
-          //   items: [
-          //     {
-          //       id: "alerts" as AppPage,
-          //       label: "Active Alerts",
-          //       description: "Alarm state and quick response",
-          //       icon: Bell,
-          //     },
-          //     {
-          //       id: "charts" as AppPage,
-          //       label: "Trend Charts",
-          //       description: "Time-series drilling trends",
-          //       icon: Activity,
-          //     },
-          //   ],
-          // },
+          
         ],
       };
 
@@ -666,30 +1012,6 @@ function getSectionMeta(activeSection: AppPage) {
         ],
       };
 
-    // case "charts":
-    //   return {
-    //     title: "Charts",
-    //     subtitle: "Trend and comparative drilling charts",
-    //     sections: [
-    //       {
-    //         title: "Chart Types",
-    //         items: [
-    //           {
-    //             id: "charts" as AppPage,
-    //             label: "Trend Charts",
-    //             description: "Sensor and drilling parameter trends",
-    //             icon: LineChart,
-    //           },
-    //           {
-    //             id: "trajectory-well-plot" as AppPage,
-    //             label: "Well Plot Companion",
-    //             description: "Cross-check against depth plots",
-    //             icon: FileBarChart,
-    //           },
-    //         ],
-    //       },
-    //     ],
-    //   };
 
     case "alerts":
       return {
@@ -981,7 +1303,7 @@ export function IconRail({
   return (
     <aside
       className={cn(
-        "sticky top-20 hidden h-[calc(100vh-5rem)] w-[56px] shrink-0 border-r px-1.5 py-3 backdrop-blur lg:flex lg:flex-col xl:w-[60px] xl:px-2",
+        "sticky top-20 hidden h-[calc(100dvh-5rem)] w-[56px] shrink-0 border-r px-1.5 py-3 backdrop-blur lg:flex lg:flex-col xl:w-[60px] xl:px-2",
         isDark
           ? "border-white/10 bg-[#0f1b2d]"
           : "border-border/70 bg-card/90"
@@ -1131,7 +1453,7 @@ export function DesktopDetailSidebar({
   return (
     <aside
       className={cn(
-        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0  lg:flex lg:flex-col",
+        "sticky top-20 hidden h-[calc(100dvh-5rem)] shrink-0  lg:flex lg:flex-col",
         isDark ? "border-white/10 bg-[#0f1b2d]" : "border-border/70 bg-card",
         collapsed
           ? "w-[60px] px-1.5 py-4 xl:w-[60px] xl:px-2"
@@ -1339,7 +1661,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const { user, logout } = useAuth();
   const {
     connectionState,
-    reconnect,
+    networkStatus,
+    backendRestStatus,
+    backendRestError,
+    lastRecoveryAt,
     settings,
     updateSettings,
     activeMwdSession,
@@ -1405,6 +1730,43 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         : mwdSessions.length === 0
           ? "Belum ada job/session yang tersedia untuk akun ini"
           : "Current session context";
+  const mobileConnectionLabel = connectionState.reconnecting
+    ? "Reconnecting"
+    : connectionState.status;
+  const globalConnectionNotice = useMemo(() => {
+    if (networkStatus === "offline") {
+      return {
+        tone: "destructive",
+        title: "Anda sedang offline.",
+        description: "Data realtime terputus. Data yang terlihat adalah data terakhir dan mungkin stale.",
+      };
+    }
+
+    if (backendRestStatus === "auth-error") {
+      return {
+        tone: "destructive",
+        title: "Backend membutuhkan autentikasi ulang.",
+        description: backendRestError || "Silakan login ulang sebelum melanjutkan monitoring.",
+      };
+    }
+
+    if (backendRestStatus === "offline" || backendRestStatus === "error") {
+      return {
+        tone: "destructive",
+        title: "Backend API tidak tersedia.",
+        description: backendRestError || "REST refresh gagal. Tidak ada fallback ke data mock.",
+      };
+    }
+
+    return null;
+  }, [
+    backendRestError,
+    backendRestStatus,
+    networkStatus,
+  ]);
+  const lastRecoveryLabel = lastRecoveryAt
+    ? `Recovery terakhir: ${lastRecoveryAt.toLocaleTimeString()}`
+    : null;
 
   const toggleTheme = () => {
     updateSettings({
@@ -1448,26 +1810,44 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   }, [currentPage]);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col">
       <header
         className={cn(
-          "sticky top-0 z-50 backdrop-blur",
+          "z-50 backdrop-blur xl:sticky xl:top-0",
           isDark
             ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
             : "border-border/70 bg-card/90 supports-[backdrop-filter]:bg-card/70"
         )}
       >
-        <div className="flex min-h-20 items-center gap-3 px-4 py-2 md:px-6">
+        <div className="flex min-h-14 items-center gap-2 px-3 py-1.5 sm:min-h-20 sm:gap-3 sm:px-4 sm:py-2 md:px-6">
           <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center md:gap-4">
             <div className="min-w-0 shrink-0">
-              <h1 className="truncate text-xl font-semibold sm:text-3xl">
+              <h1 className="truncate text-lg font-semibold sm:text-3xl">
                 MWD Monitor
               </h1>
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="hidden truncate text-xs text-muted-foreground min-[420px]:block">
                 Real-time drilling data
               </p>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 lg:hidden">
+                <div className="min-w-0 max-w-[190px] rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[10px] leading-5 text-muted-foreground min-[420px]:max-w-[260px] sm:max-w-[340px] sm:text-xs">
+                  <span className="font-medium text-foreground">Session:</span>{" "}
+                  <span className="inline-block max-w-[118px] truncate align-bottom min-[420px]:max-w-[188px] sm:max-w-[260px]">
+                    {activeSessionLabel}
+                  </span>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "h-6 gap-1 rounded-full px-2 text-[10px] capitalize sm:text-xs",
+                    getConnectionStatusClasses(connectionState.status)
+                  )}
+                >
+                  <span className="size-1.5 rounded-full bg-current" />
+                  {mobileConnectionLabel}
+                </Badge>
+              </div>
             </div>
-            <div className="min-w-0 rounded-xl border border-border/70 bg-background/70 px-3 py-2 md:max-w-[360px]">
+            <div className="hidden min-w-0 rounded-xl border border-border/70 bg-background/70 px-3 py-2 md:max-w-[360px] xl:block">
               <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Current session
               </div>
@@ -1476,13 +1856,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             </div>
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-            <div className="hidden xl:block">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
+            <div className="hidden lg:block">
               <ConnectionStatus
                 connectionState={connectionState}
-                onReconnect={reconnect}
                 compact
                 showMetricsInCompact
+                showReconnectAction={false}
               />
             </div>
 
@@ -1586,6 +1966,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         </div>
       </header>
 
+      <ResponsiveMobileNavigation
+        items={filteredNavItems}
+        currentPage={currentPage}
+        onNavigate={handleNavigate}
+        onActiveClick={scrollActivePageToTop}
+        canViewPage={canViewPage}
+        activeAlarms={activeAlarms}
+        isDark={isDark}
+      />
+
       <TopNavigation
         items={filteredNavItems}
         currentPage={currentPage}
@@ -1604,12 +1994,36 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         isDark={isDark}
       />
 
-      <div className="min-h-[calc(100vh-8.5rem)] min-w-0">
-        <main className="min-w-0 flex-1 p-1.5 md:p-3 xl:p-3">
+      {globalConnectionNotice ? (
+        <div
+          className={cn(
+            "border-b px-3 py-2 text-sm",
+            globalConnectionNotice.tone === "destructive"
+              ? "border-red-500/30 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-950/45 dark:text-red-100"
+              : "border-amber-500/30 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/45 dark:text-amber-100"
+          )}
+        >
+          <div className="mx-auto flex max-w-screen-2xl items-start gap-2">
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-medium">{globalConnectionNotice.title}</div>
+                <div className="text-xs opacity-85">
+                  {globalConnectionNotice.description}
+                  {lastRecoveryLabel ? ` ${lastRecoveryLabel}.` : ""}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="min-h-[calc(100dvh-7.5rem)] min-w-0 sm:min-h-[calc(100dvh-8.5rem)]">
+        <main className="min-w-0 flex-1 px-1.5 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-1.5 sm:px-2 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pt-2 md:px-3 md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-3 xl:p-3">
           <div
             ref={contentRef}
             className={cn(
-              "min-h-[calc(100vh-8.5rem)] min-w-0 overflow-hidden rounded-2xl border bg-card p-2 shadow-sm transition-colors duration-300 md:p-3 xl:p-3",
+              "min-h-[calc(100dvh-7.5rem)] min-w-0 overflow-visible rounded-2xl border bg-card px-1.5 pb-[calc(env(safe-area-inset-bottom)+3rem)] pt-1.5 shadow-sm transition-colors duration-300 sm:min-h-[calc(100dvh-8.5rem)] sm:px-2 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-2 md:px-3 md:pb-[calc(env(safe-area-inset-bottom)+2rem)] md:pt-3 xl:p-3",
               pageThemeClasses[currentPage]
             )}
           >

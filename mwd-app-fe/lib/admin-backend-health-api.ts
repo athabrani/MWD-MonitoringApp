@@ -35,7 +35,10 @@ function isNetworkError(error: unknown) {
   );
 }
 
-export async function checkBackendReachability(token: string, path = "/api/health"): Promise<BackendReachability> {
+export async function checkBackendReachability(
+  token: string,
+  path = BACKEND_REACHABILITY_PROBE_PATH
+): Promise<BackendReachability> {
   const startedAt = getNowMs();
 
   try {

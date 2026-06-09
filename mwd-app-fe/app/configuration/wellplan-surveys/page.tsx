@@ -229,21 +229,29 @@ export default function WellplanSurveysPage({
   };
 
   const content = (
-    <div className="min-w-0 max-w-full space-y-6">
+    <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">Configuration</Badge>
-            <Badge variant="outline">Well Plan Surveys</Badge>
-            {activeMwdSessionId ? <Badge variant="outline">Session {activeMwdSessionId}</Badge> : null}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+              Configuration
+            </Badge>
+            <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+              Well Plan Surveys
+            </Badge>
+            {activeMwdSessionId ? (
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+                Session {activeMwdSessionId}
+              </Badge>
+            ) : null}
           </div>
-          <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Well Plan Surveys Editor</h1>
-          <p className="text-sm text-muted-foreground sm:text-base">
+          <h1 className="mt-2 text-xl font-bold sm:mt-3 sm:text-3xl">Well Plan Surveys Editor</h1>
+          <p className="text-xs leading-snug text-muted-foreground sm:text-base sm:leading-normal">
             Uses /api/surveys with stationType=plan for read, create, update, and delete.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           <input
             ref={importInputRef}
             type="file"
@@ -253,17 +261,27 @@ export default function WellplanSurveysPage({
           />
           <Button
             variant="outline"
+            size="sm"
+            className="h-9 px-2.5 text-xs sm:px-3 sm:text-sm"
             onClick={() => importInputRef.current?.click()}
             disabled={importing || !canManage || !activeMwdSessionId}
           >
             {importing ? "Importing..." : "Import CSV"}
           </Button>
-          <Button variant="outline" onClick={() => void loadSurveys()} disabled={loading}>
-            <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-2.5 text-xs sm:px-3 sm:text-sm"
+            onClick={() => void loadSurveys()}
+            disabled={loading}
+          >
+            <RefreshCw className={`mr-1.5 size-3.5 sm:mr-2 sm:size-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           <Button
             variant="outline"
+            size="sm"
+            className="h-9 px-2.5 text-xs sm:px-3 sm:text-sm"
             onClick={() => {
               if (onNavigate) {
                 onNavigate("configuration");
@@ -278,35 +296,35 @@ export default function WellplanSurveysPage({
       </div>
 
       {error ? (
-        <Card className="border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        <Card className="border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive sm:p-4">
           {error}
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="p-4">
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Survey Rows</div>
-          <div className="mt-2 text-2xl font-semibold">{totals.count}</div>
+      <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+        <Card className="p-3 sm:p-4">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-xs">Survey Rows</div>
+          <div className="mt-1 text-xl font-semibold sm:mt-2 sm:text-2xl">{totals.count}</div>
         </Card>
-        <Card className="p-4">
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Max MD</div>
-          <div className="mt-2 text-2xl font-semibold">{totals.maxMd.toFixed(2)}</div>
+        <Card className="p-3 sm:p-4">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-xs">Max MD</div>
+          <div className="mt-1 text-xl font-semibold sm:mt-2 sm:text-2xl">{totals.maxMd.toFixed(2)}</div>
         </Card>
       </div>
 
-      <Card className="max-w-full p-4">
-        <h2 className="text-lg font-semibold">Add Plan Survey</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="max-w-full p-3 sm:p-4">
+        <h2 className="text-base font-semibold sm:text-lg">Add Plan Survey</h2>
+        <div className="mt-3 grid gap-2.5 min-[420px]:grid-cols-2 sm:gap-3 lg:grid-cols-4">
           {surveyColumns.map((column) => (
-            <div key={column} className="min-w-0 space-y-2">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">{column}</div>
+            <div key={column} className="min-w-0 space-y-1.5 sm:space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-xs">{column}</div>
               <Input type="number" className="h-9" value={draftSurvey[column]} onChange={(event) => updateDraft(column, event.target.value)} />
             </div>
           ))}
         </div>
-        <div className="mt-4 flex justify-end">
-          <Button onClick={() => void addSurvey()} disabled={saving || !canManage || !activeMwdSessionId}>
-            <Plus className="mr-2 size-4" />
+        <div className="mt-3 flex justify-end sm:mt-4">
+          <Button size="sm" className="h-9 text-xs sm:text-sm" onClick={() => void addSurvey()} disabled={saving || !canManage || !activeMwdSessionId}>
+            <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             {saving ? "Saving..." : "Add Survey"}
           </Button>
         </div>

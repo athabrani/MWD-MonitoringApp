@@ -12,6 +12,7 @@ import { RealTimeChart } from '@/components/contents/charts/real-time-chart';
 import {
   LineChart,
   Download,
+  RefreshCw,
   Star,
   TrendingUp,
   Droplets,
@@ -86,46 +87,46 @@ function AnalyticsSummary({
   const activeParameterCount = analytics.length;
 
   return (
-    <Card className="flex h-full min-w-0 flex-col p-3 sm:p-4">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+    <Card className="flex h-full min-w-0 flex-col p-2.5 sm:p-4">
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-1.5 sm:mb-3 sm:gap-2">
         <div>
-          <h3 className="text-sm font-semibold sm:text-base">{title} Analytics</h3>
-          <p className="text-xs text-muted-foreground sm:text-sm">Derived from the same filtered chart data.</p>
+          <h3 className="text-xs font-semibold sm:text-base">{title} Analytics</h3>
+          <p className="text-[11px] leading-tight text-muted-foreground sm:text-sm">Derived from the same filtered chart data.</p>
         </div>
-        <Badge variant="outline" className="h-6 px-2 text-xs">
+        <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
           {activeParameterCount} active
         </Badge>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <div className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-          <p className="text-xs text-muted-foreground">Samples</p>
-          <p className="text-base font-semibold leading-tight">{totalSamples}</p>
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+        <div className="min-w-0 rounded-md border border-border/70 bg-background/40 px-2 py-1.5 sm:px-2.5 sm:py-2">
+          <p className="truncate text-[10px] leading-tight text-muted-foreground sm:text-xs">Samples</p>
+          <p className="text-xs font-semibold leading-tight sm:text-base">{totalSamples}</p>
         </div>
-        <div className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-          <p className="text-xs text-muted-foreground">Parameters</p>
-          <p className="text-base font-semibold leading-tight">{activeParameterCount}</p>
+        <div className="min-w-0 rounded-md border border-border/70 bg-background/40 px-2 py-1.5 sm:px-2.5 sm:py-2">
+          <p className="truncate text-[10px] leading-tight text-muted-foreground sm:text-xs">Parameters</p>
+          <p className="text-xs font-semibold leading-tight sm:text-base">{activeParameterCount}</p>
         </div>
-        <div className="rounded-md border border-border/70 bg-background/40 px-2.5 py-2">
-          <p className="text-xs text-muted-foreground">Last Updated</p>
-          <p className="truncate text-xs font-medium sm:text-sm">{formatTimestamp(data)}</p>
+        <div className="min-w-0 rounded-md border border-border/70 bg-background/40 px-2 py-1.5 sm:px-2.5 sm:py-2">
+          <p className="truncate text-[10px] leading-tight text-muted-foreground sm:text-xs">Last Updated</p>
+          <p className="truncate text-[10px] font-medium leading-tight sm:text-sm">{formatTimestamp(data)}</p>
         </div>
       </div>
 
       {analytics.length > 0 ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="mt-2 grid grid-cols-2 gap-1.5 sm:mt-3 sm:grid-cols-2 sm:gap-2 xl:grid-cols-3 2xl:grid-cols-4">
           {analytics.map((item) => (
-            <div key={item.key} className="rounded-md border border-border/70 px-2.5 py-2.5">
-              <div className="mb-2 flex items-start justify-between gap-2">
+            <div key={item.key} className="min-w-0 rounded-md border border-border/70 px-2 py-2 sm:px-2.5 sm:py-2.5">
+              <div className="mb-1.5 flex items-start justify-between gap-1.5 sm:mb-2 sm:gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold sm:text-sm">{item.label}</p>
-                  <p className="text-[11px] leading-tight text-muted-foreground">{item.count} samples</p>
+                  <p className="truncate text-[11px] font-semibold sm:text-sm">{item.label}</p>
+                  <p className="text-[10px] leading-tight text-muted-foreground sm:text-[11px]">{item.count} samples</p>
                 </div>
-                <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px] capitalize">
+                <Badge variant="secondary" className="h-4 shrink-0 px-1 text-[9px] capitalize sm:h-5 sm:px-1.5 sm:text-[10px]">
                   {item.trend}
                 </Badge>
               </div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] sm:text-xs">
+              <div className="grid grid-cols-2 gap-x-1.5 gap-y-0.5 text-[10px] sm:gap-x-2 sm:text-xs">
                 <span className="text-muted-foreground">Latest</span>
                 <span className="text-right font-mono">
                   {formatNumber(item.latest)} {item.unit}
@@ -141,7 +142,7 @@ function AnalyticsSummary({
           ))}
         </div>
       ) : (
-        <p className="mt-4 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mt-4 sm:p-4 sm:text-sm">
           No numeric values are available for this chart and range.
         </p>
       )}
@@ -170,19 +171,19 @@ function CombinedChartSection({
   const chartParameters = availableParameters.length > 0 ? availableParameters : parameters;
 
   return (
-    <section className={featured ? "space-y-4" : "rounded-xl border border-border/70 bg-card/40 p-4"}>
+    <section className={featured ? "space-y-3 sm:space-y-4" : "rounded-xl border border-border/70 bg-card/40 p-2.5 sm:p-4"}>
       {featured ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-xl font-semibold sm:text-2xl">{title}</h2>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
+            <h2 className="text-base font-semibold sm:text-2xl">{title}</h2>
+            <p className="mt-0.5 max-w-3xl text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-normal">{description}</p>
           </div>
           <Badge variant="outline" className="w-fit">
             {chartParameters.length} parameter{chartParameters.length === 1 ? '' : 's'}
           </Badge>
         </div>
       ) : null}
-      <div className="space-y-4">
+      <div className="space-y-2.5 sm:space-y-4">
         <RealTimeChart
           data={data}
           title={featured ? "Overview Trend" : title}
@@ -238,16 +239,25 @@ export const ChartsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-5 sm:space-y-8">
       <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="mb-2 text-3xl font-bold">Charts & Analytics</h1>
-          <p className="max-w-3xl text-muted-foreground">
+        <div className="min-w-0">
+          <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Charts & Analytics</h1>
+          <p className="max-w-3xl break-words text-sm text-muted-foreground sm:text-base">
             Historical trends for {activeSessionLabel || 'current session'}
           </p>
         </div>
-        <Button variant="outline" onClick={() => void refreshMwdData()} disabled={mwdDataLoading}>
-          {mwdDataLoading ? 'Refreshing...' : 'Refresh Chart Data'}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+          onClick={() => void refreshMwdData()}
+          disabled={mwdDataLoading}
+          aria-label="Refresh chart data"
+          title="Refresh chart data"
+        >
+          <RefreshCw className={mwdDataLoading ? 'size-3.5 animate-spin sm:mr-2 sm:size-4' : 'size-3.5 sm:mr-2 sm:size-4'} />
+          <span className="hidden sm:inline">{mwdDataLoading ? 'Refreshing...' : 'Refresh Chart Data'}</span>
         </Button>
       </div>
 
@@ -257,17 +267,17 @@ export const ChartsPage: React.FC = () => {
         </Card>
       ) : null}
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 rounded-xl p-1 sm:w-fit sm:grid-cols-2">
-          <TabsTrigger value="overview" className="px-4">
+      <Tabs defaultValue="overview" className="space-y-4 sm:space-y-6">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl p-1 sm:w-fit">
+          <TabsTrigger value="overview" className="px-2 text-xs sm:px-4 sm:text-sm">
             Overview & Analytics
           </TabsTrigger>
-          <TabsTrigger value="details" className="px-4">
+          <TabsTrigger value="details" className="px-2 text-xs sm:px-4 sm:text-sm">
             Pinned Detail Charts
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-0 space-y-8">
+        <TabsContent value="overview" className="mt-0 space-y-4 sm:space-y-8">
           <CombinedChartSection
             title="All Parameters Overview"
             description="Normalized view across all major parameters so mixed units can be compared by trend shape."
@@ -278,14 +288,14 @@ export const ChartsPage: React.FC = () => {
             featured
           />
 
-          <section className="space-y-4">
+          <section className="space-y-3 sm:space-y-4">
             <div>
-              <h2 className="text-xl font-semibold">Category Trends</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-base font-semibold sm:text-xl">Category Trends</h2>
+              <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
                 Focused normalized charts by operational category. Each panel uses the same backend chart data and selected time range.
               </p>
             </div>
-            <div className="grid items-start gap-5 2xl:grid-cols-2">
+            <div className="grid items-start gap-3 sm:gap-4 2xl:grid-cols-2">
               {categoryEntries.map(([category, parameters]) => (
                 <CombinedChartSection
                   key={category}
@@ -308,8 +318,8 @@ export const ChartsPage: React.FC = () => {
               Inspect selected parameters in raw units, with compact analytics from the active range.
             </p>
           </div>
-          <div className="grid items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-            <Card className="p-4">
+          <div className="grid items-start gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <Card className="p-3 sm:p-4">
               <h3 className="mb-4 font-semibold">Parameter Library</h3>
 
               <div className="space-y-4">

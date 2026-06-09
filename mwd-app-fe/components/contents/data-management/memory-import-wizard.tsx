@@ -157,7 +157,7 @@ function SegmentProfile({ segment }: { segment: MemoryImportSegment }) {
   const points = segment.rows.slice(0, 28);
 
   return (
-    <div className="flex h-16 items-end gap-1 rounded-md border bg-muted/30 p-2">
+    <div className="flex h-12 items-end gap-0.5 rounded-md border bg-muted/30 p-1.5 sm:h-16 sm:gap-1 sm:p-2">
       {points.map((row, index) => (
         <div
           key={`${segment.id}-${index}`}
@@ -180,7 +180,7 @@ function Stepper({
   onStepSelect: (step: WizardStep) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-5">
+    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 md:grid-cols-5">
       {steps.map((step, index) => {
         const status = stepStatus(step.id, activeStep, completedSteps);
         return (
@@ -189,7 +189,7 @@ function Stepper({
             type="button"
             onClick={() => onStepSelect(step.id)}
             className={cn(
-              "rounded-lg border px-3 py-3 text-left transition-colors",
+              "rounded-lg border px-2 py-2 text-left transition-colors sm:px-3 sm:py-3",
               status === "current" && "border-primary bg-primary/10",
               status === "completed" && "border-emerald-500/40 bg-emerald-500/10",
               status === "pending" && "bg-card hover:bg-muted/50"
@@ -198,16 +198,16 @@ function Stepper({
             <div className="flex items-center gap-2">
               <span
                 className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold sm:size-6 sm:text-xs",
                   status === "completed" && "border-emerald-500 bg-emerald-500 text-white",
                   status === "current" && "border-primary bg-primary text-primary-foreground"
                 )}
               >
                 {status === "completed" ? <Check className="size-3.5" /> : index + 1}
               </span>
-              <span className="text-sm font-semibold">{step.title}</span>
+              <span className="text-xs font-semibold sm:text-sm">{step.title}</span>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">{step.description}</p>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:text-xs">{step.description}</p>
           </button>
         );
       })}
@@ -598,20 +598,21 @@ export function MemoryImportWizard() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3 sm:space-y-5">
       <WorkspaceSection
         title="Memory File Import"
-        description="Operational wizard for backend memory files. Browser parsing is used only to preview an upload payload before POST /api/memory-files/import."
+        description="Operational wizard for backend memory files."
         badge="Backend memory files"
+        className="p-3 sm:p-5"
       >
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1.5fr_1fr]">
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <div className="flex items-center gap-2 font-semibold">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="grid gap-2 sm:gap-3 md:grid-cols-[1.5fr_1fr]">
+            <div className="rounded-lg border bg-muted/20 p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                 <FileSearch className="size-4" />
                 Workflow
               </div>
-              <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2 lg:grid-cols-5">
+              <div className="mt-2 grid gap-1.5 text-xs leading-snug text-muted-foreground sm:mt-3 sm:grid-cols-2 sm:text-sm lg:grid-cols-5">
                 <div>1. Select or register a non-conflicting WITS ID.</div>
                 <div>2. Upload vendor CSV memory export.</div>
                 <div>3. Scan detected fields and segments.</div>
@@ -619,9 +620,9 @@ export function MemoryImportWizard() {
                 <div>5. Correlate and stage gap filling.</div>
               </div>
             </div>
-            <div className="rounded-lg border bg-card p-4">
+            <div className="rounded-lg border bg-card p-3 sm:p-4">
               <div className="text-sm font-semibold">WITS ID helper rule</div>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:mt-3 sm:gap-3">
                 <div>
                   <div className="text-muted-foreground">Good examples</div>
                   <div className="mt-1 flex flex-wrap gap-1">
@@ -650,10 +651,11 @@ export function MemoryImportWizard() {
         title="Memory Files"
         description="Backend memory files from GET /api/memory-files. Selecting a file loads metadata and points for review."
         badge={activeMwdSessionId ? `Session ${activeMwdSessionId}` : "All sessions"}
+        className="p-3 sm:p-5"
       >
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-muted-foreground">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+            <div className="text-xs text-muted-foreground sm:text-sm">
               {memoryFilesLoading ? "Loading memory files..." : `${backendMemoryFiles.length} backend file(s) loaded`}
             </div>
             <Button
@@ -662,8 +664,8 @@ export function MemoryImportWizard() {
               onClick={() => void loadBackendMemoryFiles()}
               disabled={!token || memoryFilesLoading}
             >
-              <RefreshCw className={cn("mr-2 size-4", memoryFilesLoading && "animate-spin")} />
-              Refresh Files
+              <RefreshCw className={cn("mr-1.5 size-3.5 sm:mr-2 sm:size-4", memoryFilesLoading && "animate-spin")} />
+              <span className="hidden sm:inline">Refresh Files</span>
             </Button>
           </div>
 
@@ -673,11 +675,11 @@ export function MemoryImportWizard() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="grid gap-3 sm:gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
             <Card className="p-0">
-              <div className="border-b px-4 py-3">
-                <h3 className="font-semibold">File list</h3>
-                <p className="text-sm text-muted-foreground">Use the upload step to import a new memory file.</p>
+              <div className="border-b px-3 py-2.5 sm:px-4 sm:py-3">
+                <h3 className="text-sm font-semibold sm:text-base">File list</h3>
+                <p className="text-xs text-muted-foreground sm:text-sm">Use the upload step to import a new memory file.</p>
               </div>
               <div className="max-h-[320px] overflow-auto">
                 <Table>
@@ -720,7 +722,7 @@ export function MemoryImportWizard() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Delete memory file?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  {file.fileName} will be deleted through DELETE /api/memory-files/{file.id}. This cannot be undone.
+                                  {file.fileName} with ID {file.id} will be deleted. This cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -750,17 +752,17 @@ export function MemoryImportWizard() {
             </Card>
 
             <Card className="p-0">
-              <div className="border-b px-4 py-3">
-                <h3 className="font-semibold">File detail and points</h3>
-                <p className="text-sm text-muted-foreground">
+              <div className="border-b px-3 py-2.5 sm:px-4 sm:py-3">
+                <h3 className="text-sm font-semibold sm:text-base">File detail and points</h3>
+                {/* <p className="text-xs text-muted-foreground sm:text-sm">
                   Detail uses GET /api/memory-files/:id and points use GET /api/memory-files/:id/points.
-                </p>
+                </p> */}
               </div>
               {memoryFileDetailLoading ? (
-                <div className="p-4 text-sm text-muted-foreground">Loading file detail...</div>
+                <div className="p-3 text-sm text-muted-foreground sm:p-4">Loading file detail...</div>
               ) : backendFileDetail ? (
-                <div className="space-y-4 p-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
+                  <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
                     <SummaryTile label="File" value={backendFileDetail.fileName} />
                     <SummaryTile label="Status" value={backendFileDetail.status ?? "-"} />
                     <SummaryTile label="Uploaded" value={formatOptionalDateTime(backendFileDetail.uploadedAt)} />
@@ -797,7 +799,7 @@ export function MemoryImportWizard() {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 text-sm text-muted-foreground">Select a memory file to load detail and points.</div>
+                <div className="p-3 text-sm text-muted-foreground sm:p-4">Select a memory file to load detail and points.</div>
               )}
             </Card>
           </div>
@@ -805,8 +807,8 @@ export function MemoryImportWizard() {
       </WorkspaceSection>
 
       {activeStep === "storage" ? (
-        <div className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
-          <WorkspaceSection title="Memory Storage" description="Storage channels must come from backend memory endpoints. No browser-local storage channel is created.">
+        <div className="grid gap-3 sm:gap-4 xl:grid-cols-[1fr_1.15fr]">
+          <WorkspaceSection className="p-3 sm:p-5" title="Memory Storage" description="Storage channels must come from backend memory endpoints. No browser-local storage channel is created.">
             <div className="space-y-3">
               {storageChannels.map((channel) => (
                 <button
@@ -814,7 +816,7 @@ export function MemoryImportWizard() {
                   type="button"
                   onClick={() => setSelectedStorageId(channel.id)}
                   className={cn(
-                    "w-full rounded-lg border p-4 text-left transition-colors hover:bg-muted/40",
+                    "w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/40 sm:p-4",
                     selectedStorageId === channel.id && "border-primary bg-primary/10"
                   )}
                 >
@@ -835,8 +837,8 @@ export function MemoryImportWizard() {
             </div>
           </WorkspaceSection>
 
-          <WorkspaceSection title="Create/Register Storage WITS ID" description="Registration requires a backend endpoint. This form is disabled until that contract exists.">
-            <div className="grid gap-4 md:grid-cols-2">
+          <WorkspaceSection className="p-3 sm:p-5" title="Create/Register Storage WITS ID" description="Registration requires a backend endpoint. This form is disabled until that contract exists.">
+            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>WITS ID</Label>
                 <Input value={storageDraft.witsId} onChange={(event) => setStorageDraft((current) => ({ ...current, witsId: event.target.value }))} />
@@ -867,7 +869,7 @@ export function MemoryImportWizard() {
                 <Input value={storageDraft.plotScaleInfo} onChange={(event) => setStorageDraft((current) => ({ ...current, plotScaleInfo: event.target.value }))} />
               </div>
             </div>
-            <Button className="mt-4" onClick={handleCreateStorage} disabled={Boolean(storageValidation)}>
+            <Button className="mt-3 h-8 px-3 text-xs sm:mt-4 sm:h-9 sm:text-sm" onClick={handleCreateStorage} disabled={Boolean(storageValidation)}>
               <Plus className="mr-2 size-4" />
               Register storage
             </Button>
@@ -876,14 +878,14 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "upload" ? (
-        <WorkspaceSection title="Upload Memory File" description="CSV parser detects time/depth/value fields. Empty or unreadable files stay empty.">
-          <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-            <Card className="p-4">
-              <div className="flex items-center gap-2 font-semibold">
+        <WorkspaceSection className="p-3 sm:p-5" title="Upload Memory File" description="CSV parser detects time/depth/value fields. Empty or unreadable files stay empty.">
+          <div className="grid gap-3 sm:gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+            <Card className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                 <FileUp className="size-4" />
                 Select vendor CSV
               </div>
-              <div className="mt-4 space-y-3">
+              <div className="mt-3 space-y-3 sm:mt-4">
                 <Input
                   type="file"
                   accept=".csv,text/csv"
@@ -896,10 +898,10 @@ export function MemoryImportWizard() {
               </div>
             </Card>
 
-            <Card className="p-4">
+            <Card className="p-3 sm:p-4">
               <div className="font-semibold">File summary</div>
               {importFile ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3">
                   <SummaryTile label="File name" value={importFile.fileName} />
                   <SummaryTile label="Parser mode" value={importFile.parserMode} />
                   <SummaryTile label="Detected fields" value={importFile.detectedFields.join(", ")} />
@@ -908,7 +910,7 @@ export function MemoryImportWizard() {
                   <SummaryTile label="End" value={formatDateTime(importFile.detectedTimeSpan.end)} />
                 </div>
               ) : (
-                <div className="mt-4 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Belum ada memory file.</div>
+                <div className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:mt-4 sm:p-6">Belum ada memory file.</div>
               )}
             </Card>
           </div>
@@ -916,20 +918,20 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "scan" ? (
-        <WorkspaceSection title="Scan and Select Segment" description="Detected segments are split by large time gaps. Select one run before importing to WITS ID storage.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Scan and Select Segment" description="Detected segments are split by large time gaps. Select one run before importing to WITS ID storage.">
           {importFile ? (
-            <div className="grid gap-3">
+            <div className="grid gap-2.5 sm:gap-3">
               {importFile.segments.map((segment) => (
                 <button
                   key={segment.id}
                   type="button"
                   onClick={() => setSelectedSegmentId(segment.id)}
                   className={cn(
-                    "rounded-lg border p-4 text-left transition-colors hover:bg-muted/40",
+                    "rounded-lg border p-3 text-left transition-colors hover:bg-muted/40 sm:p-4",
                     selectedSegmentId === segment.id && "border-primary bg-primary/10"
                   )}
                 >
-                  <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+                  <div className="grid gap-3 sm:gap-4 lg:grid-cols-[1fr_1.1fr]">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-semibold">{segment.name}</div>
@@ -958,13 +960,13 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "import" ? (
-        <WorkspaceSection title="Import to Storage" description="Selected segments must be stored by POST /api/memory-files/import. The frontend does not create runtime memory datasets.">
-          <div className="grid gap-4 lg:grid-cols-3">
+        <WorkspaceSection className="p-3 sm:p-5" title="Import to Storage" description="Selected segments must be stored by POST /api/memory-files/import. The frontend does not create runtime memory datasets.">
+          <div className="grid gap-2 sm:gap-4 lg:grid-cols-3">
             <SummaryCard icon={Database} label="Target storage" value={selectedStorage ? `${selectedStorage.witsId} - ${selectedStorage.name}` : "None"} />
             <SummaryCard icon={FileSearch} label="Selected segment" value={selectedSegment ? `${selectedSegment.name}, ${selectedSegment.sampleCount} samples` : "None"} />
             <SummaryCard icon={Check} label="Runtime datasets" value="Disabled" />
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <Button variant="outline" onClick={() => setActiveStep("scan")}>Back to scan</Button>
             <Button onClick={handleImportSegment} disabled={!selectedStorage || !selectedSegment}>
               <Database className="mr-2 size-4" />
@@ -1002,7 +1004,7 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "correlate" ? (
-        <WorkspaceSection title="Correlate Imported Data" description="Use backend dry-run and apply endpoints to correlate memory files with MWD data.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Correlate Imported Data" description="Use backend dry-run and apply endpoints to correlate memory files with MWD data.">
           {selectedBackendFile ? (
             <Tabs defaultValue="correlate" className="space-y-4">
               <TabsList className="h-auto flex-wrap justify-start">
@@ -1322,9 +1324,9 @@ export function MemoryImportWizard() {
 
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-muted/20 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 break-words text-sm font-semibold">{value}</div>
+    <div className="rounded-lg border bg-muted/20 p-2.5 sm:p-3">
+      <div className="text-[11px] text-muted-foreground sm:text-xs">{label}</div>
+      <div className="mt-0.5 break-words text-xs font-semibold leading-snug sm:mt-1 sm:text-sm">{value}</div>
     </div>
   );
 }
@@ -1339,12 +1341,12 @@ function SummaryCard({
   value: string;
 }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="size-4" />
+    <Card className="p-3 sm:p-4">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:gap-2 sm:text-sm">
+        <Icon className="size-3.5 sm:size-4" />
         {label}
       </div>
-      <div className="mt-2 text-base font-semibold">{value}</div>
+      <div className="mt-1 break-words text-sm font-semibold leading-snug sm:mt-2 sm:text-base">{value}</div>
     </Card>
   );
 }

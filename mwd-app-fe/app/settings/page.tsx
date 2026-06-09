@@ -250,15 +250,15 @@ export const SettingsPage: React.FC<{
   };
 
   const content = (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3 sm:space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold sm:text-3xl">Settings</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Settings</h1>
+          <p className="break-words text-xs leading-snug text-muted-foreground sm:text-sm">
             Local UI preferences only. Operational data, WITS runtime config, surveys, alarms, and plot templates come from backend APIs.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs sm:flex">
+        <div className="grid grid-cols-3 gap-1.5 text-xs sm:flex sm:gap-2">
           <StatusPill label="Density" value={settings.display.density} />
           <StatusPill label="Units" value={settings.units} />
           <StatusPill
@@ -268,28 +268,28 @@ export const SettingsPage: React.FC<{
         </div>
       </div>
 
-      <Tabs defaultValue="dashboard" className="space-y-4">
-        <TabsList className="h-auto w-full flex-wrap justify-start">
-          <TabsTrigger value="dashboard">
-            <Eye className="mr-2 size-4" />
+      <Tabs defaultValue="dashboard" className="space-y-3 sm:space-y-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:justify-start">
+          <TabsTrigger value="dashboard" className="min-h-8 text-[11px] sm:text-sm">
+            <Eye className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             Dashboard View
           </TabsTrigger>
-          <TabsTrigger value="thresholds">
-            <Gauge className="mr-2 size-4" />
+          <TabsTrigger value="thresholds" className="min-h-8 text-[11px] sm:text-sm">
+            <Gauge className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             Thresholds
           </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <Bell className="mr-2 size-4" />
+          <TabsTrigger value="notifications" className="min-h-8 text-[11px] sm:text-sm">
+            <Bell className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             Notifications
           </TabsTrigger>
-          <TabsTrigger value="system-health">
-            <Activity className="mr-2 size-4" />
+          <TabsTrigger value="system-health" className="min-h-8 text-[11px] sm:text-sm">
+            <Activity className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             System Health
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-0">
-          <div className="grid gap-3 lg:grid-cols-3">
+          <div className="grid gap-3 xl:grid-cols-3">
             <SettingCard icon={Eye} title="Display" description="Dashboard spacing and theme behavior.">
               <CompactRow label="Density" description="Affects dashboard card count and spacing.">
                 <Select
@@ -297,7 +297,7 @@ export const SettingsPage: React.FC<{
                   disabled={!canManageSettings}
                   onValueChange={(value) => updateDisplay({ density: value as "compact" | "comfortable" })}
                 >
-                  <SelectTrigger className="w-36">
+                  <SelectTrigger className="h-9 w-full sm:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="border-border/70">
@@ -322,7 +322,7 @@ export const SettingsPage: React.FC<{
                   disabled={!canManageSettings || !settings.display.autoRefresh}
                   onValueChange={(value) => updateDisplay({ refreshInterval: parseInt(value, 10) })}
                 >
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="h-9 w-full sm:w-32">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="border-border/70">
@@ -342,7 +342,7 @@ export const SettingsPage: React.FC<{
                   disabled={!canManageSettings}
                   onValueChange={(value) => updateSettings({ units: value as "metric" | "imperial" })}
                 >
-                  <SelectTrigger className="w-36">
+                  <SelectTrigger className="h-9 w-full sm:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="border-border/70">
@@ -356,11 +356,11 @@ export const SettingsPage: React.FC<{
         </TabsContent>
 
         <TabsContent value="thresholds" className="mt-0">
-          <Card className="p-4">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="p-3 sm:p-4">
+            <div className="mb-2 flex flex-col gap-2 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-semibold">Parameter Thresholds</h3>
-                <p className="text-sm text-muted-foreground">
+                <h3 className="text-sm font-semibold sm:text-base">Parameter Thresholds</h3>
+                <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
                   Backend WITS alarm limits with structured defaults used only when backend values are missing.
                 </p>
               </div>
@@ -370,6 +370,7 @@ export const SettingsPage: React.FC<{
                   variant="outline"
                   onClick={() => void refreshWitsConfig()}
                   disabled={witsConfigLoading || thresholdsSaving}
+                  className="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
                 >
                   <RefreshCw className="mr-2 size-3.5" />
                   Refresh
@@ -379,6 +380,7 @@ export const SettingsPage: React.FC<{
                     size="sm"
                     onClick={() => void handleSaveThresholds()}
                     disabled={witsConfigLoading || thresholdsSaving || changedThresholdConfigs.length === 0}
+                    className="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
                   >
                     {thresholdsSaving ? "Saving..." : `Save${changedThresholdConfigs.length ? ` (${changedThresholdConfigs.length})` : ""}`}
                   </Button>
@@ -386,19 +388,19 @@ export const SettingsPage: React.FC<{
               </div>
             </div>
             {!canManageSettings ? (
-              <div className="mb-3 rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <div className="mb-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs leading-snug text-amber-900 sm:mb-3 sm:rounded-xl sm:px-3 sm:text-sm">
                 Operator role can view backend-driven thresholds but cannot change operational settings.
               </div>
             ) : null}
 
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-2 flex flex-col gap-2 sm:mb-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="relative w-full sm:max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={thresholdSearch}
                   onChange={(event) => setThresholdSearch(event.target.value)}
                   placeholder="Search thresholds by name, unit, tag, or WITS ID..."
-                  className="pl-9"
+                  className="h-9 pl-9 text-sm"
                 />
               </div>
               <div className="text-xs text-muted-foreground">
@@ -407,23 +409,23 @@ export const SettingsPage: React.FC<{
             </div>
 
             {witsConfigLoading ? (
-              <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 Loading WITS parameter thresholds...
               </div>
             ) : witsConfigError ? (
-              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive sm:rounded-xl sm:p-4 sm:text-sm">
                 {witsConfigError}
               </div>
             ) : thresholdRows.length === 0 ? (
-              <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 No WITS config rows were returned by /api/wits-config.
               </div>
             ) : visibleThresholdRows.length === 0 ? (
-              <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 No threshold parameters match {thresholdSearch}.
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3 2xl:grid-cols-4">
                 {visibleThresholdRows.map((config) => {
                   const draft = getThresholdDraft(config);
                   const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
@@ -432,16 +434,16 @@ export const SettingsPage: React.FC<{
                   const readOnly = isGeneratedConfigId(config);
 
                   return (
-                    <div key={config.id} className="rounded-xl border border-border/80 bg-background/70 p-3">
+                    <div key={config.id} className="rounded-lg border border-border/80 bg-background/70 p-2.5 sm:rounded-xl sm:p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <Label className="text-sm font-medium">{label}</Label>
+                          <Label className="text-xs font-medium sm:text-sm">{label}</Label>
                           <div className="truncate text-xs text-muted-foreground">
                             WITS {witsId} {config.units ? `| ${config.units}` : "| No unit"}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase text-muted-foreground">
+                          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground sm:px-2 sm:text-[10px]">
                             {config.mappedField || config.dataSourceType}
                           </span>
                           <Switch
@@ -465,7 +467,7 @@ export const SettingsPage: React.FC<{
                           onChange={(alarmHigh) => patchThreshold(config.id, { alarmHigh })}
                         />
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
                         <span>Scale {config.leftScale} - {config.rightScale}</span>
                         {config.decimalPlaces !== undefined ? <span>Decimals {config.decimalPlaces}</span> : null}
                         <span>Low {resolved.lowSource}</span>
@@ -481,28 +483,30 @@ export const SettingsPage: React.FC<{
         </TabsContent>
 
         <TabsContent value="notifications" className="mt-0">
-          <Card className="p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Card className="p-3 sm:p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
               <div>
-                <h3 className="font-semibold">Notifications</h3>
-                <p className="text-sm text-muted-foreground">
+                <h3 className="text-sm font-semibold sm:text-base">Notifications</h3>
+                <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
                   Connection, failover, health, and system events generated from current backend/status state.
                 </p>
               </div>
-              <Badge variant="outline">{notificationEvents.length} events</Badge>
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+                {notificationEvents.length} events
+              </Badge>
             </div>
             {notificationEvents.length === 0 ? (
-              <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 Belum ada notification event. Connection or health issues will appear here when detected.
               </div>
             ) : (
               <div className="space-y-2">
                 {notificationEvents.map((event) => (
-                  <div key={event.id} className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{event.message}</span>
-                      <Badge variant="outline">{event.type}</Badge>
-                      <Badge variant={event.severity === "critical" ? "destructive" : "secondary"}>
+                  <div key={event.id} className="rounded-lg border border-border/70 bg-background/70 p-2.5 sm:rounded-xl sm:p-3">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="text-sm font-medium leading-snug sm:text-base">{event.message}</span>
+                      <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">{event.type}</Badge>
+                      <Badge variant={event.severity === "critical" ? "destructive" : "secondary"} className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
                         {event.severity}
                       </Badge>
                     </div>
@@ -546,9 +550,9 @@ export const SettingsPage: React.FC<{
 
 function StatusPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border/80 bg-background/70 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="font-medium capitalize text-foreground">{value}</div>
+    <div className="rounded-lg border border-border/80 bg-background/70 px-2 py-1.5 sm:rounded-xl sm:px-3 sm:py-2">
+      <div className="text-[9px] uppercase tracking-wide text-muted-foreground sm:text-[10px]">{label}</div>
+      <div className="truncate text-xs font-medium capitalize text-foreground sm:text-sm">{value}</div>
     </div>
   );
 }
@@ -565,17 +569,17 @@ function SettingCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-start gap-3">
-        <div className="rounded-lg bg-primary/10 p-2 text-primary">
-          <Icon className="size-4" />
+    <Card className="p-3 sm:p-4">
+      <div className="mb-2 flex min-w-0 items-start gap-2 sm:mb-3 sm:gap-3">
+        <div className="rounded-md bg-primary/10 p-1.5 text-primary sm:rounded-lg sm:p-2">
+          <Icon className="size-3.5 sm:size-4" />
         </div>
-        <div>
-          <h3 className="font-semibold">{title}</h3>
-          <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold sm:text-base">{title}</h3>
+          <p className="break-words text-xs leading-snug text-muted-foreground">{description}</p>
         </div>
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-2 sm:space-y-3">{children}</div>
     </Card>
   );
 }
@@ -590,12 +594,12 @@ function CompactRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/60 p-3">
+    <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-background/60 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:rounded-xl sm:p-3">
       <div className="min-w-0">
-        <Label className="text-sm">{label}</Label>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <Label className="text-xs sm:text-sm">{label}</Label>
+        <p className="break-words text-xs leading-snug text-muted-foreground">{description}</p>
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="w-full shrink-0 sm:w-auto">{children}</div>
     </div>
   );
 }
@@ -619,7 +623,7 @@ function ThresholdInput({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-9"
+        className="h-8 text-sm sm:h-9"
       />
     </div>
   );
@@ -637,10 +641,10 @@ function NotificationCard({
   disabled?: boolean;
 }) {
   return (
-    <Card className="flex items-center justify-between gap-3 p-4">
-      <div>
-        <Label>{title}</Label>
-        <p className="text-xs text-muted-foreground">{description}</p>
+    <Card className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+      <div className="min-w-0">
+        <Label className="text-sm">{title}</Label>
+        <p className="break-words text-xs leading-snug text-muted-foreground">{description}</p>
       </div>
       <Switch defaultChecked={defaultChecked} disabled={disabled} />
     </Card>

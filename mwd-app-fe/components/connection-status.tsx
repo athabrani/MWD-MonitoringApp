@@ -17,9 +17,10 @@ import { cn } from '@/lib/utils';
 
 interface ConnectionStatusProps {
   connectionState: ConnectionState;
-  onReconnect: () => void;
+  onReconnect?: () => void;
   compact?: boolean;
   showMetricsInCompact?: boolean;
+  showReconnectAction?: boolean;
 }
 
 export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({ 
@@ -27,6 +28,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   onReconnect,
   compact = false,
   showMetricsInCompact = false,
+  showReconnectAction = true,
 }) => {
   const { status, latency, latencySource, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
   const [now, setNow] = useState(() => Date.now());
@@ -61,7 +63,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     }
   };
 
-  const timeSinceLastData = Math.floor((now - lastReceived.getTime()) / 1000);
+  const timeSinceLastData =
+    lastReceived instanceof Date && !Number.isNaN(lastReceived.getTime())
+      ? Math.floor((now - lastReceived.getTime()) / 1000)
+      : null;
   const formatLatency = (value?: number) =>
     typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(0)} ms` : '- ms';
   const formatPacketLoss = (value?: number) =>
@@ -98,14 +103,14 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
             </div>
             <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
               <Clock className="size-3" />
-              <span>{timeSinceLastData}s</span>
+              <span>{timeSinceLastData === null ? 'No data' : `${timeSinceLastData}s`}</span>
             </div>
             <Badge variant="secondary" className="text-xs">
               {dataSource === 'primary' ? 'Primary' : 'Backup'}
             </Badge>
           </>
         )}
-        {status !== 'connected' && (
+        {showReconnectAction && onReconnect && status !== 'connected' && (
           <Button 
             size="sm" 
             variant="outline" 
@@ -154,7 +159,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
         <Clock className="size-3" />
-        <span>{timeSinceLastData}s ago</span>
+        <span>{timeSinceLastData === null ? 'No backend data yet' : `${timeSinceLastData}s ago`}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm">
@@ -164,7 +169,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </Badge>
       </div>
 
-      {status !== 'connected' && (
+      {showReconnectAction && onReconnect && status !== 'connected' && (
         <Button 
           size="sm" 
           variant="outline" 

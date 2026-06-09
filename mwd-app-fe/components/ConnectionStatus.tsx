@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
@@ -25,6 +25,15 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   compact = false 
 }) => {
   const { status, latency, latencySource, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const getStatusIcon = () => {
     switch (status) {
@@ -48,7 +57,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     }
   };
 
-  const timeSinceLastData = Math.floor((Date.now() - lastReceived.getTime()) / 1000);
+  const timeSinceLastData =
+    lastReceived instanceof Date && !Number.isNaN(lastReceived.getTime())
+      ? Math.floor((now - lastReceived.getTime()) / 1000)
+      : null;
   const formatLatency = (value?: number) =>
     typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(0)} ms` : '- ms';
   const formatPacketLoss = (value?: number) =>
@@ -118,7 +130,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
         <Clock className="size-3" />
-        <span>{timeSinceLastData}s ago</span>
+        <span>{timeSinceLastData === null ? 'No backend data yet' : `${timeSinceLastData}s ago`}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm">

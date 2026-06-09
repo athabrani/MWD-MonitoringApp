@@ -162,18 +162,18 @@ function UtilityActionCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="rounded-2xl p-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Icon className="size-5" />
+    <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+        <div className="flex min-w-0 gap-2.5 sm:gap-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:size-10 sm:rounded-xl">
+            <Icon className="size-4 sm:size-5" />
           </div>
           <div className="min-w-0">
-            <h3 className="font-semibold">{title}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+            <h3 className="text-sm font-semibold sm:text-base">{title}</h3>
+            <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">{description}</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">{children}</div>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{children}</div>
       </div>
     </Card>
   );
@@ -191,8 +191,8 @@ function SessionSelector({
   setActiveMwdSessionId: (sessionId: string) => void;
 }) {
   return (
-    <div className="space-y-2">
-      <Label>Active Session / Job</Label>
+    <div className="space-y-1.5 sm:space-y-2">
+      <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">Active Session / Job</Label>
       <Select value={activeMwdSessionId} onValueChange={setActiveMwdSessionId} disabled={disabled || mwdSessions.length === 0}>
         <SelectTrigger>
           <SelectValue placeholder="Select active session" />
@@ -225,11 +225,11 @@ function TargetCheckboxList({
   }
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className="grid gap-1.5 min-[420px]:grid-cols-2 sm:gap-2">
       {targets.map((target) => (
-        <label key={target} className="flex cursor-pointer items-center gap-3 rounded-xl border p-3 hover:bg-muted/40">
+        <label key={target} className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/40 sm:min-h-11 sm:gap-3 sm:rounded-xl sm:p-3">
           <Checkbox checked={selectedTargets.includes(target)} onCheckedChange={() => toggleTarget(target)} />
-          <span className="font-medium capitalize">{targetLabel(target, labelMap)}</span>
+          <span className="min-w-0 text-xs font-medium capitalize leading-tight sm:text-sm">{targetLabel(target, labelMap)}</span>
         </label>
       ))}
     </div>
@@ -489,41 +489,49 @@ function DatabaseTab({
   };
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-3 sm:space-y-4">
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2.5 sm:gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Depth-based Data Storage</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h2 className="text-base font-semibold sm:text-lg">Depth-based Data Storage</h2>
+            <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
               Back up and restore the depth database used by logged WITS channels.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">Session {activeMwdSessionId || "not selected"}</Badge>
-            <Badge variant="outline">{selectedSessionTargets.length} targets</Badge>
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+              Session {activeMwdSessionId || "not selected"}
+            </Badge>
+            <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">
+              {selectedSessionTargets.length} targets
+            </Badge>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3">
-          <Card className="rounded-2xl border-dashed p-4">
-            <div className="grid gap-4 md:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:mt-4">
+          <Card className="rounded-xl border-dashed p-3 sm:rounded-2xl sm:p-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,0.9fr)] lg:gap-4">
               <SessionSelector
                 activeMwdSessionId={activeMwdSessionId}
                 disabled={!isAdmin}
                 mwdSessions={mwdSessions}
                 setActiveMwdSessionId={setActiveMwdSessionId}
               />
-              <div className="space-y-2">
-                <Label>Start Depth</Label>
-                <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
-              </div>
-              <div className="space-y-2">
-                <Label>End Depth</Label>
-                <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
+              <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">Start Depth</Label>
+                  <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
+                </div>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">End Depth</Label>
+                  <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
+                </div>
               </div>
             </div>
-            <div className="mt-4">
-              <div className="mb-2 text-sm font-medium">Session Data Targets</div>
+            <div className="mt-3 sm:mt-4">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:mb-2 sm:text-sm sm:normal-case sm:tracking-normal sm:text-foreground">
+                Session Data Targets
+              </div>
               <TargetCheckboxList
                 labelMap={clearTargetLabels}
                 selectedTargets={selectedSessionTargets}
@@ -538,8 +546,8 @@ function DatabaseTab({
             title="Download Session Backup"
             description="Generate a session backup JSON for the selected depth range and targets."
           >
-            <Button onClick={() => void handleBackupSession()} disabled={!isAdmin || sessionBackupLoading || selectedSessionTargets.length === 0}>
-              <Download className="mr-2 size-4" />
+            <Button size="sm" className="h-9 text-xs sm:text-sm" onClick={() => void handleBackupSession()} disabled={!isAdmin || sessionBackupLoading || selectedSessionTargets.length === 0}>
+              <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
               {sessionBackupLoading ? "Backing up..." : "Backup Session"}
             </Button>
           </UtilityActionCard>
@@ -553,11 +561,11 @@ function DatabaseTab({
               type="file"
               ref={sessionRestoreInputRef}
               accept=".json,application/json"
-              className="w-full sm:w-64"
+              className="h-9 w-full text-xs sm:w-64 sm:text-sm"
               disabled={!isAdmin}
               onChange={(event) => void handleReadSessionBackupFile(event.target.files?.[0])}
             />
-            <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
+            <label className="flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm">
               <Checkbox checked={replaceExisting} disabled={!isAdmin} onCheckedChange={(checked) => setReplaceExisting(checked === true)} />
               Replace existing rows
             </label>
@@ -565,6 +573,8 @@ function DatabaseTab({
               <AlertDialogTrigger asChild>
                 <Button
                   variant="outline"
+                  size="sm"
+                  className="h-9 text-xs sm:text-sm"
                   disabled={!isAdmin || sessionRestoreLoading || !sessionBackupJson || selectedSessionTargets.length === 0}
                 >
                   {sessionRestoreLoading ? "Restoring..." : "Restore Session"}
@@ -593,13 +603,13 @@ function DatabaseTab({
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card className="rounded-2xl p-4">
-          <h2 className="text-lg font-semibold">Configuration Backups</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <div className="grid gap-3 sm:gap-4 2xl:grid-cols-2">
+        <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+          <h2 className="text-base font-semibold sm:text-lg">Configuration Backups</h2>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
             Back up configuration files and restore configuration snapshots. This does not back up logging data.
           </p>
-          <div className="mt-4 grid gap-3">
+          <div className="mt-3 grid gap-3 sm:mt-4">
             {configTargetsLoading ? <Badge variant="outline">Loading config targets</Badge> : null}
             {configTargetsError ? (
               <Alert variant="destructive" className="rounded-xl">
@@ -618,12 +628,12 @@ function DatabaseTab({
               title="Download Configuration Backup"
               description="Generate a local JSON backup for selected configuration targets."
             >
-              <Button onClick={() => void handleBackupConfiguration()} disabled={!isAdmin || configBackupLoading || selectedConfigTargets.length === 0}>
+              <Button size="sm" className="h-9 text-xs sm:text-sm" onClick={() => void handleBackupConfiguration()} disabled={!isAdmin || configBackupLoading || selectedConfigTargets.length === 0}>
                 {configBackupLoading ? "Backing up..." : "Backup Configurations"}
               </Button>
             </UtilityActionCard>
             {Object.keys(configBackupCounts).length > 0 ? (
-              <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+              <div className="rounded-xl border bg-muted/20 p-2.5 text-xs sm:p-3 sm:text-sm">
                 <div className="font-medium">Last configuration backup counts</div>
                 <div className="mt-2 grid gap-1">
                   {Object.entries(configBackupCounts).map(([target, count]) => (
@@ -644,13 +654,13 @@ function DatabaseTab({
                 ref={configRestoreInputRef}
                 type="file"
                 accept=".json,application/json"
-                className="w-full sm:w-56"
+                className="h-9 w-full text-xs sm:w-56 sm:text-sm"
                 disabled={!isAdmin}
                 onChange={(event) => void handleReadConfigBackupFile(event.target.files?.[0])}
               />
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" disabled={!isAdmin || configRestoreLoading || !configBackupJson || selectedConfigTargets.length === 0}>
+                  <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" disabled={!isAdmin || configRestoreLoading || !configBackupJson || selectedConfigTargets.length === 0}>
                     {configRestoreLoading ? "Restoring..." : "Restore Configuration"}
                   </Button>
                 </AlertDialogTrigger>
@@ -677,26 +687,26 @@ function DatabaseTab({
           </div>
         </Card>
 
-        <Card className="rounded-2xl p-4">
-          <h2 className="text-lg font-semibold">Time-based Data Storage</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+        <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+          <h2 className="text-base font-semibold sm:text-lg">Time-based Data Storage</h2>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
             Back up and restore the time logging database used for time-based acquisition.
           </p>
-          <div className="mt-4 grid gap-3">
+          <div className="mt-3 grid gap-3 sm:mt-4">
             <UtilityActionCard
               icon={HardDrive}
               title="Time logging database backup"
               description="Create a backup of time-indexed logging storage."
             >
-              <Button onClick={runUnavailableAction}>Backup</Button>
+              <Button size="sm" className="h-9 text-xs sm:text-sm" onClick={runUnavailableAction}>Backup</Button>
             </UtilityActionCard>
             <UtilityActionCard
               icon={Upload}
               title="Restore time data backup"
               description="Choose a time-data backup file and stage it for restore."
             >
-              <Input type="file" accept=".bak,.zip,.db" className="w-full sm:w-56" />
-              <Button variant="outline" onClick={runUnavailableAction}>
+              <Input type="file" accept=".bak,.zip,.db" className="h-9 w-full text-xs sm:w-56 sm:text-sm" />
+              <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={runUnavailableAction}>
                 Restore File
               </Button>
             </UtilityActionCard>
@@ -855,7 +865,7 @@ function SystemInfoTab() {
       value: connectionStatusLoading ? "checking" : connectionState.status,
       level: connectionLevel,
       description: connectionStatusError || `Data source: ${connectionState.dataSource}. Latency ${connectionState.latency} ms, packet loss ${connectionState.packetLoss}%.`,
-      updatedAt: connectionState.lastReceived,
+      updatedAt: connectionState.lastReceived ?? undefined,
       icon: Network,
     },
     {
@@ -957,7 +967,7 @@ function SystemInfoTab() {
     .slice(0, 6);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       <Card className="rounded-2xl p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -980,7 +990,7 @@ function SystemInfoTab() {
         <SystemInfoRow label="Realtime WS URL" value={wsUrl} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 2xl:grid-cols-2">
         <section className="space-y-3">
           <div>
             <h3 className="font-semibold">Process / Service Status</h3>
@@ -1002,7 +1012,7 @@ function SystemInfoTab() {
         </section>
       </div>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
+      <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
         <Card className="rounded-2xl p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1036,7 +1046,7 @@ function SystemInfoTab() {
             <p className="text-sm text-muted-foreground">Backend system log endpoint is not integrated yet.</p>
           </div>
           <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
-            Recent backend process logs such as "illegal character received" or "hangup signal received" are not available as a dedicated API yet. This panel scans available status/error messages only.
+            Recent backend process logs such as &quot;illegal character received&quot; or &quot;hangup signal received&quot; are not available as a dedicated API yet. This panel scans available status/error messages only.
           </div>
         </Card>
       </section>
@@ -1239,90 +1249,92 @@ function ClearDataTab({
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <Card className="rounded-2xl p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="grid gap-3 sm:gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Clear Data Targets</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h2 className="text-base font-semibold sm:text-lg">Clear Data Targets</h2>
+            <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
               Targets are loaded from /api/system-utilities/clear-data/targets.
             </p>
           </div>
-          <Button variant="outline" onClick={toggleAll}>
+          <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={toggleAll}>
             {selectedCategories.length === clearTargets.length ? "Clear Selection" : "Select All"}
           </Button>
         </div>
-        {clearTargetsLoading ? <Badge variant="outline" className="mt-4">Loading clear targets</Badge> : null}
+        {clearTargetsLoading ? <Badge variant="outline" className="mt-3 sm:mt-4">Loading clear targets</Badge> : null}
         {clearTargetsError ? (
-          <Alert variant="destructive" className="mt-4 rounded-xl">
+          <Alert variant="destructive" className="mt-3 rounded-xl sm:mt-4">
             <AlertTriangle className="size-4" />
             <AlertDescription>{clearTargetsError}</AlertDescription>
           </Alert>
         ) : null}
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-1.5 min-[460px]:grid-cols-2 sm:mt-4 sm:gap-2 lg:gap-3">
           {clearTargets.map((target) => (
-            <label key={target} className="flex cursor-pointer gap-3 rounded-xl border p-3 hover:bg-muted/40">
+            <label key={target} className="flex min-h-12 cursor-pointer gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/40 sm:min-h-14 sm:gap-3 sm:rounded-xl sm:p-3">
               <Checkbox checked={selectedCategories.includes(target)} onCheckedChange={() => toggleCategory(target)} disabled={!isAdmin} />
-              <span>
-                <span className="block font-medium">{targetLabel(target, clearTargetLabels)}</span>
-                <span className="mt-1 block text-sm text-muted-foreground font-mono">{target}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-medium sm:text-sm">{targetLabel(target, clearTargetLabels)}</span>
+                <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground sm:mt-1 sm:text-xs">{target}</span>
               </span>
             </label>
           ))}
           {!clearTargetsLoading && !clearTargetsError && clearTargets.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground md:col-span-2">
+            <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground sm:p-4 min-[460px]:col-span-2">
               Endpoint backend untuk fitur ini belum tersedia.
             </div>
           ) : null}
         </div>
       </Card>
 
-      <div className="space-y-4">
-        <Card className="rounded-2xl p-4">
-          <h2 className="text-lg font-semibold">Depth Range</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Use the active session and a valid depth interval before previewing clear data.</p>
-          <div className="mt-4 grid gap-3">
+      <div className="space-y-3 sm:space-y-4">
+        <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+          <h2 className="text-base font-semibold sm:text-lg">Depth Range</h2>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">Use the active session and a valid depth interval before previewing clear data.</p>
+          <div className="mt-3 grid gap-3 sm:mt-4">
             <SessionSelector
               activeMwdSessionId={activeMwdSessionId}
               disabled={!isAdmin}
               mwdSessions={mwdSessions}
               setActiveMwdSessionId={setActiveMwdSessionId}
             />
-            <div className="space-y-2">
-              <Label>Start Depth</Label>
-              <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
-            </div>
-            <div className="space-y-2">
-              <Label>End Depth</Label>
-              <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
+            <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">Start Depth</Label>
+                <Input type="number" value={startDepth} disabled={!isAdmin} onChange={(event) => setStartDepth(parseFiniteNumber(event.target.value, startDepth))} />
+              </div>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">End Depth</Label>
+                <Input type="number" value={endDepth} disabled={!isAdmin} onChange={(event) => setEndDepth(parseFiniteNumber(event.target.value, endDepth))} />
+              </div>
             </div>
           </div>
         </Card>
 
-        <Alert variant="destructive" className="rounded-2xl">
+        <Alert variant="destructive" className="rounded-xl py-3 sm:rounded-2xl sm:py-4">
           <AlertTriangle className="size-4" />
           <AlertTitle>Dangerous action</AlertTitle>
-          <AlertDescription>
+          <AlertDescription className="text-xs leading-snug sm:text-sm">
             Cleared data cannot be restored unless a valid backup exists. Confirm that database and configuration backups are available before continuing.
           </AlertDescription>
         </Alert>
 
-        <Card className="rounded-2xl border-destructive/30 p-4">
-          <h2 className="text-lg font-semibold">Clear Data Action</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+        <Card className="rounded-xl border-destructive/30 p-3 sm:rounded-2xl sm:p-4">
+          <h2 className="text-base font-semibold sm:text-lg">Clear Data Action</h2>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
             Selected categories: {selectedCategoryLabels.length > 0 ? selectedCategoryLabels.length : "none"}.
           </p>
-          <div className="mt-4 grid gap-2">
-            <Button variant="outline" onClick={() => void handlePreviewClearData()} disabled={!isAdmin || previewLoading || selectedCategories.length === 0}>
+          <div className="mt-3 grid gap-2 sm:mt-4">
+            <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={() => void handlePreviewClearData()} disabled={!isAdmin || previewLoading || selectedCategories.length === 0}>
               {previewLoading ? "Previewing..." : "Preview Clear Data"}
             </Button>
-            <Button variant="outline" onClick={() => void handleBackupSession()} disabled={!isAdmin || backupLoading || selectedCategories.length === 0}>
-              <Download className="mr-2 size-4" />
+            <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={() => void handleBackupSession()} disabled={!isAdmin || backupLoading || selectedCategories.length === 0}>
+              <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
               {backupLoading ? "Backing up..." : "Download Backup"}
             </Button>
           </div>
           {preview ? (
-            <div className="mt-4 rounded-xl border bg-muted/30 p-3 text-sm">
+            <div className="mt-3 rounded-xl border bg-muted/30 p-2.5 text-xs sm:mt-4 sm:p-3 sm:text-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium">Preview counts</div>
                 <Badge variant="secondary">{preview.requiredConfirm}</Badge>
@@ -1343,8 +1355,8 @@ function ClearDataTab({
           ) : null}
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button className="mt-4 w-full" variant="destructive" disabled={!isAdmin || clearLoading || !preview?.requiredConfirm}>
-                <Trash2 className="mr-2 size-4" />
+              <Button size="sm" className="mt-3 h-9 w-full text-xs sm:mt-4 sm:text-sm" variant="destructive" disabled={!isAdmin || clearLoading || !preview?.requiredConfirm}>
+                <Trash2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                 {clearLoading ? "Clearing..." : "Clear Data"}
               </Button>
             </AlertDialogTrigger>
@@ -1372,7 +1384,7 @@ function ClearDataTab({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          {actionError ? <p className="mt-3 text-sm text-destructive">{actionError}</p> : null}
+          {actionError ? <p className="mt-3 text-xs text-destructive sm:text-sm">{actionError}</p> : null}
         </Card>
       </div>
     </div>
@@ -1476,14 +1488,14 @@ export default function SystemUtilitiesPage({
   }, [refreshPlotTemplates]);
 
   const content = (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">System Utilities</Badge>
           <Badge variant="outline">Admin protected</Badge>
         </div>
         <h1 className="mt-3 text-2xl font-bold sm:text-3xl">System Utilities</h1>
-        <p className="text-sm text-muted-foreground sm:text-base">
+        <p className="break-words text-sm text-muted-foreground sm:text-base">
           Operational backup, restore, diagnostics, and controlled clear-data utilities.
         </p>
       </div>

@@ -917,9 +917,8 @@ export default function ConfigurationPage({
             description="Primary job identity, naming convention, drilling status, and dashboard contact placeholders."
             badge={activeMwdSessionId ? "Backend session" : "New session draft"}
           >
-            <Card className="mb-4 border-dashed p-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-                <div className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,360px)_auto]">
+            <Card className="mb-3 border-dashed p-3 sm:mb-4 sm:p-4">
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_auto] xl:grid-cols-[minmax(220px,360px)_auto_auto] xl:items-end">
                   <FormField label="MWD Session">
                     <Select
                       value={activeMwdSessionId}
@@ -940,37 +939,46 @@ export default function ConfigurationPage({
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex items-end gap-1.5 sm:gap-2">
                     <Button
                       type="button"
                       variant="outline"
+                      size="sm"
+                      className="h-9 w-9 p-0 sm:w-auto sm:px-3"
                       onClick={() => void refreshMwdSessions()}
                       disabled={mwdSessionsLoading || wellSessionSaving}
+                      aria-label="Refresh MWD sessions"
+                      title="Refresh MWD sessions"
                     >
-                      <RefreshCw className={cn("mr-2 size-4", mwdSessionsLoading && "animate-spin")} />
-                      Refresh
+                      <RefreshCw className={cn("size-3.5 sm:mr-2 sm:size-4", mwdSessionsLoading && "animate-spin")} />
+                      <span className="hidden sm:inline">Refresh</span>
                     </Button>
                     {canManageConfiguration ? (
                       <Button
                         type="button"
                         variant="outline"
+                        size="sm"
+                        className="h-9 w-9 p-0 sm:w-auto sm:px-3"
                         onClick={startNewMwdSessionDraft}
                         disabled={wellSessionSaving}
+                        aria-label="New MWD session"
+                        title="New MWD session"
                       >
-                        <Plus className="mr-2 size-4" />
-                        New Session
+                        <Plus className="size-3.5 sm:mr-2 sm:size-4" />
+                        <span className="hidden sm:inline">New Session</span>
                       </Button>
                     ) : null}
                   </div>
-                </div>
 
                 {canManageConfiguration ? (
                   <Button
                     type="button"
+                    size="sm"
+                    className="h-9 w-full px-3 text-xs sm:col-span-2 sm:text-sm xl:col-span-1 xl:w-auto"
                     onClick={() => void saveWellSession()}
                     disabled={wellSessionSaving || wellSessionLoading}
                   >
-                    <Save className="mr-2 size-4" />
+                    <Save className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                     {wellSessionSaving
                       ? "Saving..."
                       : activeMwdSessionId
@@ -1001,10 +1009,10 @@ export default function ConfigurationPage({
               ) : null}
             </Card>
 
-            <div className="grid gap-4 xl:grid-cols-2">
-              <Card className="border-dashed p-4">
-                <h4 className="font-medium">Well Identification</h4>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="grid gap-3 sm:gap-4 xl:grid-cols-2">
+              <Card className="border-dashed p-3 sm:p-4">
+                <h4 className="text-sm font-medium sm:text-base">Well Identification</h4>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 sm:gap-4">
                   <FormField label="Company Name">
                     <Input
                       value={safeWellInfo.companyName}
@@ -1128,9 +1136,9 @@ export default function ConfigurationPage({
                 </div>
               </Card>
 
-              <Card className="border-dashed p-4">
-                <h4 className="font-medium">Job Details and File Naming</h4>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Card className="border-dashed p-3 sm:p-4">
+                <h4 className="text-sm font-medium sm:text-base">Job Details and File Naming</h4>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 sm:gap-4">
                   <FormField label="Job Number">
                     <Input
                       value={safeWellInfo.jobNumber}
@@ -1139,42 +1147,46 @@ export default function ConfigurationPage({
                       }
                     />
                   </FormField>
-                  <FormField label="Start Date">
-                    <Input
-                      type="date"
-                      value={safeWellInfo.startDate}
-                      onChange={(e) =>
-                        patchWellInfo({ startDate: e.target.value })
-                      }
-                    />
-                  </FormField>
-                  <FormField label="End Date">
-                    <Input
-                      type="date"
-                      value={safeWellInfo.endDate}
-                      onChange={(e) =>
-                        patchWellInfo({ endDate: e.target.value })
-                      }
-                    />
-                  </FormField>
-                  <FormField label="Start Depth">
-                    <Input
-                      type="number"
-                      value={safeWellInfo.startDepth}
-                      onChange={(e) =>
-                        patchWellInfo({ startDepth: Number(e.target.value) })
-                      }
-                    />
-                  </FormField>
-                  <FormField label="End Depth">
-                    <Input
-                      type="number"
-                      value={safeWellInfo.endDepth}
-                      onChange={(e) =>
-                        patchWellInfo({ endDepth: Number(e.target.value) })
-                      }
-                    />
-                  </FormField>
+                  <div className="grid gap-2 min-[300px]:grid-cols-2 sm:col-span-2 sm:gap-4">
+                    <FormField label="Start Date">
+                      <Input
+                        type="date"
+                        value={safeWellInfo.startDate}
+                        onChange={(e) =>
+                          patchWellInfo({ startDate: e.target.value })
+                        }
+                      />
+                    </FormField>
+                    <FormField label="End Date">
+                      <Input
+                        type="date"
+                        value={safeWellInfo.endDate}
+                        onChange={(e) =>
+                          patchWellInfo({ endDate: e.target.value })
+                        }
+                      />
+                    </FormField>
+                  </div>
+                  <div className="grid gap-2 min-[300px]:grid-cols-2 sm:col-span-2 sm:gap-4">
+                    <FormField label="Start Depth">
+                      <Input
+                        type="number"
+                        value={safeWellInfo.startDepth}
+                        onChange={(e) =>
+                          patchWellInfo({ startDepth: Number(e.target.value) })
+                        }
+                      />
+                    </FormField>
+                    <FormField label="End Depth">
+                      <Input
+                        type="number"
+                        value={safeWellInfo.endDepth}
+                        onChange={(e) =>
+                          patchWellInfo({ endDepth: Number(e.target.value) })
+                        }
+                      />
+                    </FormField>
+                  </div>
                   <FormField label="File Name Prefix">
                     <Input
                       value={safeWellInfo.filePrefix}
@@ -1201,16 +1213,16 @@ export default function ConfigurationPage({
                   </FormField>
                 </div>
 
-                <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                <div className="mt-3 rounded-lg bg-muted/50 p-2.5 text-xs text-muted-foreground sm:mt-4 sm:p-3 sm:text-sm">
                   Preview: {safeWellInfo.filePrefix}_{safeWellInfo.wellName}_{safeWellInfo.fileSequence}_{safeWellInfo.fileSuffix}
                 </div>
               </Card>
             </div>
 
-            <div className="mt-5 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-              <Card className="border-dashed p-4">
-                <h4 className="font-medium">Dashboard Drilling Status</h4>
-                <div className="mt-4 space-y-4">
+            <div className="mt-4 grid gap-3 sm:gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+              <Card className="border-dashed p-3 sm:p-4">
+                <h4 className="text-sm font-medium sm:text-base">Dashboard Drilling Status</h4>
+                <div className="mt-3 space-y-3 sm:space-y-4">
                   <FormField label="Rig Status">
                     <Select
                       value={safeWellInfo.drillingStatus}
@@ -1234,9 +1246,9 @@ export default function ConfigurationPage({
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                  <div className="flex items-start justify-between gap-3 rounded-lg border p-2.5 sm:gap-4 sm:p-3">
                     <div className="space-y-1">
-                      <div className="font-medium">Backup database to dashboard</div>
+                      <div className="text-sm font-medium sm:text-base">Backup database to dashboard</div>
                       <div className="text-xs text-muted-foreground">
                         Placeholder for automatic push when TD or reporting milestones are selected.
                       </div>
@@ -1250,6 +1262,8 @@ export default function ConfigurationPage({
                   </div>
                   <Button
                     variant="outline"
+                    size="sm"
+                    className="h-9 text-xs sm:text-sm"
                     onClick={() =>
                       toast.message("Database backup trigger is a Phase 2 placeholder.")
                     }
@@ -1259,9 +1273,9 @@ export default function ConfigurationPage({
                 </div>
               </Card>
 
-              <Card className="border-dashed p-4">
-                <h4 className="font-medium">Dashboard Contact Information</h4>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Card className="border-dashed p-3 sm:p-4">
+                <h4 className="text-sm font-medium sm:text-base">Dashboard Contact Information</h4>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 sm:gap-4">
                   <FormField label="MWD Contact 1">
                     <Input
                       value={safeWellInfo.dashboardContactName}
@@ -1306,10 +1320,10 @@ export default function ConfigurationPage({
               </Card>
             </div>
 
-            <div className="mt-5">
+            <div className="mt-4 sm:mt-5">
               <FormField label="Operator Notes">
                 <Textarea
-                  rows={4}
+                  rows={3}
                   value={safeWellInfo.notes}
                   onChange={(e) =>
                     patchWellInfo({ notes: e.target.value })

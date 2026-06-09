@@ -679,15 +679,15 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="mb-2 text-3xl font-bold">Historical Data</h1>
-          <p className="text-muted-foreground">
+        <div className="min-w-0">
+          <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Historical Data</h1>
+          <p className="break-words text-sm text-muted-foreground sm:text-base">
             Operational history from backend historical and WITS value endpoints.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:flex min-[420px]:flex-wrap">
           <Button
             type="button"
             variant="outline"
@@ -707,7 +707,7 @@ export const HistoryPage: React.FC = () => {
         </div>
       </div>
 
-      <Card className="p-5">
+      <Card className="p-3 sm:p-5">
         <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-2">
             <Label>Active Session</Label>
@@ -739,15 +739,15 @@ export const HistoryPage: React.FC = () => {
             </div>
           </div>
           <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
-            <div className="flex justify-between gap-3">
+            <div className="flex flex-wrap justify-between gap-3">
               <span className="text-muted-foreground">Last updated from data</span>
               <span className="font-medium">{formatDateTime(summary.lastTimestamp ?? activeMwdSession?.updatedAt)}</span>
             </div>
-            <div className="flex justify-between gap-3">
+            <div className="flex flex-wrap justify-between gap-3">
               <span className="text-muted-foreground">Last fetch</span>
               <span className="font-medium">{lastLoadedAt ? formatDateTime(lastLoadedAt) : '-'}</span>
             </div>
-            <div className="flex justify-between gap-3">
+            <div className="flex flex-wrap justify-between gap-3">
               <span className="text-muted-foreground">Role</span>
               <span className="font-medium capitalize">{user?.role ?? '-'}</span>
             </div>
@@ -755,58 +755,74 @@ export const HistoryPage: React.FC = () => {
         </div>
       </Card>
 
-      <Card className="p-5">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold">Filters</h2>
-          <p className="text-sm text-muted-foreground">
+      <Card className="p-3 sm:p-5">
+        <div className="mb-3 sm:mb-4">
+          <h2 className="text-base font-semibold sm:text-lg">Filters</h2>
+          <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
             Filters are sent to backend where supported and re-applied client-side to the loaded dataset.
           </p>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <div className="space-y-2">
-            <Label htmlFor="history-start">Start date/time</Label>
-            <Input
-              id="history-start"
-              type="datetime-local"
-              value={startDateTime}
-              onChange={(event) => setStartDateTime(event.target.value)}
-            />
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.35fr)_minmax(220px,1fr)]">
+          <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label htmlFor="history-start" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                Start date/time
+              </Label>
+              <Input
+                id="history-start"
+                type="datetime-local"
+                className="h-9"
+                value={startDateTime}
+                onChange={(event) => setStartDateTime(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label htmlFor="history-end" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                End date/time
+              </Label>
+              <Input
+                id="history-end"
+                type="datetime-local"
+                className="h-9"
+                value={endDateTime}
+                onChange={(event) => setEndDateTime(event.target.value)}
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="history-end">End date/time</Label>
-            <Input
-              id="history-end"
-              type="datetime-local"
-              value={endDateTime}
-              onChange={(event) => setEndDateTime(event.target.value)}
-            />
+          <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label htmlFor="history-depth-min" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                Depth min
+              </Label>
+              <Input
+                id="history-depth-min"
+                type="number"
+                inputMode="decimal"
+                className="h-9"
+                value={depthMin}
+                onChange={(event) => setDepthMin(event.target.value)}
+                placeholder="Any"
+              />
+            </div>
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label htmlFor="history-depth-max" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                Depth max
+              </Label>
+              <Input
+                id="history-depth-max"
+                type="number"
+                inputMode="decimal"
+                className="h-9"
+                value={depthMax}
+                onChange={(event) => setDepthMax(event.target.value)}
+                placeholder="Any"
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="history-depth-min">Depth min</Label>
-            <Input
-              id="history-depth-min"
-              type="number"
-              inputMode="decimal"
-              value={depthMin}
-              onChange={(event) => setDepthMin(event.target.value)}
-              placeholder="Any"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="history-depth-max">Depth max</Label>
-            <Input
-              id="history-depth-max"
-              type="number"
-              inputMode="decimal"
-              value={depthMax}
-              onChange={(event) => setDepthMax(event.target.value)}
-              placeholder="Any"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Parameter / WITS ID</Label>
+          <div className="space-y-1.5 sm:space-y-2">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">Parameter / WITS ID</Label>
             <Select value={parameterKey} onValueChange={setParameterKey}>
-              <SelectTrigger>
+              <SelectTrigger className="h-9">
                 <SelectValue placeholder="All parameters" />
               </SelectTrigger>
               <SelectContent>
@@ -820,13 +836,15 @@ export const HistoryPage: React.FC = () => {
             </Select>
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={() => void loadHistoricalData()} disabled={historicalLoading || !activeMwdSessionId}>
+        <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-4">
+          <Button type="button" size="sm" className="h-9 text-xs sm:text-sm" onClick={() => void loadHistoricalData()} disabled={historicalLoading || !activeMwdSessionId}>
             Apply Filters
           </Button>
           <Button
             type="button"
             variant="outline"
+            size="sm"
+            className="h-9 text-xs sm:text-sm"
             onClick={() => {
               setStartDateTime('');
               setEndDateTime('');
@@ -837,7 +855,7 @@ export const HistoryPage: React.FC = () => {
           >
             Clear
           </Button>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-xs leading-snug text-muted-foreground sm:text-sm">
             Date filter is empty by default so older historical records are not hidden.
           </div>
         </div>
@@ -854,7 +872,7 @@ export const HistoryPage: React.FC = () => {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
           <div className="text-sm text-muted-foreground">Total Records</div>
           <div className="mt-1 text-2xl font-bold">{summary.totalRecords}</div>
@@ -881,7 +899,7 @@ export const HistoryPage: React.FC = () => {
         </Card>
       </div>
 
-      <Card className="p-5">
+      <Card className="p-3 sm:p-5">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Historical Chart</h2>
@@ -900,17 +918,17 @@ export const HistoryPage: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="min-h-[320px]">
+        <div className="min-h-[240px] sm:min-h-[320px]">
           {historicalLoading ? (
-            <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground sm:h-[320px]">
               Loading historical chart...
             </div>
           ) : chartData.length === 0 ? (
-            <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground sm:h-[320px]">
               No chartable values for the current session/filter.
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
@@ -948,7 +966,7 @@ export const HistoryPage: React.FC = () => {
         </div>
       </Card>
 
-      <Card className="p-5">
+      <Card className="p-3 sm:p-5">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Historical Records</h2>
@@ -956,7 +974,7 @@ export const HistoryPage: React.FC = () => {
               Timestamp, depth, parameter, value, unit, source, and status from the filtered dataset.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[420px]:flex min-[420px]:flex-wrap">
             <Button
               type="button"
               variant="outline"
@@ -984,7 +1002,7 @@ export const HistoryPage: React.FC = () => {
           </p>
         ) : null}
 
-        <Table>
+        <Table className="min-w-[860px]">
           <TableHeader>
             <TableRow>
               <TableHead>Timestamp</TableHead>
@@ -1041,12 +1059,12 @@ export const HistoryPage: React.FC = () => {
           </TableBody>
         </Table>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="text-sm text-muted-foreground">
             Showing {filteredRecords.length === 0 ? 0 : pageIndex * pageSize + 1}-
             {Math.min((pageIndex + 1) * pageSize, filteredRecords.length)} of {filteredRecords.length}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 items-center gap-2 min-[520px]:flex min-[520px]:flex-wrap">
             <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
               <SelectTrigger className="w-[110px]">
                 <SelectValue />

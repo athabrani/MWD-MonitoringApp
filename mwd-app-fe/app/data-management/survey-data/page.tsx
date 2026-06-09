@@ -616,7 +616,7 @@ export default function SurveyDataPage({
   };
 
   const content = (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-4 sm:space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold sm:text-3xl">Survey Data</h1>
@@ -637,7 +637,7 @@ export default function SurveyDataPage({
 
       {canManageSurveys ? (
       <Card className="rounded-2xl p-0">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-3 sm:px-5 sm:py-4">
           <div>
             <h2 className="text-lg font-semibold">Captured Survey Data</h2>
             <div className="mt-1 text-xs text-muted-foreground">
@@ -653,8 +653,8 @@ export default function SurveyDataPage({
             {surveysLoading ? "Loading surveys..." : "Refresh Surveys"}
           </Button>
         </div>
-        <div className="grid gap-4 p-5 xl:grid-cols-[1fr_auto]">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:grid-cols-10">
+        <div className="grid gap-4 p-3 sm:p-5 xl:grid-cols-[1fr_auto]">
+          <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:grid-cols-5 2xl:grid-cols-10">
             {capturedSurveyFields.map((field) => (
               <div key={field.key} className="space-y-1">
                 <Label className="block truncate whitespace-nowrap text-xs font-semibold leading-4 text-muted-foreground">
@@ -688,7 +688,7 @@ export default function SurveyDataPage({
               </select>
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-2 xl:w-64 xl:flex-col xl:items-stretch xl:justify-end">
+          <div className="grid grid-cols-1 gap-2 min-[520px]:flex min-[520px]:flex-wrap min-[520px]:items-end xl:w-64 xl:flex-col xl:items-stretch xl:justify-end">
             <Button
               onClick={() => void handleAddSurvey()}
               disabled={surveysSaving || !canManageSurveys || !token || !activeMwdSessionId}
@@ -713,13 +713,13 @@ export default function SurveyDataPage({
       ) : null}
 
       <Card className="overflow-hidden rounded-2xl p-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold">Survey List</h2>
-            <div className="mt-1 flex flex-wrap gap-2">
+        <div className="grid gap-3 border-b px-3 py-3 sm:px-5 sm:py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold sm:text-lg">Survey List</h2>
+            <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5 sm:gap-2">
               <Badge variant="outline">{surveyRecords.length} records</Badge>
               <Badge variant="secondary">{reverseSort ? "Oldest first" : "Newest first"}</Badge>
-              <Badge variant={activeMwdSessionId ? "outline" : "secondary"}>
+              <Badge variant={activeMwdSessionId ? "outline" : "secondary"} className="max-w-full">
                 {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "No active session"}
               </Badge>
               <Badge variant="outline">
@@ -728,77 +728,85 @@ export default function SurveyDataPage({
               {surveysLoading ? <Badge variant="outline">Loading API</Badge> : null}
             </div>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="grid min-w-0 gap-2 min-[300px]:grid-cols-2 sm:flex sm:flex-wrap sm:justify-end lg:max-w-[680px]">
             {canManageSurveys ? (
               <>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setProjectionOpen(true)}
-              disabled={!token || !activeMwdSessionId}
-            >
-              <Plus className="mr-2 size-4" />
-              Add Projection
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handleGenerateFromMwdData()}
-              disabled={
-                surveysActionLoading === "from-mwd" ||
-                !token ||
-                !activeMwdSessionId
-              }
-            >
-              {surveysActionLoading === "from-mwd" ? "Generating..." : "Generate from MWD"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handleRecalculateSurveys()}
-              disabled={
-                surveysActionLoading === "recalculate" ||
-                !token ||
-                !activeMwdSessionId
-              }
-            >
-              {surveysActionLoading === "recalculate" ? "Recalculating..." : "Recalculate"}
-            </Button>
-            <input
-              ref={surveyImportInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(event) => void handleImportSurveyCsv(event.target.files?.[0])}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => surveyImportInputRef.current?.click()}
-              disabled={surveysActionLoading === "import-csv" || !token}
-            >
-              <FileUp className="mr-2 size-4" />
-              {surveysActionLoading === "import-csv" ? "Importing..." : "Import Surveys"}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <Download className="mr-2 size-4" />
-                  Export Surveys
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {(["csv"] as SurveyExportFormat[]).map((formatName) => (
-                  <DropdownMenuItem
-                    key={formatName}
-                    disabled={Boolean(surveyExportingFormat)}
-                    onClick={() => void handleExportSurveys(formatName)}
+                <div className="contents sm:flex sm:flex-wrap sm:justify-end sm:gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="justify-center whitespace-nowrap"
+                    onClick={() => setProjectionOpen(true)}
+                    disabled={!token || !activeMwdSessionId}
                   >
-                    {surveyExportingFormat === formatName ? "Exporting..." : formatName.toUpperCase()}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
+                    Add Projection
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="justify-center whitespace-nowrap"
+                    onClick={() => void handleGenerateFromMwdData()}
+                    disabled={
+                      surveysActionLoading === "from-mwd" ||
+                      !token ||
+                      !activeMwdSessionId
+                    }
+                  >
+                    {surveysActionLoading === "from-mwd" ? "Generating..." : "Generate from MWD"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="justify-center whitespace-nowrap"
+                    onClick={() => void handleRecalculateSurveys()}
+                    disabled={
+                      surveysActionLoading === "recalculate" ||
+                      !token ||
+                      !activeMwdSessionId
+                    }
+                  >
+                    {surveysActionLoading === "recalculate" ? "Recalculating..." : "Recalculate"}
+                  </Button>
+                </div>
+                <input
+                  ref={surveyImportInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(event) => void handleImportSurveyCsv(event.target.files?.[0])}
+                />
+                <div className="contents sm:flex sm:flex-wrap sm:justify-end sm:gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="justify-center whitespace-nowrap"
+                    onClick={() => surveyImportInputRef.current?.click()}
+                    disabled={surveysActionLoading === "import-csv" || !token}
+                  >
+                    <FileUp className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
+                    {surveysActionLoading === "import-csv" ? "Importing..." : "Import Surveys"}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" className="justify-center whitespace-nowrap">
+                        <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
+                        Export Surveys
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {(["csv"] as SurveyExportFormat[]).map((formatName) => (
+                        <DropdownMenuItem
+                          key={formatName}
+                          disabled={Boolean(surveyExportingFormat)}
+                          onClick={() => void handleExportSurveys(formatName)}
+                        >
+                          {surveyExportingFormat === formatName ? "Exporting..." : formatName.toUpperCase()}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </>
             ) : null}
             <PlotSurveyMenu
@@ -812,20 +820,20 @@ export default function SurveyDataPage({
               }}
             />
             {canManageSurveys ? (
-              <Button size="sm" variant="outline" onClick={() => setStorageDialogOpen(true)}>
-                <Settings2 className="mr-2 size-4" />
+              <Button size="sm" variant="outline" className="justify-center whitespace-nowrap" onClick={() => setStorageDialogOpen(true)}>
+                <Settings2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                 Configure
               </Button>
             ) : null}
-            <Button size="sm" variant="ghost" onClick={() => setReverseSort((current) => !current)}>
-              <RefreshCcw className="mr-2 size-4" />
+            <Button size="sm" variant="ghost" className="justify-center whitespace-nowrap" onClick={() => setReverseSort((current) => !current)}>
+              <RefreshCcw className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
               Reverse Sort
             </Button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-5">
           {selectedSurvey ? (
-            <div className="grid gap-2 text-sm sm:grid-cols-4">
+            <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
               <div>
                 <div className="text-xs text-muted-foreground">MD</div>
                 <div className="font-mono font-medium">{selectedSurvey.md.toFixed(2)}</div>
@@ -864,8 +872,8 @@ export default function SurveyDataPage({
           </div>
         </div>
 
-        <div className="overflow-x-auto border-t">
-          <table className="w-full min-w-[1160px] border-collapse text-sm">
+        <div className="responsive-table-card border-t">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead className="bg-muted/40 text-xs text-muted-foreground">
               <tr className="border-b">
                 <th className="w-16 px-4 py-3 text-left font-semibold">Type</th>

@@ -3,10 +3,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   ConnectionState, 
+  BackendRestStatus,
   Well, 
   KPIData, 
   Event, 
   ChartDataPoint,
+  NetworkStatus,
   UserSettings,
   ToolfaceData
 } from '../types';
@@ -80,9 +82,26 @@ function getReachabilityLatencyMs(health: BackendReachability) {
   return undefined;
 }
 
+function getInitialNetworkStatus(): NetworkStatus {
+  if (typeof navigator === 'undefined') return 'unknown';
+  return navigator.onLine ? 'online' : 'offline';
+}
+
+function backendReachabilityToRestStatus(status?: BackendReachability['status']): BackendRestStatus {
+  if (status === 'online') return 'online';
+  if (status === 'auth-error') return 'auth-error';
+  if (status === 'offline') return 'offline';
+  if (status === 'unsupported') return 'error';
+  return 'error';
+}
+
 interface AppContextType {
   connectionState: ConnectionState;
   reconnect: () => void;
+  networkStatus: NetworkStatus;
+  backendRestStatus: BackendRestStatus;
+  backendRestError: string;
+  lastRecoveryAt: Date | null;
   connectionStatusLoading: boolean;
   connectionStatusError: string;
   refreshConnectionStatus: () => Promise<void>;
@@ -495,9 +514,13 @@ function getThresholdBreach(value: number, threshold?: UserSettings['thresholds'
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, isAuthenticated, user } = useAuth();
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(() => getInitialNetworkStatus());
+  const [backendRestStatus, setBackendRestStatus] = useState<BackendRestStatus>('unknown');
+  const [backendRestError, setBackendRestError] = useState('');
+  const [lastRecoveryAt, setLastRecoveryAt] = useState<Date | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'offline',
-    lastReceived: new Date(),
+    lastReceived: null,
     dataSource: 'primary'
   });
   const [connectionStatusLoading, setConnectionStatusLoading] = useState(false);
@@ -529,6 +552,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const espWsStatusRequestInFlight = useRef(false);
   const systemHealthRequestInFlight = useRef(false);
   const gatewayRawPacketsRequestInFlight = useRef(false);
+  const recoveryRequestInFlight = useRef(false);
 
   const [wells] = useState<Well[]>([]);
   const [activeWell, setActiveWell] = useState<Well | null>(null);
@@ -1082,8 +1106,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) {
       setConnectionStatusError('');
       setBackendConnectionStatusActive(false);
+      setBackendRestStatus('unknown');
+      setBackendRestError('');
       setConnectionState((current) => ({
         ...current,
+        latency: undefined,
+        latencySource: undefined,
+        packetLoss: undefined,
+      }));
+      return;
+    }
+    const browserOnline = typeof navigator === 'undefined' ? networkStatus !== 'offline' : navigator.onLine;
+    if (!browserOnline) {
+      setConnectionStatusError('Browser is offline.');
+      setBackendRestStatus('offline');
+      setBackendRestError('Browser is offline.');
+      setBackendConnectionStatusActive(false);
+      setConnectionState((current) => ({
+        ...current,
+        status: 'offline',
+        reconnecting: false,
         latency: undefined,
         latencySource: undefined,
         packetLoss: undefined,
@@ -1095,6 +1137,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     connectionStatusRequestInFlight.current = true;
     setConnectionStatusLoading(true);
     setConnectionStatusError('');
+    setBackendRestStatus('checking');
+    setBackendRestError('');
 
     try {
       const [connectionStatusResult, reachabilityResult] = await Promise.allSettled([
@@ -1109,6 +1153,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const reachability =
         reachabilityResult.status === 'fulfilled' ? reachabilityResult.value : undefined;
       const reachabilityLatencyMs = reachability ? getReachabilityLatencyMs(reachability) : undefined;
+      if (reachabilityResult.status === 'fulfilled') {
+        const nextRestStatus = backendReachabilityToRestStatus(reachabilityResult.value.status);
+        setBackendRestStatus(nextRestStatus);
+        setBackendRestError(nextRestStatus === 'online' ? '' : reachabilityResult.value.errorMessage ?? 'Backend API is unavailable.');
+      } else {
+        setBackendRestStatus('error');
+        setBackendRestError(getBackendStatusErrorMessage('Backend API', reachabilityResult.reason));
+      }
 
       if (status) {
         const nextConnectionState = connectionStatusToState(status);
@@ -1143,6 +1195,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       logBackendError('Unable to load connection status.', error);
       setConnectionStatusError(getBackendStatusErrorMessage('Connection status', error));
+      setBackendRestStatus('error');
+      setBackendRestError(getBackendStatusErrorMessage('Backend API', error));
       setConnectionState((current) => ({
         ...current,
         latency: undefined,
@@ -1153,7 +1207,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       connectionStatusRequestInFlight.current = false;
       setConnectionStatusLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [activeMwdSessionId, networkStatus, token]);
 
   const refreshFailoverEvents = useCallback(async () => {
     if (!token) {
@@ -1280,7 +1334,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setGatewayRawPacketsError('');
 
     try {
-      const packets = await getGatewayRawPackets(token, 10);
+      const packets = await getGatewayRawPackets(token, {
+        limit: 10,
+        sessionId: activeMwdSessionId ?? undefined,
+      });
       setGatewayRawPackets(packets);
       setGatewayRawPacketsReachable(true);
     } catch (error) {
@@ -1292,7 +1349,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gatewayRawPacketsRequestInFlight.current = false;
       setGatewayRawPacketsLoading(false);
     }
-  }, [token]);
+  }, [activeMwdSessionId, token]);
 
   useEffect(() => {
     updateStatusEvent({
@@ -1399,8 +1456,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (error) {
       logBackendError('Unable to load MWD data.', error);
-      setChartData([]);
-      setLatestMwdDataRecord(null);
       setMwdDataError(backendErrorMessage);
     } finally {
       setMwdDataLoading(false);
@@ -1541,6 +1596,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setGatewayRawPacketsError('');
     setGatewayRawPacketsReachable(false);
     setRealtimeError('');
+    setRealtimeStatus('idle');
+    setBackendRestStatus('unknown');
+    setBackendRestError('');
+    setLastRecoveryAt(null);
     setBackendConnectionStatusActive(false);
   }, [isAuthenticated, token]);
 
@@ -1696,6 +1755,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!isAuthenticated || !token || !activeMwdSessionId) return;
     if (!settings.display.autoRefresh) return;
+    if (networkStatus === 'offline') return;
 
     const interval = setInterval(() => {
       void refreshMwdData();
@@ -1708,10 +1768,160 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeMwdSessionId,
     refreshMwdData,
     refreshWitsDataValues,
+    networkStatus,
     settings.display.autoRefresh,
     settings.display.refreshInterval,
     token,
   ]);
+
+  const runRecoveryFlow = useCallback(async () => {
+    if (recoveryRequestInFlight.current) return;
+
+    const browserOnline = typeof navigator === 'undefined' ? networkStatus !== 'offline' : navigator.onLine;
+    if (!browserOnline) {
+      setNetworkStatus('offline');
+      setBackendRestStatus('offline');
+      setBackendRestError('Browser is offline.');
+      setConnectionState((current) => ({
+        ...current,
+        status: 'offline',
+        reconnecting: false,
+      }));
+      return;
+    }
+
+    if (!isAuthenticated || !token) {
+      setBackendRestStatus('unknown');
+      setBackendRestError('');
+      return;
+    }
+
+    recoveryRequestInFlight.current = true;
+    setNetworkStatus('online');
+    setBackendRestStatus('checking');
+    setBackendRestError('');
+
+    try {
+      const reachability = await checkBackendReachability(token, BACKEND_REACHABILITY_PROBE_PATH);
+      const nextRestStatus = backendReachabilityToRestStatus(reachability.status);
+      setBackendRestStatus(nextRestStatus);
+      setBackendRestError(nextRestStatus === 'online' ? '' : reachability.errorMessage ?? 'Backend API is unavailable.');
+
+      if (nextRestStatus === 'online' || nextRestStatus === 'auth-error') {
+        setConnectionState((current) => ({
+          ...current,
+          latency: getReachabilityLatencyMs(reachability),
+          latencySource: typeof reachability.latencyMs === 'number' ? 'api-probe' : current.latencySource,
+        }));
+      }
+
+      if (nextRestStatus === 'auth-error') {
+        const client = getRealtimeClient();
+        client.disconnect();
+        setRealtimeStatus('disconnected');
+        setRealtimeError('Authentication is required before realtime reconnect.');
+        return;
+      }
+
+      if (nextRestStatus !== 'online') {
+        setConnectionState((current) => ({
+          ...current,
+          status: 'offline',
+          reconnecting: false,
+        }));
+        return;
+      }
+
+      const refreshTasks: Array<Promise<void>> = [
+        refreshMwdSessions(),
+        refreshWitsConfig(),
+        refreshConnectionStatus(),
+        refreshSerialStatus(),
+        refreshEspWsStatus(),
+        refreshSystemHealth(),
+        refreshGatewayRawPackets(),
+      ];
+
+      if (activeMwdSessionId) {
+        refreshTasks.push(
+          refreshMwdData(),
+          refreshWitsDataValues(),
+          refreshWitsAlarms(),
+          refreshPlotTemplates(),
+        );
+      }
+
+      await Promise.allSettled(refreshTasks);
+
+      const client = getRealtimeClient();
+      if (activeMwdSessionId) {
+        client.connect();
+        client.subscribeSession(activeMwdSessionId);
+      }
+
+      setLastRecoveryAt(new Date());
+    } catch (error) {
+      logBackendError('Unable to recover backend/realtime services.', error);
+      setBackendRestStatus('error');
+      setBackendRestError(getBackendStatusErrorMessage('Backend API', error));
+      setConnectionState((current) => ({
+        ...current,
+        status: 'offline',
+        reconnecting: false,
+      }));
+    } finally {
+      recoveryRequestInFlight.current = false;
+    }
+  }, [
+    activeMwdSessionId,
+    isAuthenticated,
+    networkStatus,
+    refreshConnectionStatus,
+    refreshEspWsStatus,
+    refreshGatewayRawPackets,
+    refreshMwdData,
+    refreshMwdSessions,
+    refreshPlotTemplates,
+    refreshSerialStatus,
+    refreshSystemHealth,
+    refreshWitsAlarms,
+    refreshWitsConfig,
+    refreshWitsDataValues,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOffline = () => {
+      setNetworkStatus('offline');
+      setBackendRestStatus('offline');
+      setBackendRestError('Browser is offline.');
+      const client = getRealtimeClient();
+      client.disconnect();
+      setRealtimeStatus('disconnected');
+      setRealtimeError('Browser is offline.');
+      setConnectionState((current) => ({
+        ...current,
+        status: 'offline',
+        reconnecting: false,
+      }));
+    };
+
+    const handleOnline = () => {
+      setNetworkStatus('online');
+      void runRecoveryFlow();
+    };
+
+    setNetworkStatus(navigator.onLine ? 'online' : 'offline');
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [runRecoveryFlow]);
 
   useEffect(() => {
     const client = getRealtimeClient();
@@ -1731,10 +1941,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 : 'offline',
         reconnecting: status === 'reconnecting' || status === 'connecting',
       }));
+
+      if (
+        status === 'connected' &&
+        networkStatus === 'online' &&
+        isAuthenticated &&
+        token &&
+        activeMwdSessionId
+      ) {
+        void refreshMwdData();
+        void refreshWitsAlarms();
+        void refreshConnectionStatus();
+        void refreshEspWsStatus();
+      }
     });
     const unsubscribeEvent = client.on('event', applyRealtimeEvent);
 
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated || !token || !activeMwdSessionId) {
       client.disconnect();
       return () => {
         unsubscribeStatus();
@@ -1742,19 +1965,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    client.connect();
-
-    if (activeMwdSessionId) {
-      client.subscribeSession(activeMwdSessionId);
-    } else {
-      client.clearSessionSubscription();
+    if (networkStatus !== 'online') {
+      client.disconnect();
+      setRealtimeStatus('disconnected');
+      setRealtimeError(networkStatus === 'offline' ? 'Browser is offline.' : 'Browser network status is unknown.');
+      setConnectionState((current) => ({
+        ...current,
+        status: 'offline',
+        reconnecting: false,
+      }));
+      return () => {
+        unsubscribeStatus();
+        unsubscribeEvent();
+      };
     }
+
+    client.connect();
+    client.subscribeSession(activeMwdSessionId);
 
     return () => {
       unsubscribeStatus();
       unsubscribeEvent();
     };
-  }, [activeMwdSessionId, applyRealtimeEvent, isAuthenticated, token]);
+  }, [
+    activeMwdSessionId,
+    applyRealtimeEvent,
+    isAuthenticated,
+    networkStatus,
+    refreshConnectionStatus,
+    refreshEspWsStatus,
+    refreshMwdData,
+    refreshWitsAlarms,
+    token,
+  ]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1770,27 +2013,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    const client = getRealtimeClient();
-    client.disconnect();
-    client.connect();
-
-    if (activeMwdSessionId) {
-      client.subscribeSession(activeMwdSessionId);
+    if (networkStatus === 'offline') {
+      setConnectionStatusError('Browser is offline. Reconnect will run after the browser is online again.');
+      return;
     }
 
-    void refreshConnectionStatus();
-    void refreshSerialStatus();
-    void refreshEspWsStatus();
-    void refreshSystemHealth();
-    void refreshGatewayRawPackets();
+    void runRecoveryFlow();
   }, [
-    activeMwdSessionId,
     isAuthenticated,
-    refreshConnectionStatus,
-    refreshEspWsStatus,
-    refreshGatewayRawPackets,
-    refreshSerialStatus,
-    refreshSystemHealth,
+    networkStatus,
+    runRecoveryFlow,
     token,
   ]);
 
@@ -1863,6 +2095,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider value={{
       connectionState,
       reconnect,
+      networkStatus,
+      backendRestStatus,
+      backendRestError,
+      lastRecoveryAt,
       connectionStatusLoading,
       connectionStatusError,
       refreshConnectionStatus,

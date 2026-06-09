@@ -33,7 +33,7 @@ export function FrontendSecurityGate({ children }: { children: React.ReactNode }
 
   if (isLoading && protectedPath) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-background text-sm text-muted-foreground">
         Restoring session...
       </div>
     );
@@ -41,7 +41,7 @@ export function FrontendSecurityGate({ children }: { children: React.ReactNode }
 
   if (protectedPath && !isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-background text-sm text-muted-foreground">
         Sign in required. Redirecting...
       </div>
     );

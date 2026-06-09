@@ -30,10 +30,13 @@ import { chartParameterGroups, type ChartTimeWindow } from '@/lib/chart-analytic
 export const DashboardPage: React.FC = () => {
   const { token, user } = useAuth();
   const {
-    connectionState,
+    networkStatus,
+    backendRestStatus,
+    backendRestError,
     connectionStatusLoading,
     connectionStatusError,
     refreshConnectionStatus,
+    reconnect,
     failoverEventsLoading,
     failoverEventsError,
     refreshFailoverEvents,
@@ -143,7 +146,75 @@ export const DashboardPage: React.FC = () => {
       ? 'Unavailable'
       : espWsStatus?.status ?? 'No status';
   const realtimeStatusLabel = realtimeError ? 'Error' : realtimeStatus;
+  const realtimeRecovering = Boolean(
+    activeMwdSessionId && (realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting')
+  );
+  const realtimeNeedsRecovery = Boolean(
+    activeMwdSessionId && (realtimeStatus === 'disconnected' || realtimeStatus === 'error')
+  );
+  const backendNeedsRecovery =
+    backendRestStatus === 'offline' || backendRestStatus === 'error' || backendRestStatus === 'auth-error';
+  const primaryDashboardActionBusy =
+    mwdSessionsLoading ||
+    mwdDataLoading ||
+    witsDataValuesLoading ||
+    witsConfigLoading ||
+    witsAlarmsLoading ||
+    depthTrackingLoading ||
+    connectionStatusLoading ||
+    failoverEventsLoading ||
+    serialStatusLoading ||
+    espWsStatusLoading ||
+    realtimeRecovering;
+  const primaryDashboardActionLabel =
+    networkStatus === 'offline'
+      ? 'Offline'
+      : realtimeRecovering
+        ? 'Reconnecting'
+        : realtimeNeedsRecovery || backendNeedsRecovery
+          ? 'Reconnect'
+          : 'Refresh All';
+  const handlePrimaryDashboardAction = () => {
+    if (networkStatus === 'offline' || realtimeRecovering) return;
+
+    if (realtimeNeedsRecovery || backendNeedsRecovery) {
+      reconnect();
+      return;
+    }
+
+    void refreshMwdSessions();
+    void refreshMwdData();
+    void refreshWitsDataValues();
+    void refreshWitsConfig();
+    void refreshWitsAlarms();
+    void loadDepthTrackingState();
+    void refreshConnectionStatus();
+    void refreshFailoverEvents();
+    void refreshSerialStatus();
+    void refreshEspWsStatus();
+  };
+  const backendStatusLabel =
+    backendRestStatus === 'checking'
+      ? 'Checking'
+      : backendRestStatus === 'auth-error'
+        ? 'Auth error'
+        : backendRestStatus;
   const dashboardHealthItems = [
+    {
+      label: 'Browser',
+      value: networkStatus,
+      tone: networkStatus === 'offline' ? 'destructive' : networkStatus === 'online' ? 'secondary' : 'outline',
+    },
+    {
+      label: 'Backend',
+      value: backendStatusLabel,
+      tone:
+        backendRestStatus === 'online'
+          ? 'secondary'
+          : backendRestStatus === 'checking' || backendRestStatus === 'unknown'
+            ? 'outline'
+            : 'destructive',
+    },
     {
       label: 'DTS',
       value: depthTrackingLabel,
@@ -539,100 +610,74 @@ export const DashboardPage: React.FC = () => {
   );
   const visibleKeyParameters =
     keyParameterPages[activeKeyParameterPage] ?? keyParameterPages[0] ?? [];
-  const denseTabletDesktopLayout = viewportWidth >= 1280 && viewportWidth < 1440;
+  const denseTabletDesktopLayout = viewportWidth >= 1440 && viewportWidth < 1536;
 
   const compactDashboardPlotHeight = useMemo(() => {
-    if (viewportWidth >= 1280 && viewportWidth < 1440) {
+    if (viewportWidth >= 1440 && viewportWidth < 1536) {
       return {
         px: 1040,
-        css: 'clamp(760px, 82vh, 1120px)',
+        css: 'clamp(760px, 82dvh, 1120px)',
       };
     }
 
     if (dashboardViewport === 'tablet') {
       return {
         px: 1180,
-        css: 'clamp(860px, 86vh, 1240px)',
+        css: 'clamp(860px, 86dvh, 1240px)',
       };
     }
 
     return {
       px: 760,
-      css: 'clamp(520px, 72vh, 820px)',
+      css: 'clamp(520px, 72dvh, 820px)',
     };
   }, [dashboardViewport, viewportWidth]);
 
   return (
-    <div className={cn(isCompact ? 'space-y-3' : 'space-y-4')}>
+    <div className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
       <div>
         <div className="mb-3 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold sm:text-3xl">Real-time Dashboard</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-xl font-bold sm:text-2xl lg:text-3xl">Real-time Dashboard</h1>
+              <p className="break-words text-sm text-muted-foreground sm:text-base">
                 {activeWellName} - {activeJobName}
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
-                {/* {startupLoading ? (
-                  <Badge variant="outline" className="h-8 whitespace-nowrap px-2.5 text-xs">
-                    Loading startup data
-                  </Badge>
-                ) : null} */}
+            <div className="flex flex-wrap items-center justify-start gap-1.5 sm:gap-2 lg:justify-end">
                 <Button
                   type="button"
                   variant="default"
                   size="sm"
-                  className="h-8 px-3 text-xs"
-                  onClick={() => {
-                    void refreshMwdSessions();
-                    void refreshMwdData();
-                    void refreshWitsDataValues();
-                    void refreshWitsConfig();
-                    void refreshWitsAlarms();
-                    void loadDepthTrackingState();
-                    void refreshConnectionStatus();
-                    void refreshFailoverEvents();
-                    void refreshSerialStatus();
-                    void refreshEspWsStatus();
-                  }}
-                  disabled={
-                    mwdSessionsLoading ||
-                    mwdDataLoading ||
-                    witsDataValuesLoading ||
-                    witsConfigLoading ||
-                    witsAlarmsLoading ||
-                    depthTrackingLoading ||
-                    connectionStatusLoading ||
-                    failoverEventsLoading ||
-                    serialStatusLoading ||
-                    espWsStatusLoading
+                  className="h-7 px-2 text-[10px] sm:h-8 sm:px-3 sm:text-xs"
+                  onClick={handlePrimaryDashboardAction}
+                  disabled={networkStatus === 'offline' || primaryDashboardActionBusy}
+                  title={
+                    realtimeNeedsRecovery || backendNeedsRecovery
+                      ? 'Reconnect realtime and refresh backend-backed dashboard data'
+                      : 'Refresh all dashboard data and connection health'
                   }
-                  title="Refresh all dashboard data and connection health"
                 >
                   <RefreshCw
                     className={cn(
-                      "mr-1.5 size-3.5",
-                      (mwdSessionsLoading ||
-                        mwdDataLoading ||
-                        witsDataValuesLoading ||
-                        witsConfigLoading ||
-                        witsAlarmsLoading ||
-                        depthTrackingLoading ||
-                        connectionStatusLoading ||
-                        failoverEventsLoading ||
-                        serialStatusLoading ||
-                        espWsStatusLoading) &&
-                        "animate-spin"
+                      "mr-1 size-2 sm:mr-1.5 sm:size-3.5",
+                      primaryDashboardActionBusy && "animate-spin"
                     )}
                   />
-                  Refresh All
+                  {primaryDashboardActionLabel}
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs">
-                      <SlidersHorizontal className="mr-1 size-3.5" />
-                      Options
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[8px] sm:h-8 sm:text-xs"
+                      aria-label="Options"
+                      title="Options"
+                    >
+                      <SlidersHorizontal className="size-2 sm:mr-1 sm:size-3.5" />
+                      <span className="hidden sm:inline">Options</span>
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
@@ -670,24 +715,24 @@ export const DashboardPage: React.FC = () => {
               </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
-              <TrendingUp className="size-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium uppercase text-muted-foreground">Depth</span>
-              <span className="text-sm font-semibold leading-none">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 lg:flex lg:flex-wrap lg:items-center">
+            <div className="col-span-2 flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-1.5 sm:col-span-1 sm:min-h-9 sm:gap-x-2 sm:px-3 sm:py-2">
+              <TrendingUp className="size-3 text-muted-foreground sm:size-3.5" />
+              <span className="text-[10px] font-medium uppercase text-muted-foreground sm:text-xs">Depth</span>
+              <span className="break-words text-xs font-semibold leading-none sm:text-sm">
                 {dashboardDepthLabel}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground sm:text-xs">
                 Target {dashboardTargetDepthLabel}
               </span>
             </div>
             {dashboardHealthItems.map((item) => (
               <div
                 key={item.label}
-                className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2"
+                className="flex min-h-8 min-w-0 max-w-full items-center justify-between gap-1.5 rounded-xl border border-border/70 bg-background/70 px-2 py-1.5 sm:min-h-9 sm:gap-2 sm:px-3 sm:py-2"
               >
-                <span className="text-xs font-medium uppercase text-muted-foreground">{item.label}</span>
-                <Badge variant={item.tone} className="max-w-[150px] truncate text-[11px] capitalize">
+                <span className="shrink-0 text-[10px] font-medium uppercase text-muted-foreground sm:text-xs">{item.label}</span>
+                <Badge variant={item.tone} className="max-w-[88px] truncate px-1.5 text-[10px] capitalize sm:max-w-[150px] sm:text-[11px]">
                   {item.value}
                 </Badge>
               </div>
@@ -751,7 +796,7 @@ export const DashboardPage: React.FC = () => {
 
       {activeAlarms.length > 0 && !alarmsMuted && (
         <section
-          className={`rounded-2xl border p-2 shadow-sm ${
+          className={`rounded-xl border p-2 shadow-sm sm:rounded-2xl sm:p-3 ${
             isDark
               ? activeAlarms.length >= 3
                 ? 'border-red-500/50 bg-red-950/50 shadow-red-950/30'
@@ -759,43 +804,47 @@ export const DashboardPage: React.FC = () => {
               : getSeverityTone(activeAlarms.length)
           }`}
         >
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1 sm:space-y-2">
               <div
-                className={`flex items-center gap-2 text-sm font-semibold ${
+                className={`flex items-center gap-1.5 text-xs font-semibold sm:gap-2 sm:text-sm ${
                   isDark ? 'text-red-500' : 'text-red-700'
                 }`}
               >
-                <ShieldAlert className="size-4" />
+                <ShieldAlert className="size-3.5 sm:size-4" />
                 Immediate attention required
               </div>
-              <div className={`text-lg font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}>
+              <div className={`text-sm font-semibold sm:text-lg ${isDark ? 'text-slate-50' : 'text-slate-900'}`}>
                 {getPrimaryAlarmMessage(activeAlarms)}
               </div>
-              <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-muted-foreground'}`}>
+              <p className={`text-xs sm:text-sm ${isDark ? 'text-slate-300' : 'text-muted-foreground'}`}>
                 {activeAlarms.length} alarm{activeAlarms.length > 1 ? 's are' : ' is'} still active and unacknowledged.
                 Review affected metrics before continuing normal monitoring.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleMuteAlarms}
-                className={
+                className={cn(
+                  "h-7 px-2 text-[9px] sm:h-8 sm:px-3 sm:text-xs",
                   isDark ? 'border-white/15 bg-white/5 text-slate-100 hover:bg-white/10' : undefined
-                }
+                )}
               >
-                <BellOff className="mr-2 size-4" />
+                <BellOff className="mr-1 size-2 sm:mr-2 sm:size-4" />
                 Mute 15 min
               </Button>
               <Button
                 size="sm"
                 onClick={handleAcknowledgeAll}
-                className={isDark ? 'bg-red-500 text-white hover:bg-red-400' : undefined}
+                className={cn(
+                  "h-7 px-2 text-[9px] sm:h-8 sm:px-3 sm:text-xs",
+                  isDark ? 'bg-red-500 text-white hover:bg-red-400' : undefined
+                )}
               >
-                <Check className="mr-2 size-4" />
+                <Check className="mr-1 size-2 sm:mr-2 sm:size-4" />
                 Acknowledge all
               </Button>
             </div>
@@ -816,12 +865,33 @@ export const DashboardPage: React.FC = () => {
         </Alert>
       )}
 
-      {connectionState.status === 'offline' && (
+      {(realtimeRecovering || realtimeNeedsRecovery) && networkStatus === 'online' && (
+        <Alert
+          className={cn(
+            'rounded-2xl',
+            isDark
+              ? 'border-amber-500/50 bg-amber-950/45 text-amber-100'
+              : 'border-amber-300 bg-amber-50'
+          )}
+        >
+          <AlertTriangle className="size-4" />
+          <AlertDescription className={isDark ? 'text-amber-100/90' : undefined}>
+            <strong>
+              {realtimeRecovering ? 'Realtime sedang reconnect.' : 'Realtime terputus.'}
+            </strong>{' '}
+            REST data tetap dapat di-refresh, tetapi dashboard tidak dianggap live sampai WebSocket connected.
+            Gunakan tombol utama dashboard untuk retry sinkronisasi.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {(networkStatus === 'offline' || backendRestStatus === 'offline' || backendRestStatus === 'error') && (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            <strong>Offline Mode:</strong> Displaying last known values. Data may be outdated.
-            Check your network connection.
+            <strong>Offline/Stale:</strong> Menampilkan data terakhir yang tersedia. Data tidak dianggap live sampai
+            Browser, Backend API, dan Realtime kembali connected.
+            {backendRestError ? ` ${backendRestError}` : ''}
           </AlertDescription>
         </Alert>
       )}
@@ -830,7 +900,7 @@ export const DashboardPage: React.FC = () => {
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            {mwdSessionsError} Dashboard tetap ditampilkan dengan nilai kosong/default sampai backend mengirim session yang bisa dibaca.
+            {mwdSessionsError} Dashboard tetap ditampilkan dengan nilai kosong sampai backend mengirim session yang bisa dibaca.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -839,7 +909,7 @@ export const DashboardPage: React.FC = () => {
         <Alert>
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            Belum ada job/session yang tersedia untuk akun ini. Dashboard tetap aktif; nilai monitoring akan kosong sampai backend mengirim session.
+            Belum ada job/session yang tersedia untuk akun ini.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -848,7 +918,7 @@ export const DashboardPage: React.FC = () => {
         <Alert>
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            No active session selected. Monitoring widgets tetap tampil dengan nilai kosong/default.
+            No active session selected. 
           </AlertDescription>
         </Alert>
       ) : null}
@@ -857,7 +927,7 @@ export const DashboardPage: React.FC = () => {
         <Alert>
           <AlertTriangle className="size-4" />
           <AlertDescription>
-            Belum ada data MWD untuk session ini. KPI card tetap ditampilkan dengan status No Data sampai backend mengirim nilai.
+            Belum ada data MWD untuk session ini.
           </AlertDescription>
         </Alert>
       )}
@@ -867,8 +937,8 @@ export const DashboardPage: React.FC = () => {
           'grid',
           isCompact ? 'gap-2' : 'gap-3',
           denseTabletDesktopLayout
-            ? 'grid-cols-[208px_minmax(0,1fr)]'
-            : 'min-[1440px]:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)]'
+            ? 'grid-cols-[220px_minmax(0,1fr)]'
+            : 'min-[1536px]:grid-cols-[260px_minmax(0,1fr)]'
         )}
       >
         <div className="space-y-3">
@@ -885,7 +955,7 @@ export const DashboardPage: React.FC = () => {
                   {depthTrackingLabel}
                 </Badge>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 text-xs min-[380px]:grid-cols-2">
                 <div className="rounded-md border border-border/70 bg-background/70 p-2">
                   <div className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground">Bit Depth</div>
                   <div className="mt-1 font-mono font-semibold">
@@ -947,7 +1017,7 @@ export const DashboardPage: React.FC = () => {
                   </Button>
                 ))}
               </div>
-              <div className="grid grid-cols-1 gap-1.5 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-2 sm:gap-2">
+              <div className="grid grid-cols-2 gap-1.5 min-[360px]:grid-cols-2 min-[768px]:grid-cols-3 min-[1024px]:grid-cols-3 min-[1440px]:grid-cols-2 sm:gap-2">
                 {visibleKeyParameters.map((parameter, index) => (
                   <div
                     key={`${parameter.label}-${index}`}
@@ -1004,7 +1074,7 @@ export const DashboardPage: React.FC = () => {
                 </Badge>
               </div>
             </div>
-            <div className="hidden min-[1280px]:block">
+            <div className="hidden min-[1440px]:block">
               <WellPlotPanel
                 showHeader={false}
                 showAllTracks
@@ -1013,7 +1083,7 @@ export const DashboardPage: React.FC = () => {
                 maxVisibleTracks={denseTabletDesktopLayout ? 3 : 6}
               />
             </div>
-            <div className="min-[1280px]:hidden">
+            <div className="min-[1440px]:hidden">
               <WellPlotPanel
                 compact
                 showHeader={false}
@@ -1037,7 +1107,7 @@ export const DashboardPage: React.FC = () => {
             Range: {timeWindow === 'all' ? 'All' : timeWindow}
           </Badge>
         </div>
-        <div className="grid items-stretch gap-4 xl:grid-cols-2">
+        <div className="grid min-w-0 items-stretch gap-4 2xl:grid-cols-2">
           <RealTimeChart
             data={chartData}
             title="Pressure & Hydraulics"

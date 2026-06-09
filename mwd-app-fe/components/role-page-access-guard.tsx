@@ -29,7 +29,7 @@ export function RolePageAccessGuard({ children }: { children: React.ReactNode })
 
   if (!isAuthenticated) {
     return (
-      <main className="min-h-screen bg-background p-4 text-foreground md:p-8">
+      <main className="min-h-screen min-h-[100dvh] bg-background p-4 text-foreground md:p-8">
         <Card className="mx-auto max-w-2xl p-6">
           <Alert className="border-amber-500/40 bg-amber-500/10">
             <AlertTitle>Sign in required</AlertTitle>
@@ -43,7 +43,7 @@ export function RolePageAccessGuard({ children }: { children: React.ReactNode })
   }
 
   return (
-    <main className="min-h-screen bg-background p-4 text-foreground md:p-8">
+    <main className="min-h-screen min-h-[100dvh] bg-background p-4 text-foreground md:p-8">
       <Card className="mx-auto max-w-2xl p-6">
         <Alert className="border-amber-500/40 bg-amber-500/10">
           <AlertTitle>Access denied</AlertTitle>

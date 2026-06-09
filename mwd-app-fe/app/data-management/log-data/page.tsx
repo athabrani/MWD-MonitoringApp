@@ -1033,30 +1033,38 @@ export default function LogDataPage({
   };
 
   const content = (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {logDataViewMode === "list" ? (
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-1">
           <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Log Data</h1>
           <p className="text-sm text-muted-foreground sm:text-base">
             Review incoming MWD log data, configured WITS IDs, and WITS values derived from MWD data.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void loadBackendLogData()} disabled={logDataLoading || !token}>
-            <RefreshCw className={cn("mr-2 size-4", logDataLoading && "animate-spin")} />
-            Refresh API
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 pr-0.5 sm:gap-2 sm:pr-0">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 rounded-lg px-0 sm:w-auto sm:px-2.5"
+            onClick={() => void loadBackendLogData()}
+            disabled={logDataLoading || !token}
+            aria-label="Refresh API"
+            title="Refresh API"
+          >
+            <RefreshCw className={cn("size-3.5 sm:mr-1.5", logDataLoading && "animate-spin")} />
+            <span className="hidden text-xs sm:inline">Refresh API</span>
           </Button>
           {logDataViewMode === "list" ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button>
+              <Button size="sm" className="h-8 rounded-lg px-2.5 text-xs sm:px-3">
                 Tools
-                <ChevronDown className="ml-2 size-4" />
+                <ChevronDown className="ml-1.5 size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuContent align="end" sideOffset={6} className="mr-1 w-[min(18rem,calc(100vw-1.5rem))] border border-border sm:mr-0 sm:w-72">
                 <DropdownMenuLabel>Log Data Actions</DropdownMenuLabel>
                 <DropdownMenuSeparator />
               {canManageMwdData ? (
@@ -1092,18 +1100,40 @@ export default function LogDataPage({
       ) : null}
 
       {logDataViewMode === "list" ? (
-        <div className="grid gap-3 lg:grid-cols-3">
-          <Card className="rounded-2xl p-4">
-            <div className="text-sm text-muted-foreground">WITS Config</div>
-            <div className="mt-2 text-2xl font-semibold">{configuredWitsIds.length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
+        <div className="grid grid-cols-3 gap-1.5 min-[430px]:grid-cols-3 sm:grid-cols-2 sm:gap-2 lg:grid-cols-3">
+          <Card className="rounded-xl p-2.5 min-[430px]:p-2 sm:p-3">
+            <div className="flex items-center justify-between gap-3 min-[430px]:block sm:block">
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground min-[430px]:text-[10px] sm:text-xs">WITS Config</div>
+                <div className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-muted-foreground sm:hidden">
+                  {witsConfigLoading ? "Loading /api/wits-config..." : "Master WITS ID list"}
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-xl font-semibold leading-none min-[430px]:mt-1 min-[430px]:text-left min-[430px]:text-lg sm:mt-1 sm:text-left sm:text-2xl sm:leading-tight">
+                {configuredWitsIds.length}
+              </div>
+            </div>
+            <div className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">
               {witsConfigLoading ? "Loading /api/wits-config..." : "Master WITS ID list"}
             </div>
           </Card>
-          <Card className="rounded-2xl p-4">
-            <div className="text-sm text-muted-foreground">MWD Data</div>
-            <div className="mt-2 text-2xl font-semibold">{mwdDataRecords.length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
+          <Card className="rounded-xl p-2.5 min-[430px]:p-2 sm:p-3">
+            <div className="flex items-center justify-between gap-3 min-[430px]:block sm:block">
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground min-[430px]:text-[10px] sm:text-xs">MWD Data</div>
+                <div className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-muted-foreground sm:hidden">
+                  {mwdDataLoading
+                    ? "Loading /api/mwd-data..."
+                    : latestMwdRecord
+                      ? `Latest depth ${formatOptionalDepth(latestMwdRecord.depth)}`
+                      : "Belum ada data MWD untuk session ini."}
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-xl font-semibold leading-none min-[430px]:mt-1 min-[430px]:text-left min-[430px]:text-lg sm:mt-1 sm:text-left sm:text-2xl sm:leading-tight">
+                {mwdDataRecords.length}
+              </div>
+            </div>
+            <div className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">
               {mwdDataLoading
                 ? "Loading /api/mwd-data..."
                 : latestMwdRecord
@@ -1111,10 +1141,22 @@ export default function LogDataPage({
                   : "Belum ada data MWD untuk session ini."}
             </div>
           </Card>
-          <Card className="rounded-2xl p-4">
-            <div className="text-sm text-muted-foreground">WITS Data Values</div>
-            <div className="mt-2 text-2xl font-semibold">{witsDataValues.length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
+          <Card className="rounded-xl p-2.5 min-[430px]:p-2 sm:col-span-2 sm:p-3 lg:col-span-1">
+            <div className="flex items-center justify-between gap-3 min-[430px]:block sm:block">
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground min-[430px]:text-[10px] sm:text-xs">
+                  <span className="sm:hidden">WITS Values</span>
+                  <span className="hidden sm:inline">WITS Data Values</span>
+                </div>
+                <div className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-muted-foreground sm:hidden">
+                  {witsValuesLoading ? "Loading /api/wits-data-values..." : "Values derived from MWD data"}
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-xl font-semibold leading-none min-[430px]:mt-1 min-[430px]:text-left min-[430px]:text-lg sm:mt-1 sm:text-left sm:text-2xl sm:leading-tight">
+                {witsDataValues.length}
+              </div>
+            </div>
+            <div className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">
               {witsValuesLoading ? "Loading /api/wits-data-values..." : "Values derived from MWD data"}
             </div>
           </Card>
@@ -1134,9 +1176,6 @@ export default function LogDataPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Incoming MWD Data</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Recent rows from GET /api/mwd-data. WITS values are displayed separately per configured WITS ID.
-            </p>
           </div>
           <Badge variant="outline">
             {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "All sessions"}
@@ -2089,7 +2128,7 @@ export default function LogDataPage({
         ) : null}
 
         {activeActionDialog === "memory" ? (
-          <DialogContent className="max-h-[calc(100vh-3rem)] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+          <DialogContent className="max-h-[calc(100dvh-3rem)] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
             <DialogHeader>
               <DialogTitle>Memory Correlation Editor</DialogTitle>
               <DialogDescription>
@@ -2125,7 +2164,7 @@ export default function LogDataPage({
         ) : null}
 
         {activeActionDialog === "batch" ? (
-          <DialogContent className="max-h-[calc(100vh-3rem)] max-w-4xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+          <DialogContent className="max-h-[calc(100dvh-3rem)] max-w-4xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
             <DialogHeader>
               <DialogTitle>Batch Settings Editor</DialogTitle>
               <DialogDescription>

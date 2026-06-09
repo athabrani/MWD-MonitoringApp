@@ -75,7 +75,7 @@ const AppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-background text-sm text-muted-foreground">
         Restoring session...
       </div>
     );
@@ -135,7 +135,7 @@ const AppContent: React.FC = () => {
         return <GenerateLasPage onNavigate={setCurrentPage} />;
       case "trajectory":
       case "trajectory-analysis":
-        return <TrajectoryPage />;
+        return <TrajectoryPage onNavigate={setCurrentPage} />;
       case "trajectory-well-plot":
         return <WellPlotPage/>;
       case "charts":
@@ -167,22 +167,30 @@ const AppContent: React.FC = () => {
 
       {/* PWA Install Prompt */}
       {showInstallPrompt && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm">
-          <Alert className="border-border/70 bg-card text-card-foreground shadow-lg">
-            <Download className="size-4" />
-            <AlertDescription className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-medium mb-1">Install MWD Monitor</p>
-                <p className="text-sm text-muted-foreground">
+        <div className="fixed inset-x-3 bottom-3 z-50 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[360px] md:w-[440px] lg:right-6 lg:w-[460px]">
+          <Alert className="rounded-xl border-border/70 bg-card p-3 pr-3 text-card-foreground shadow-lg md:p-4 md:pr-4 lg:rounded-2xl [&>svg+div]:translate-y-0 [&>svg~*]:pl-6 md:[&>svg~*]:pl-8 [&>svg]:left-3 [&>svg]:top-3 md:[&>svg]:left-4 md:[&>svg]:top-4">
+            <Download className="size-3.5 sm:size-4 md:size-5" />
+            <AlertDescription className="flex items-center justify-between gap-2 text-xs sm:gap-3 sm:text-sm md:gap-4">
+              <div className="min-w-0">
+                <p className="mb-0.5 font-medium leading-snug md:text-base">Install MWD Monitor</p>
+                <p className="line-clamp-2 text-xs leading-snug text-muted-foreground sm:text-sm md:text-[15px]">
                   Install this app for quick access and offline support
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button size="sm" variant="outline" onClick={dismissInstallPrompt}>
-                  <X className="size-4" />
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-2.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-8 rounded-lg p-0 md:h-9 md:w-9"
+                  onClick={dismissInstallPrompt}
+                  aria-label="Dismiss install prompt"
+                  title="Dismiss"
+                >
+                  <X className="size-3.5 md:size-4" />
                 </Button>
                 <Button
                   size="sm"
+                  className="h-8 rounded-lg px-2.5 text-xs sm:px-3 md:h-9 md:px-4 md:text-sm"
                   onClick={() => {
                     // NOTE: Di PWA asli, ini biasanya memanggil event "beforeinstallprompt".
                     // Di sini kita samakan dengan contoh kamu: dismiss aja.

@@ -76,6 +76,41 @@ body {
   color: hsl(var(--foreground));
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
+  text-size-adjust: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+.responsive-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.responsive-table-card {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .dark body {
@@ -87,11 +122,20 @@ body {
 
 .page-surface {
   border: 1px solid hsl(var(--border) / 0.65);
-  border-radius: 1rem;
-  padding: 1rem;
+  border-radius: 0.875rem;
+  padding: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 @media (min-width: 768px) {
+  .page-surface {
+    border-radius: 1rem;
+    padding: 1.25rem;
+  }
+}
+
+@media (min-width: 1280px) {
   .page-surface {
     padding: 1.5rem;
   }

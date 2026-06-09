@@ -65,8 +65,8 @@ function PacketPanel({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="flex h-[clamp(380px,68vh,620px)] min-w-0 flex-col overflow-hidden rounded-2xl p-0">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+    <Card className="flex h-[clamp(320px,62dvh,620px)] min-w-0 flex-col overflow-hidden rounded-2xl p-0 sm:h-[clamp(380px,68dvh,620px)]">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-3 py-3 sm:px-5 sm:py-4">
         <h2 className="min-w-0 text-lg font-semibold">{title}</h2>
         <div className="flex flex-wrap justify-end gap-2">
           <Badge variant="outline">{count} packets</Badge>
@@ -283,39 +283,48 @@ export default function RigWitsPage({
   };
 
   const content = (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold sm:text-3xl">Rig WITS</h1>
           <Badge variant="secondary">Monitoring</Badge>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <MonitoringModeToggle mode={mode} onChange={setMode} />
-          <Button
-            variant="outline"
-            onClick={() => {
-              void loadReceivedData();
-              void loadOutputQueue();
-            }}
-            disabled={receivedLoading || outputQueueLoading}
-          >
-            <RefreshCw className={`mr-2 size-4 ${receivedLoading || outputQueueLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
+            <MonitoringModeToggle mode={mode} onChange={setMode} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 shrink-0 px-0 text-xs sm:w-auto sm:px-2.5"
+              aria-label="Refresh Rig WITS data"
+              title="Refresh Rig WITS data"
+              onClick={() => {
+                void loadReceivedData();
+                void loadOutputQueue();
+              }}
+              disabled={receivedLoading || outputQueueLoading}
+            >
+              <RefreshCw className={`size-3.5 sm:mr-1.5 ${receivedLoading || outputQueueLoading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+          </div>
           {canGenerateLatestOutput ? (
             <Button
               variant="outline"
+              size="sm"
+              className="h-8 max-w-full shrink-0 px-2.5 text-xs"
               onClick={() => void handleGenerateLatestOutput()}
               disabled={generatingLatestOutput || !activeMwdSessionId}
             >
-              <RefreshCw className={`mr-2 size-4 ${generatingLatestOutput ? "animate-spin" : ""}`} />
-              Generate Latest Output
+              <RefreshCw className={`mr-1.5 size-3.5 shrink-0 ${generatingLatestOutput ? "animate-spin" : ""}`} />
+              <span className="min-w-0 truncate sm:hidden">Latest Output</span>
+              <span className="hidden min-w-0 truncate sm:inline">Generate Latest Output</span>
             </Button>
           ) : null}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <PacketPanel
           title="Received Data"
           count={receivedPackets.length}
@@ -342,7 +351,7 @@ export default function RigWitsPage({
                 </div>
               )
             ) : (
-              <Table className="table-fixed">
+              <Table className="min-w-[620px] table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-20">Time</TableHead>
@@ -437,7 +446,7 @@ export default function RigWitsPage({
                 </div>
               )
             ) : (
-              <Table className="table-fixed">
+              <Table className="min-w-[820px] table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-20">Time</TableHead>

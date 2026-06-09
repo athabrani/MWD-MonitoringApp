@@ -30,8 +30,8 @@ export function SurveyTable({
   onDelete: (record: SurveyRecord) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border">
-      <Table>
+    <div className="responsive-table-card rounded-xl border">
+      <Table className="min-w-[820px]">
         <TableHeader>
           <TableRow>
             <TableHead>MD</TableHead>

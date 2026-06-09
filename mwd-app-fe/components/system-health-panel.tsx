@@ -143,6 +143,19 @@ function packetPreview(packet: GatewayRawPacket) {
   return source.length > 180 ? `${source.slice(0, 180)}...` : source;
 }
 
+function packetMetaDetails(packet: GatewayRawPacket) {
+  return [
+    packet.sessionId ? `Session ${packet.sessionId}` : null,
+    packet.source ? `Source ${packet.source}` : null,
+    packet.transmitterId ? `TX ${packet.transmitterId}` : null,
+    typeof packet.rssi === "number" ? `RSSI ${packet.rssi}` : null,
+    typeof packet.snr === "number" ? `SNR ${packet.snr}` : null,
+    packet.sequence ? `Seq ${packet.sequence}` : null,
+    packet.parseStatus ? `Parse ${packet.parseStatus}` : null,
+    packet.error ? `Error ${packet.error}` : null,
+  ].filter(Boolean).join(" | ");
+}
+
 export function SystemHealthPanel({
   title = "System Health",
   description,
@@ -277,7 +290,7 @@ export function SystemHealthPanel({
           ? `Session-scoped source: ${connectionState.dataSource}`
           : `Global backend source: ${connectionState.dataSource}`
       ),
-      updatedAt: connectionState.lastReceived,
+      updatedAt: connectionState.lastReceived ?? undefined,
       detail: connectionState.reconnecting ? "Reconnect in progress" : undefined,
     },
     {
@@ -323,7 +336,11 @@ export function SystemHealthPanel({
         gatewayRawPacketsError ||
         [
           latestRawPacket?.source ? `Source ${latestRawPacket.source}` : null,
+          latestRawPacket?.sessionId ? `Session ${latestRawPacket.sessionId}` : null,
           latestRawPacket?.status ? `Status ${latestRawPacket.status}` : null,
+          latestRawPacket?.parseStatus ? `Parse ${latestRawPacket.parseStatus}` : null,
+          typeof latestRawPacket?.rssi === "number" ? `RSSI ${latestRawPacket.rssi}` : null,
+          typeof latestRawPacket?.snr === "number" ? `SNR ${latestRawPacket.snr}` : null,
           latestRawPacket ? `Freshness ${formatPacketFreshness(latestRawPacket.receivedAt)}` : null,
         ].filter(Boolean).join(" | ") ||
         (gatewayRawPacketsReachable
@@ -481,6 +498,11 @@ export function SystemHealthPanel({
                               {rawPacketDetailLoadingId === packet.id ? "Loading" : "Detail"}
                             </Button>
                           </div>
+                          {packetMetaDetails(packet) ? (
+                            <div className="mb-1 break-words text-[10px] text-muted-foreground">
+                              {packetMetaDetails(packet)}
+                            </div>
+                          ) : null}
                           <pre className="max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground">
                             {packetPreview(packet)}
                           </pre>

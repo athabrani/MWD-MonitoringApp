@@ -13,6 +13,7 @@ import {
   Pencil,
   GripVertical,
   Plus,
+  RefreshCw,
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -331,18 +332,18 @@ function HeaderInformationEditor({
     patchHeader({ drillingParameters: { ...header.drillingParameters, ...patch } });
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Log Main Header Information</h2>
+    <div className="space-y-3 sm:space-y-4">
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+          <h2 className="text-base font-semibold sm:text-lg">Log Main Header Information</h2>
           <Badge variant="outline">{header.userDefinedLabels.length}/8 user labels</Badge>
         </div>
-        <div className="mt-4">
+        <div className="mt-3 sm:mt-4">
           <Field label="Plot Title">
             <Input value={header.plotTitle} onChange={(event) => patchHeader({ plotTitle: event.target.value })} />
           </Field>
         </div>
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
           {header.userDefinedLabels.map((item) => (
             <div key={item.id} className="grid gap-2 md:grid-cols-[240px_1fr_auto]">
               <Input
@@ -396,9 +397,9 @@ function HeaderInformationEditor({
         </div>
       </Card>
 
-      <Card className="rounded-2xl p-5">
-        <h2 className="text-lg font-semibold">Log Information</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+        <h2 className="text-base font-semibold sm:text-lg">Log Information</h2>
+        <div className="mt-3 grid gap-3 sm:mt-4 sm:gap-4 md:grid-cols-3">
           <Field label="Log Measurements">
             <Input
               value={header.logInformation.logMeasurements}
@@ -448,9 +449,9 @@ function HeaderInformationEditor({
         </div>
       </Card>
 
-      <Card className="rounded-2xl p-5">
-        <h2 className="text-lg font-semibold">Casing and Other Drilling Parameters</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+        <h2 className="text-base font-semibold sm:text-lg">Casing and Other Drilling Parameters</h2>
+        <div className="mt-3 grid gap-3 sm:mt-4 sm:gap-4 md:grid-cols-4">
           {[
             ["casingDepth", "Casing Depth"],
             ["density", "Density"],
@@ -502,11 +503,13 @@ function HeaderInformationEditor({
         </div>
       </Card>
 
-      <Card className="rounded-2xl p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Run Summaries</h2>
+      <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+          <h2 className="text-base font-semibold sm:text-lg">Run Summaries</h2>
           <Button
             variant="outline"
+            size="sm"
+            className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
             onClick={() =>
               patchHeader({
                 runSummaries: [
@@ -527,13 +530,13 @@ function HeaderInformationEditor({
               })
             }
           >
-            <Plus className="mr-2 size-4" />
+            <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             Add Run
           </Button>
         </div>
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
           {header.runSummaries.map((run) => (
-            <div key={run.id} className="grid gap-3 rounded-xl border p-3 lg:grid-cols-[160px_repeat(4,1fr)_auto]">
+            <div key={run.id} className="grid gap-2.5 rounded-lg border p-2.5 sm:rounded-xl sm:p-3 lg:grid-cols-[160px_repeat(4,1fr)_auto]">
               <Input
                 value={run.name}
                 onChange={(event) =>
@@ -950,8 +953,8 @@ function GeneralEditor({
   };
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl p-4">
+    <div className="min-w-0 space-y-4">
+      <Card className="rounded-2xl p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <Field label="Plot Configuration Name">
             <Input value={config.name} onChange={(event) => onConfigChange({ name: event.target.value })} />
@@ -978,7 +981,7 @@ function GeneralEditor({
         ) : null}
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px] 2xl:items-start">
         <div className="grid min-w-0 gap-4 2xl:grid-cols-[300px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           <SettingsPanel title="Header (Built-in)" description="Synchronized with the plot header system.">
@@ -1043,7 +1046,7 @@ function GeneralEditor({
           </SettingsPanel>
 
           <SettingsPanel title="Depth Scale and Grid Settings">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
               <Field label="Scale">
                 <NativeSelect<string> value={general.grid.depthScale} options={depthScaleOptions} onChange={(depthScale) => patchGrid({ depthScale })} />
               </Field>
@@ -1054,7 +1057,7 @@ function GeneralEditor({
                 <Input type="number" min={0} value={general.grid.minorTick} onChange={(event) => patchGrid({ minorTick: toNumber(event.target.value, general.grid.minorTick) })} />
               </Field>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
               <Field label="First data spacing">
                 <Input type="number" min={0} value={general.grid.firstDataSpacing} onChange={(event) => patchGrid({ firstDataSpacing: toNumber(event.target.value, general.grid.firstDataSpacing) })} />
               </Field>
@@ -1103,7 +1106,7 @@ function GeneralEditor({
 
         </div>
 
-        <div className="min-w-0 space-y-4 xl:sticky xl:top-4">
+        <div className="min-w-0 space-y-4 2xl:sticky 2xl:top-4">
           <PlotLayoutPreview config={config} general={general} onLayoutChange={patchLayout} />
         </div>
       </div>
@@ -1125,18 +1128,18 @@ function PdfBuilder({
   const [placement, setPlacement] = useState<PdfPlacement>("before");
 
   return (
-    <Card className="rounded-2xl p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
         <div>
-          <h2 className="text-lg font-semibold">PDF Plot Builder</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h2 className="text-base font-semibold sm:text-lg">PDF Plot Builder</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
             Arrange before-plot PDFs, generated main plot, and after-plot attachments.
           </p>
         </div>
         <Badge variant="outline">{config.pdfItems.length} items</Badge>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_auto]">
+      <div className="mt-3 grid gap-2.5 sm:mt-4 sm:gap-3 md:grid-cols-[1fr_180px_auto]">
         <select className="h-10 rounded-md border bg-background px-3 text-sm" value={fileId} onChange={(event) => setFileId(event.target.value)}>
           {usableFiles.map((file) => (
             <option key={file.id} value={file.id}>{file.fileName}</option>
@@ -1155,9 +1158,9 @@ function PdfBuilder({
         </Button>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-3 space-y-2 sm:mt-4">
         {config.pdfItems.map((item, index) => (
-          <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2">
+          <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-2 sm:gap-3 sm:rounded-xl sm:px-3">
             <GripVertical className="size-4 text-muted-foreground" />
             <Badge variant={item.placement === "main" ? "secondary" : "outline"}>{item.placement}</Badge>
             <div className="min-w-0 flex-1 truncate text-sm font-medium">{index + 1}. {item.label}</div>
@@ -1286,20 +1289,20 @@ function TrackFormattingEditor({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Track Configuration</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-base font-semibold sm:text-lg">Track Configuration</h2>
+          <p className="text-xs text-muted-foreground sm:text-sm">
             Configure plot tracks. Active tracks and curves are used by the Well Plot viewer.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <Badge variant="outline">{enabledTrackCount}/{normalizedTracks.length} active</Badge>
           <Badge variant="outline">{normalizedTracks.length}/{MAX_PLOT_TRACKS} tracks</Badge>
           <Badge variant="outline">Up to 16 curves per track</Badge>
-          <Button variant="outline" size="sm" onClick={addTrack} disabled={hasReachedTrackLimit}>
-            <Plus className="mr-2 size-4" />
+          <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" onClick={addTrack} disabled={hasReachedTrackLimit}>
+            <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
             Add Track
           </Button>
         </div>
@@ -1310,10 +1313,10 @@ function TrackFormattingEditor({
         </div>
       ) : null}
 
-      <Tabs value={activeTrackId} onValueChange={setActiveTrackId} className="space-y-4">
+      <Tabs value={activeTrackId} onValueChange={setActiveTrackId} className="space-y-3 sm:space-y-4">
         <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1">
           {trackOptions.map(({ track, value }, index) => (
-            <TabsTrigger key={track.id} value={value}>
+            <TabsTrigger key={track.id} value={value} className="h-8 px-2 text-xs sm:px-3 sm:text-sm">
               Track {index + 1}
             </TabsTrigger>
           ))}
@@ -1324,8 +1327,8 @@ function TrackFormattingEditor({
           const canRemoveEmptyTrack = disabled && normalizedTracks.length > MIN_PLOT_TRACKS;
           return (
             <TabsContent key={track.id} value={value}>
-              <Card className={cn("rounded-2xl p-5", disabled && "border-dashed")}>
-                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <Card className={cn("rounded-xl p-3 sm:rounded-2xl sm:p-5", disabled && "border-dashed")}>
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-2 sm:mb-4 sm:gap-3">
                   <div>
                     <div className="text-sm font-medium">{track.name || `Track ${index + 1}`}</div>
                     <div className="text-xs text-muted-foreground">
@@ -1346,7 +1349,7 @@ function TrackFormattingEditor({
                     />
                   ) : null}
                 </div>
-                <div className="grid gap-3 lg:grid-cols-[1fr_220px_190px]">
+                <div className="grid gap-2.5 sm:gap-3 lg:grid-cols-[1fr_220px_190px]">
                   <Field label={`Track ${index + 1} Name`}>
                     <Input value={track.name} onChange={(event) => patchTrack(track.id, { name: event.target.value })} />
                   </Field>
@@ -1367,7 +1370,7 @@ function TrackFormattingEditor({
                 </div>
 
                 {track.scaleType === "Azimuthal" ? (
-                  <div className="mt-4 rounded-xl border bg-muted/20 p-4">
+                  <div className="mt-3 rounded-xl border bg-muted/20 p-3 sm:mt-4 sm:p-4">
                     <h3 className="font-semibold">Azimuthal Track Settings</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Curve rows can represent orientation/sensor channels. Open a curve to edit azimuthal display parameters.
@@ -1375,19 +1378,19 @@ function TrackFormattingEditor({
                   </div>
                 ) : null}
 
-                <div className="mt-4 space-y-2">
+                <div className="mt-3 space-y-2 sm:mt-4">
                   {track.curves.map((curve) => (
-                    <div key={curve.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2">
+                    <div key={curve.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-2.5 py-2 sm:gap-3 sm:rounded-xl sm:px-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{curve.dataSource}</div>
+                        <div className="truncate text-xs font-medium sm:text-sm">{curve.dataSource}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           Scale {curve.scale} | Filter {curve.filter} | Width {curve.lineWidth} | {curve.lineStyle}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="h-5 w-8 rounded border" style={{ backgroundColor: curve.lineColor }} />
-                        <Button variant="outline" size="sm" onClick={() => setEditingCurve({ trackId: track.id, curveId: curve.id })}>
-                          <Pencil className="mr-2 size-4" />
+                        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" onClick={() => setEditingCurve({ trackId: track.id, curveId: curve.id })}>
+                          <Pencil className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                           Edit Curve
                         </Button>
                         <ConfirmDeleteButton
@@ -1405,12 +1408,14 @@ function TrackFormattingEditor({
                     </div>
                   ))}
                   {track.curves.length === 0 ? (
-                    <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground sm:rounded-xl sm:p-6 sm:text-sm">
                       No curves configured. This track is effectively disabled.
                     </div>
                   ) : null}
                   <Button
                     variant="outline"
+                    size="sm"
+                    className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                     disabled={track.curves.length >= 16}
                     onClick={() =>
                       patchTrack(track.id, {
@@ -1432,7 +1437,7 @@ function TrackFormattingEditor({
                       })
                     }
                   >
-                    <Plus className="mr-2 size-4" />
+                    <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                     Add Curve
                   </Button>
                 </div>
@@ -2036,14 +2041,14 @@ export default function PlottingPage({
   const previewGeneral = previewConfig ? normalizeGeneralSettings(previewConfig.general) : null;
 
   const content = (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">Data Management</Badge>
-            <Badge variant="outline">Plotting</Badge>
-            <Badge variant="outline">{plottingView === "landing" ? "Configuration Center" : "Editor"}</Badge>
-            <Badge variant={witsConfigError ? "destructive" : "outline"}>
+    <div className="min-w-0 space-y-3 sm:space-y-5">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+            <Badge variant="secondary" className="hidden h-5 px-2 text-[10px] sm:inline-flex sm:h-6 sm:text-xs">Data Management</Badge>
+            <Badge variant="outline" className="h-5 shrink-0 px-2 text-[10px] sm:h-6 sm:text-xs">Plotting</Badge>
+            <Badge variant="outline" className="h-5 shrink-0 px-2 text-[10px] sm:h-6 sm:text-xs">{plottingView === "landing" ? "Configuration Center" : "Editor"}</Badge>
+            <Badge variant={witsConfigError ? "destructive" : "outline"} className="h-5 max-w-full shrink-0 px-2 text-[10px] sm:h-6 sm:text-xs">
               {witsConfigError
                 ? "WITS config unavailable"
                 : witsConfigLoading
@@ -2053,34 +2058,50 @@ export default function PlottingPage({
                     : "Belum ada konfigurasi WITS. Tambahkan WITS ID terlebih dahulu."}
             </Badge>
           </div>
-          <h1 className="mt-3 text-2xl font-bold sm:text-3xl">Plotting</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="mt-2 text-xl font-bold leading-tight sm:mt-3 sm:text-3xl">Plotting</h1>
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm sm:leading-normal">
             Configure plot headers, tracks, PDFs, labels, and file inputs using shared plotting state.
           </p>
         </div>
         {plottingView === "editor" ? (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setPlottingView("landing")}>
-              <ArrowLeft className="mr-2 size-4" />
-              Back to Plot Configurations
+          <div className="ml-auto flex w-full flex-wrap justify-end gap-1.5 sm:w-auto sm:gap-2">
+            <Button
+              size="sm"
+              aria-label="Back"
+              className="h-8 w-8 px-0 text-xs sm:h-9 sm:w-auto sm:px-3"
+              variant="outline"
+              onClick={() => setPlottingView("landing")}
+            >
+              <ArrowLeft className="size-3.5 sm:mr-2 sm:size-4" />
+              <span className="hidden sm:inline">Back to Plot Configurations</span>
             </Button>
-            <Button variant="outline" onClick={() => void refreshWitsConfig()} disabled={witsConfigLoading}>
-              Refresh WITS
+            <Button
+              size="sm"
+              aria-label="Refresh WITS"
+              className="h-8 w-8 px-0 text-xs sm:h-9 sm:w-auto sm:px-3"
+              variant="outline"
+              onClick={() => void refreshWitsConfig()}
+              disabled={witsConfigLoading}
+            >
+              <RefreshCw className="size-3.5 sm:mr-2 sm:size-4" />
+              <span className="hidden sm:inline">Refresh WITS</span>
             </Button>
             {canManagePlotting ? (
               <Button
+                size="sm"
+                className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                 disabled={!activeConfig || savingConfigId === activeConfig.id}
                 onClick={() => activeConfig && void saveConfig(activeConfig)}
               >
-                <Save className="mr-2 size-4" />
+                <Save className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                 {activeConfig && savingConfigId === activeConfig.id ? "Saving..." : "Save"}
               </Button>
             ) : null}
           </div>
         ) : (
           canManagePlotting ? (
-            <Button onClick={() => setCreateDialogOpen(true)} disabled={Boolean(savingConfigId)}>
-              <Plus className="mr-2 size-4" />
+            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" onClick={() => setCreateDialogOpen(true)} disabled={Boolean(savingConfigId)}>
+              <Plus className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
               New Plot Configuration
             </Button>
           ) : null
@@ -2088,20 +2109,20 @@ export default function PlottingPage({
       </div>
 
       {plottingView === "landing" ? (
-        <div className="space-y-4">
-          <div className="grid gap-4">
-            <Card className="rounded-2xl p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="grid gap-3 sm:gap-4">
+            <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
                 <div className="min-w-0">
-                  <h2 className="text-lg font-semibold">General Plot Configuration Tools</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <h2 className="text-base font-semibold sm:text-lg">General Plot Configuration Tools</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
                     Shortcuts to shared plot setup tools.
                   </p>
                 </div>
-                <Badge variant="outline">Editor shortcuts</Badge>
+                <Badge variant="outline" className="h-5 px-2 text-[10px] sm:h-6 sm:text-xs">Editor shortcuts</Badge>
               </div>
               {canManagePlotting ? (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-2 grid gap-1.5 sm:mt-3 sm:grid-cols-2 sm:gap-2 xl:grid-cols-4">
                 {[
                   ["Header Information", "Header setup", "header"],
                   ["Plot Labels", "Annotations", "labels"],
@@ -2111,12 +2132,12 @@ export default function PlottingPage({
                   <Button
                     key={title}
                     variant="outline"
-                    className="h-12 w-full justify-start rounded-xl px-3 text-left"
+                    className="h-10 w-full justify-start rounded-lg px-2.5 text-left sm:h-12 sm:rounded-xl sm:px-3"
                     onClick={() => openEditorTab(tab)}
                   >
                     <span className="min-w-0 leading-tight">
-                      <span className="block truncate text-sm font-medium">{title}</span>
-                      <span className="block truncate text-xs font-normal text-muted-foreground">
+                      <span className="block truncate text-xs font-medium sm:text-sm">{title}</span>
+                      <span className="block truncate text-[11px] font-normal text-muted-foreground sm:text-xs">
                         {description}
                       </span>
                     </span>
@@ -2127,15 +2148,15 @@ export default function PlottingPage({
             </Card>
           </div>
 
-          <Card className="rounded-2xl p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               <div>
-                <h2 className="text-lg font-semibold">List of Plot Configurations</h2>
-                <p className="text-sm text-muted-foreground">
+                <h2 className="text-base font-semibold sm:text-lg">List of Plot Configurations</h2>
+                <p className="text-xs text-muted-foreground sm:text-sm">
                   Select a plot configuration to generate, edit, clone, or delete.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 {plotTemplatesLoading ? <Badge variant="outline">Loading backend templates</Badge> : null}
                 {plotTemplatesError ? <Badge variant="destructive">Gagal memuat data dari backend.</Badge> : null}
                 <Badge variant="outline">{configs.length} configurations</Badge>
@@ -2155,9 +2176,9 @@ export default function PlottingPage({
                 </Button>
               </div>
             ) : null}
-            <div className="mt-4 grid gap-3">
+            <div className="mt-3 grid gap-2.5 sm:mt-4 sm:gap-3">
               {!plotTemplatesLoading && configs.length === 0 ? (
-                <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
+                <Card className="rounded-xl border-dashed p-3 text-xs text-muted-foreground sm:rounded-2xl sm:p-5 sm:text-sm">
                   Belum ada plot template.
                 </Card>
               ) : null}
@@ -2170,7 +2191,7 @@ export default function PlottingPage({
                   <div
                     key={config.id}
                     className={cn(
-                      "rounded-2xl border p-4 transition-colors",
+                      "rounded-xl border p-3 transition-colors sm:rounded-2xl sm:p-4",
                       activeConfig?.id === config.id && "border-primary/40 bg-primary/5"
                     )}
                   >
@@ -2180,13 +2201,13 @@ export default function PlottingPage({
                           <h3 className="font-semibold">{config.name}</h3>
                           {config.isDefault ? <Badge variant="secondary">Default</Badge> : null}
                         </div>
-                        <div className="mt-1 text-sm text-muted-foreground">
+                        <div className="mt-1 text-xs text-muted-foreground sm:text-sm">
                           {general.fileFormat} | {tracks.length} tracks | {pdfItems.length} PDF items | {general.depthRange.start}-{general.depthRange.end} MD
                         </div>
                       </button>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => void generatePlot(config)}>
-                          <Eye className="mr-2 size-4" />
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                        <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" onClick={() => void generatePlot(config)}>
+                          <Eye className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                           Generate Plot
                         </Button>
                         {canManagePlotting ? (
@@ -2194,14 +2215,15 @@ export default function PlottingPage({
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                               disabled={loadingConfigId === config.id}
                               onClick={() => void openEditor(config)}
                             >
-                              <Pencil className="mr-2 size-4" />
-                              {loadingConfigId === config.id ? "Loading..." : "Edit Configuration"}
+                              <Pencil className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
+                              {loadingConfigId === config.id ? "Loading..." : "Edit"}
                             </Button>
-                            <Button size="sm" variant="outline" disabled={Boolean(savingConfigId)} onClick={() => void cloneConfig(config)}>
-                              <Copy className="mr-2 size-4" />
+                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" disabled={Boolean(savingConfigId)} onClick={() => void cloneConfig(config)}>
+                              <Copy className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                               Clone
                             </Button>
                             <ConfirmDeleteButton
@@ -2227,47 +2249,49 @@ export default function PlottingPage({
             </div>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card className="rounded-2xl p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="grid gap-3 sm:gap-4 xl:grid-cols-2">
+            <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">User Files</h2>
-                  <p className="text-sm text-muted-foreground">Upload and manage files usable by the PDF builder.</p>
+                  <h2 className="text-base font-semibold sm:text-lg">User Files</h2>
+                  <p className="text-xs text-muted-foreground sm:text-sm">Upload and manage files usable by the PDF builder.</p>
                 </div>
                 {canManagePlotting ? (
                   <Button
                     variant="outline"
+                    size="sm"
+                    className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                     onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                   >
-                    <FilePlus2 className="mr-2 size-4" />
+                    <FilePlus2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                     Upload File
                   </Button>
                 ) : null}
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2 sm:mt-4">
                 {uploadedFiles.map((file) => (
-                  <div key={file.id} className="rounded-xl border p-3">
+                  <div key={file.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <div className="font-medium">{file.fileName}</div>
-                        <div className="text-sm text-muted-foreground">{file.description}</div>
+                        <div className="text-sm font-medium sm:text-base">{file.fileName}</div>
+                        <div className="text-xs text-muted-foreground sm:text-sm">{file.description}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{format(new Date(file.updatedAt), "dd MMM yyyy HH:mm")}</div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
                         <Badge variant="outline">{file.type}</Badge>
                         <Badge variant={file.usableInPlotBuilder ? "secondary" : "outline"}>
                           {file.usableInPlotBuilder ? "Usable for plotting" : file.conversionStatus}
                         </Badge>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Open Metadata</Button>
+                    <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
+                      <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Open Metadata</Button>
                       <Button size="sm" variant="outline" onClick={() => toast.message(`${file.fileName} download is a UI scaffold`)}>
-                        <Download className="mr-2 size-4" />
+                        <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                         Download
                       </Button>
                       {canManagePlotting ? (
-                        <Button size="sm" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
+                        <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
                           {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
                         </Button>
                       ) : null}
@@ -2277,34 +2301,34 @@ export default function PlottingPage({
               </div>
             </Card>
 
-            <Card className="rounded-2xl p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">Templates</h2>
-                  <p className="text-sm text-muted-foreground">Download, duplicate, or stage plot template files.</p>
+                  <h2 className="text-base font-semibold sm:text-lg">Templates</h2>
+                  <p className="text-xs text-muted-foreground sm:text-sm">Download, duplicate, or stage plot template files.</p>
                 </div>
                 <div className="w-40">
                   <NativeSelect<TemplateFileType> value={selectedTemplateType} options={["Header", "Track", "LAS", "Report"]} onChange={setSelectedTemplateType} />
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2 sm:mt-4">
                 {templates.map((template) => (
-                  <div key={template.id} className="rounded-xl border p-3">
+                  <div key={template.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <div className="font-medium">{template.fileName}</div>
-                        <div className="text-sm text-muted-foreground">{template.description}</div>
+                        <div className="text-sm font-medium sm:text-base">{template.fileName}</div>
+                        <div className="text-xs text-muted-foreground sm:text-sm">{template.description}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{format(new Date(template.updatedAt), "dd MMM yyyy HH:mm")}</div>
                       </div>
                       <Badge variant="secondary">{template.type}</Badge>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => toast.message(`${template.fileName} download is a UI scaffold`)}>
-                        <Download className="mr-2 size-4" />
+                    <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
+                      <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => toast.message(`${template.fileName} download is a UI scaffold`)}>
+                        <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                         Download Template
                       </Button>
                       {canManagePlotting ? (
-                        <Button size="sm" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>
+                        <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>
                           Duplicate
                         </Button>
                       ) : null}
@@ -2316,8 +2340,8 @@ export default function PlottingPage({
           </div>
         </div>
       ) : canManagePlotting ? (
-      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)]">
-        <Card className="rounded-2xl p-4">
+      <div className="grid gap-3 sm:gap-4 xl:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)]">
+        <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold">Plot Configs</h2>
             <Badge variant="outline">{configs.length}</Badge>
@@ -2387,19 +2411,19 @@ export default function PlottingPage({
           ) : null}
         </Card>
 
-        <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-3 sm:space-y-4">
           {activeConfig ? (
             <Tabs value={editorTab} onValueChange={setEditorTab} className="min-w-0">
-              <TabsList className="flex h-auto flex-wrap justify-start">
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="header">Header</TabsTrigger>
-                <TabsTrigger value="tracks">Tracks</TabsTrigger>
-                <TabsTrigger value="labels">Labels</TabsTrigger>
-                <TabsTrigger value="pdf">PDF Builder</TabsTrigger>
-                <TabsTrigger value="files">Files</TabsTrigger>
-                <TabsTrigger value="depth">Depth Scale</TabsTrigger>
-                <TabsTrigger value="mud">Mud R</TabsTrigger>
-                <TabsTrigger value="azimuthal">Azimuthal</TabsTrigger>
+              <TabsList className="flex h-auto flex-wrap justify-start gap-1 p-1">
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="general">General</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="header">Header</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="tracks">Tracks</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="labels">Labels</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="pdf">PDF Builder</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="files">Files</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="depth">Depth Scale</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="mud">Mud R</TabsTrigger>
+                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="azimuthal">Azimuthal</TabsTrigger>
               </TabsList>
 
               <TabsContent value="general">
@@ -2423,9 +2447,9 @@ export default function PlottingPage({
                 />
               </TabsContent>
               <TabsContent value="labels">
-                <Card className="rounded-2xl p-5">
-                  <h2 className="text-lg font-semibold">Plot Labels</h2>
-                  <div className="mt-4 grid gap-3 md:grid-cols-[140px_160px_180px_1fr_auto]">
+                <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+                  <h2 className="text-base font-semibold sm:text-lg">Plot Labels</h2>
+                  <div className="mt-3 grid gap-2.5 sm:mt-4 sm:gap-3 md:grid-cols-[140px_160px_180px_1fr_auto]">
                     <Input type="number" value={draftLabel.depth} onChange={(event) => setDraftLabel((current) => ({ ...current, depth: Number(event.target.value) }))} />
                     <NativeSelect<PlotTextAlign> value={draftLabel.align} options={["left", "center", "right"]} onChange={(align) => setDraftLabel((current) => ({ ...current, align }))} />
                     <Input value={draftLabel.trackTarget} onChange={(event) => setDraftLabel((current) => ({ ...current, trackTarget: event.target.value }))} />
@@ -2440,9 +2464,9 @@ export default function PlottingPage({
                       Add Label
                     </Button>
                   </div>
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-3 space-y-2 sm:mt-4">
                     {plotLabels.map((label) => (
-                      <div key={label.id} className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[120px_120px_160px_1fr_auto]">
+                      <div key={label.id} className="grid gap-2 rounded-lg border px-2.5 py-2 sm:rounded-xl sm:px-3 md:grid-cols-[120px_120px_160px_1fr_auto]">
                         <Input type="number" value={label.depth} onChange={(event) => setPlotLabels((current) => current.map((item) => item.id === label.id ? { ...item, depth: Number(event.target.value) } : item))} />
                         <NativeSelect<PlotTextAlign> value={label.align} options={["left", "center", "right"]} onChange={(align) => setPlotLabels((current) => current.map((item) => item.id === label.id ? { ...item, align } : item))} />
                         <Input value={label.trackTarget} onChange={(event) => setPlotLabels((current) => current.map((item) => item.id === label.id ? { ...item, trackTarget: event.target.value } : item))} />
@@ -2464,35 +2488,37 @@ export default function PlottingPage({
                 <PdfBuilder config={activeConfig} files={uploadedFiles} onChange={(pdfItems) => updateActiveConfig({ pdfItems })} />
               </TabsContent>
               <TabsContent value="files">
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <Card className="rounded-2xl p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold">Template Files</h2>
+                <div className="grid gap-3 sm:gap-4 xl:grid-cols-2">
+                  <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                      <h2 className="text-base font-semibold sm:text-lg">Template Files</h2>
                       <Button
                         variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                         onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                       >
-                        <FileUp className="mr-2 size-4" />
+                        <FileUp className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                         Upload Template
                       </Button>
                     </div>
-                    <div className="mt-3 w-48">
+                    <div className="mt-2 w-40 sm:mt-3 sm:w-48">
                       <NativeSelect<TemplateFileType> value={selectedTemplateType} options={["Header", "Track", "LAS", "Report"]} onChange={setSelectedTemplateType} />
                     </div>
-                    <div className="mt-4 space-y-2">
+                    <div className="mt-3 space-y-2 sm:mt-4">
                       {templates.map((template) => (
-                        <div key={template.id} className="rounded-xl border p-3">
+                        <div key={template.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
-                              <div className="font-medium">{template.fileName}</div>
-                              <div className="text-sm text-muted-foreground">{template.description}</div>
+                              <div className="text-sm font-medium sm:text-base">{template.fileName}</div>
+                              <div className="text-xs text-muted-foreground sm:text-sm">{template.description}</div>
                               <div className="mt-1 text-xs text-muted-foreground">{format(new Date(template.updatedAt), "dd MMM yyyy HH:mm")}</div>
                             </div>
                             <Badge variant="secondary">{template.type}</Badge>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button size="sm" variant="outline"><Download className="mr-2 size-4" />Download</Button>
-                            <Button size="sm" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>Duplicate</Button>
+                          <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
+                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline"><Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />Download</Button>
+                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>Duplicate</Button>
                             <ConfirmDeleteButton
                               title="Remove template file?"
                               description={`${template.fileName} will be removed from local template metadata.`}
@@ -2509,24 +2535,26 @@ export default function PlottingPage({
                     </div>
                   </Card>
 
-                  <Card className="rounded-2xl p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold">Uploaded User Files</h2>
+                  <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                      <h2 className="text-base font-semibold sm:text-lg">Uploaded User Files</h2>
                       <Button
                         variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
                         onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
                       >
-                        <FilePlus2 className="mr-2 size-4" />
+                        <FilePlus2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                         Upload File
                       </Button>
                     </div>
-                    <div className="mt-4 space-y-2">
+                    <div className="mt-3 space-y-2 sm:mt-4">
                       {uploadedFiles.map((file) => (
-                        <div key={file.id} className="rounded-xl border p-3">
+                        <div key={file.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
-                              <div className="font-medium">{file.fileName}</div>
-                              <div className="text-sm text-muted-foreground">{file.description}</div>
+                              <div className="text-sm font-medium sm:text-base">{file.fileName}</div>
+                              <div className="text-xs text-muted-foreground sm:text-sm">{file.description}</div>
                               <div className="mt-1 text-xs text-muted-foreground">{format(new Date(file.updatedAt), "dd MMM yyyy HH:mm")}</div>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -2534,9 +2562,9 @@ export default function PlottingPage({
                               <Badge variant={file.conversionStatus === "Ready" ? "secondary" : "outline"}>{file.conversionStatus}</Badge>
                             </div>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button size="sm" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Preview Metadata</Button>
-                            <Button size="sm" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
+                          <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
+                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Preview Metadata</Button>
+                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
                               {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
                             </Button>
                             <ConfirmDeleteButton
@@ -2660,7 +2688,7 @@ export default function PlottingPage({
                   showHeader={false}
                   compact
                   compactDashboardHeightPx={680}
-                  compactDashboardHeightCss="clamp(460px, 62vh, 680px)"
+                  compactDashboardHeightCss="clamp(460px, 62dvh, 680px)"
                 />
               </div>
               <Card className="rounded-2xl p-4">

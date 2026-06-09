@@ -16,13 +16,15 @@ export interface User {
 export type ConnectionStatus = 'connected' | 'degraded' | 'offline';
 export type DataSource = 'primary' | 'backup';
 export type ConnectionLatencySource = 'connection-status' | 'api-probe';
+export type NetworkStatus = 'online' | 'offline' | 'unknown';
+export type BackendRestStatus = 'unknown' | 'checking' | 'online' | 'offline' | 'auth-error' | 'error';
 
 export interface ConnectionState {
   status: ConnectionStatus;
   latency?: number;
   latencySource?: ConnectionLatencySource;
   packetLoss?: number;
-  lastReceived: Date;
+  lastReceived?: Date | null;
   dataSource: DataSource;
   reconnecting?: boolean;
 }

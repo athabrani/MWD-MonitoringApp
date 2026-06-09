@@ -70,23 +70,24 @@ export const AlertsPage: React.FC = () => {
   const AlarmCard = ({ event, showAcknowledge = true }: { event: Event; showAcknowledge?: boolean }) => (
     <Card 
       className={cn(
-        "p-4 border-l-4",
+        "border-l-4 p-3 sm:p-4",
         event.severity === 'critical' && "border-l-red-500 bg-red-500/5",
         event.severity === 'warning' && "border-l-yellow-500 bg-yellow-500/5"
       )}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-start gap-3 flex-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-1 items-start gap-2 sm:gap-3">
           {event.severity === 'critical' ? (
-            <AlertCircle className="size-5 text-red-500 mt-0.5" />
+            <AlertCircle className="mt-0.5 size-4 text-red-500 sm:size-5" />
           ) : (
-            <AlertTriangle className="size-5 text-yellow-500 mt-0.5" />
+            <AlertTriangle className="mt-0.5 size-4 text-yellow-500 sm:size-5" />
           )}
           
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold">{event.message}</h3>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h3 className="text-sm font-semibold leading-snug sm:text-base">{event.message}</h3>
               <Badge variant="outline" className={cn(
+                "h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs",
                 event.severity === 'critical' && "bg-red-500/10 text-red-500 border-red-500/20",
                 event.severity === 'warning' && "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
               )}>
@@ -94,7 +95,7 @@ export const AlertsPage: React.FC = () => {
               </Badge>
             </div>
             
-            <div className="text-sm text-muted-foreground space-y-1">
+            <div className="space-y-0.5 text-xs leading-snug text-muted-foreground sm:space-y-1 sm:text-sm">
               <div>Time: {format(event.timestamp, 'PPpp')}</div>
               {event.parameter && (
                 <div>Parameter: <Badge variant="secondary">{event.parameter}</Badge></div>
@@ -111,8 +112,8 @@ export const AlertsPage: React.FC = () => {
             </div>
 
             {event.acknowledgedBy && (
-              <div className="mt-3 p-3 bg-background rounded border">
-                <div className="text-sm">
+              <div className="mt-2 rounded border bg-background p-2 sm:mt-3 sm:p-3">
+                <div className="text-xs sm:text-sm">
                   <span className="text-muted-foreground">Acknowledged by:</span>{' '}
                   <span className="font-medium">{event.acknowledgedBy}</span>
                   <span className="text-muted-foreground ml-2">
@@ -120,7 +121,7 @@ export const AlertsPage: React.FC = () => {
                   </span>
                 </div>
                 {event.note && (
-                  <div className="text-sm mt-2">
+                  <div className="mt-1 text-xs sm:mt-2 sm:text-sm">
                     <span className="text-muted-foreground">Note:</span> {event.note}
                   </div>
                 )}
@@ -194,7 +195,7 @@ export const AlertsPage: React.FC = () => {
   const NotificationCard = ({ event }: { event: Event }) => (
     <Card
       className={cn(
-        "p-4 border-l-4",
+        "border-l-4 p-3 sm:p-4",
         event.severity === 'critical' && "border-l-red-500 bg-red-500/5",
         event.severity === 'warning' && "border-l-yellow-500 bg-yellow-500/5",
         event.severity === 'info' && "border-l-blue-500 bg-blue-500/5"
@@ -202,12 +203,13 @@ export const AlertsPage: React.FC = () => {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">{event.message}</h3>
-            <Badge variant="outline">{event.type}</Badge>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <h3 className="text-sm font-semibold leading-snug sm:text-base">{event.message}</h3>
+            <Badge variant="outline" className="h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs">{event.type}</Badge>
             <Badge
               variant="outline"
               className={cn(
+                "h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs",
                 event.severity === 'critical' && "bg-red-500/10 text-red-500 border-red-500/20",
                 event.severity === 'warning' && "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
                 event.severity === 'info' && "bg-blue-500/10 text-blue-500 border-blue-500/20"
@@ -216,7 +218,7 @@ export const AlertsPage: React.FC = () => {
               {event.severity}
             </Badge>
           </div>
-          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+          <div className="mt-1.5 space-y-0.5 text-xs leading-snug text-muted-foreground sm:mt-2 sm:space-y-1 sm:text-sm">
             <div>Time: {format(event.timestamp, 'PPpp')}</div>
             {event.parameter ? <div>Parameter: <Badge variant="secondary">{event.parameter}</Badge></div> : null}
             {event.source ? <div>Source: <Badge variant="secondary">{event.source}</Badge></div> : null}
@@ -227,46 +229,49 @@ export const AlertsPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-3xl font-bold">Alerts & Events</h1>
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 sm:mb-2 sm:gap-3">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Alerts & Events</h1>
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={() => void refreshWitsAlarms()}
             disabled={witsAlarmsLoading}
+            aria-label="Refresh WITS alarms"
+            className="h-9 px-2.5 sm:px-3"
           >
-            <RefreshCw className={cn("mr-2 size-4", witsAlarmsLoading && "animate-spin")} />
-            Refresh WITS Alarms
+            <RefreshCw className={cn("size-4 sm:mr-2", witsAlarmsLoading && "animate-spin")} />
+            <span className="hidden sm:inline">Refresh WITS Alarms</span>
           </Button>
         </div>
-        <p className="text-muted-foreground">
+        <p className="text-sm leading-snug text-muted-foreground sm:text-base">
           Monitor and manage system alarms and notifications
         </p>
         {witsAlarmsError ? (
-          <p className="mt-2 text-sm text-destructive">Gagal memuat data dari backend.</p>
+          <p className="mt-1.5 text-xs text-destructive sm:mt-2 sm:text-sm">Gagal memuat data dari backend.</p>
         ) : null}
       </div>
 
       {/* Summary Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="p-4 border-l-4 border-l-red-500">
-          <div className="text-sm text-muted-foreground mb-1">Active Alarms</div>
-          <div className="text-3xl font-bold">{activeAlarms.length}</div>
+      <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3 md:grid-cols-4">
+        <Card className="border-l-4 border-l-red-500 p-3 sm:p-4">
+          <div className="mb-0.5 text-xs text-muted-foreground sm:mb-1 sm:text-sm">Active Alarms</div>
+          <div className="text-2xl font-bold leading-tight sm:text-3xl">{activeAlarms.length}</div>
         </Card>
-        <Card className="p-4 border-l-4 border-l-yellow-500">
-          <div className="text-sm text-muted-foreground mb-1">Acknowledged</div>
-          <div className="text-3xl font-bold">{acknowledgedAlarms.length}</div>
+        <Card className="border-l-4 border-l-yellow-500 p-3 sm:p-4">
+          <div className="mb-0.5 text-xs text-muted-foreground sm:mb-1 sm:text-sm">Acknowledged</div>
+          <div className="text-2xl font-bold leading-tight sm:text-3xl">{acknowledgedAlarms.length}</div>
         </Card>
-        <Card className="p-4 border-l-4 border-l-green-500">
-          <div className="text-sm text-muted-foreground mb-1">Resolved (24h)</div>
-          <div className="text-3xl font-bold">{resolvedAlarms.length}</div>
+        <Card className="border-l-4 border-l-green-500 p-3 sm:p-4">
+          <div className="mb-0.5 text-xs text-muted-foreground sm:mb-1 sm:text-sm">Resolved (24h)</div>
+          <div className="text-2xl font-bold leading-tight sm:text-3xl">{resolvedAlarms.length}</div>
         </Card>
-        <Card className="p-4 border-l-4 border-l-blue-500">
-          <div className="text-sm text-muted-foreground mb-1">Notifications</div>
-          <div className="text-3xl font-bold">{notificationEvents.length}</div>
+        <Card className="border-l-4 border-l-blue-500 p-3 sm:p-4">
+          <div className="mb-0.5 text-xs text-muted-foreground sm:mb-1 sm:text-sm">Notifications</div>
+          <div className="text-2xl font-bold leading-tight sm:text-3xl">{notificationEvents.length}</div>
         </Card>
       </div>
 
@@ -277,33 +282,33 @@ export const AlertsPage: React.FC = () => {
           placeholder="Search alarms by message or parameter..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
+          className="h-9 pl-9 text-sm sm:h-10 sm:pl-10"
         />
       </div>
 
       {/* Tabs */}
       <Tabs defaultValue="active">
         <TabsList className="grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
-          <TabsTrigger value="active">
+          <TabsTrigger value="active" className="min-h-8 text-[11px] sm:text-sm">
             Active ({activeAlarms.length})
           </TabsTrigger>
-          <TabsTrigger value="acknowledged">
+          <TabsTrigger value="acknowledged" className="min-h-8 text-[11px] sm:text-sm">
             Acknowledged ({acknowledgedAlarms.length})
           </TabsTrigger>
-          <TabsTrigger value="resolved">
+          <TabsTrigger value="resolved" className="min-h-8 text-[11px] sm:text-sm">
             Resolved ({resolvedAlarms.length})
           </TabsTrigger>
-          <TabsTrigger value="notifications">
+          <TabsTrigger value="notifications" className="min-h-8 text-[11px] sm:text-sm">
             Notifications ({notificationEvents.length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="active" className="mt-6 space-y-4">
+        <TabsContent value="active" className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {filteredActive.length === 0 ? (
-            <Card className="p-12 text-center">
-              <Check className="size-12 mx-auto mb-4 text-green-500" />
-              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
-              <p className="text-muted-foreground">
+            <Card className="p-6 text-center sm:p-12">
+              <Check className="mx-auto mb-2 size-8 text-green-500 sm:mb-4 sm:size-12" />
+              <h3 className="mb-1 text-sm font-semibold sm:mb-2 sm:text-base">Belum ada alarm.</h3>
+              <p className="text-sm text-muted-foreground sm:text-base">
                 All systems operating normally
               </p>
             </Card>
@@ -314,12 +319,12 @@ export const AlertsPage: React.FC = () => {
           )}
         </TabsContent>
 
-        <TabsContent value="acknowledged" className="mt-6 space-y-4">
+        <TabsContent value="acknowledged" className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {acknowledgedAlarms.length === 0 ? (
-            <Card className="p-12 text-center">
-              <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
-              <p className="text-muted-foreground">
+            <Card className="p-6 text-center sm:p-12">
+              <FileText className="mx-auto mb-2 size-8 text-muted-foreground sm:mb-4 sm:size-12" />
+              <h3 className="mb-1 text-sm font-semibold sm:mb-2 sm:text-base">Belum ada alarm.</h3>
+              <p className="text-sm text-muted-foreground sm:text-base">
                 Acknowledged alarms will appear here
               </p>
             </Card>
@@ -330,12 +335,12 @@ export const AlertsPage: React.FC = () => {
           )}
         </TabsContent>
 
-        <TabsContent value="resolved" className="mt-6 space-y-4">
+        <TabsContent value="resolved" className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {resolvedAlarms.length === 0 ? (
-            <Card className="p-12 text-center">
-              <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">Belum ada alarm.</h3>
-              <p className="text-muted-foreground">
+            <Card className="p-6 text-center sm:p-12">
+              <FileText className="mx-auto mb-2 size-8 text-muted-foreground sm:mb-4 sm:size-12" />
+              <h3 className="mb-1 text-sm font-semibold sm:mb-2 sm:text-base">Belum ada alarm.</h3>
+              <p className="text-sm text-muted-foreground sm:text-base">
                 Resolved alarms from the last 24 hours will appear here
               </p>
             </Card>
@@ -346,12 +351,12 @@ export const AlertsPage: React.FC = () => {
           )}
         </TabsContent>
 
-        <TabsContent value="notifications" className="mt-6 space-y-4">
+        <TabsContent value="notifications" className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {filteredNotifications.length === 0 ? (
-            <Card className="p-12 text-center">
-              <FileText className="size-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">Belum ada notification.</h3>
-              <p className="text-muted-foreground">
+            <Card className="p-6 text-center sm:p-12">
+              <FileText className="mx-auto mb-2 size-8 text-muted-foreground sm:mb-4 sm:size-12" />
+              <h3 className="mb-1 text-sm font-semibold sm:mb-2 sm:text-base">Belum ada notification.</h3>
+              <p className="text-sm text-muted-foreground sm:text-base">
                 Connection, failover, health, and system notifications will appear here.
               </p>
             </Card>

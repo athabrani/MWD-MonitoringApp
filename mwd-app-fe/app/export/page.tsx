@@ -404,14 +404,14 @@ export const ExportPage: React.FC = () => {
   const recentRecords = exportRecords.slice(0, 8);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto min-w-0 max-w-7xl space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">Export Center</h1>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Export Center</h1>
             <Badge variant="outline">Admin / Engineer</Badge>
           </div>
-          <p className="max-w-3xl text-muted-foreground">
+          <p className="max-w-3xl break-words text-sm text-muted-foreground sm:text-base">
             Centralized export hub for backend-supported historical data, survey records,
             PDF plots, LAS builder workflow, and export history.
           </p>
@@ -420,6 +420,8 @@ export const ExportPage: React.FC = () => {
         <Button
           type="button"
           variant="outline"
+          size="sm"
+          className="h-9 text-xs sm:text-sm"
           onClick={refreshContext}
           disabled={mwdSessionsLoading || plotTemplatesLoading || recordsLoading}
         >
@@ -439,31 +441,33 @@ export const ExportPage: React.FC = () => {
         </Card>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
-        <Card className="p-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="mb-1 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <Database className="size-4" />
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
+        <Card className="p-3 sm:p-5">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground sm:gap-2 sm:text-sm">
+                <Database className="size-3.5 sm:size-4" />
                 Session Context
               </div>
-              <h2 className="text-xl font-semibold">
+              <h2 className="text-lg font-semibold sm:text-xl">
                 {activeMwdSession?.name ?? 'No active MWD session'}
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 break-words text-xs leading-snug text-muted-foreground sm:text-sm">
                 Exports run against the selected active session unless the downstream builder
                 asks for more configuration.
               </p>
             </div>
 
-            <div className="w-full md:w-80">
-              <Label htmlFor="export-session">Active MWD Session</Label>
+            <div className="w-full lg:w-80">
+              <Label htmlFor="export-session" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                Active MWD Session
+              </Label>
               <Select
                 value={activeMwdSessionId || undefined}
                 onValueChange={setActiveMwdSessionId}
                 disabled={mwdSessionsLoading || mwdSessions.length === 0}
               >
-                <SelectTrigger id="export-session" className="mt-2">
+                <SelectTrigger id="export-session" className="mt-1.5 h-9 sm:mt-2">
                   <SelectValue placeholder={mwdSessionsLoading ? 'Loading sessions...' : 'Select session'} />
                 </SelectTrigger>
                 <SelectContent>
@@ -480,22 +484,22 @@ export const ExportPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 text-sm md:grid-cols-4">
-            <div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:mt-5 sm:grid-cols-2 sm:gap-3 sm:text-sm xl:grid-cols-4">
+            <div className="min-w-0 rounded-md border bg-muted/20 p-2 sm:border-0 sm:bg-transparent sm:p-0">
               <div className="text-muted-foreground">Session ID</div>
               <div className="font-medium">{activeMwdSessionId || '-'}</div>
             </div>
-            <div>
+            <div className="min-w-0 rounded-md border bg-muted/20 p-2 sm:border-0 sm:bg-transparent sm:p-0">
               <div className="text-muted-foreground">Status</div>
               <div className="font-medium capitalize">{activeMwdSession?.status ?? '-'}</div>
             </div>
-            <div>
+            <div className="min-w-0 rounded-md border bg-muted/20 p-2 sm:border-0 sm:bg-transparent sm:p-0">
               <div className="text-muted-foreground">Well / Rig</div>
               <div className="font-medium">
                 {[activeMwdSession?.wellName, activeMwdSession?.rigName].filter(Boolean).join(' / ') || '-'}
               </div>
             </div>
-            <div>
+            <div className="min-w-0 rounded-md border bg-muted/20 p-2 sm:border-0 sm:bg-transparent sm:p-0">
               <div className="text-muted-foreground">Time Range</div>
               <div className="font-medium">
                 {formatSessionRange(activeMwdSession?.startTime, activeMwdSession?.endTime)}
@@ -504,7 +508,7 @@ export const ExportPage: React.FC = () => {
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card className="p-3 sm:p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <FileClock className="size-4" />
             Capability Registry
@@ -529,75 +533,93 @@ export const ExportPage: React.FC = () => {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-xl font-semibold">Data Exports</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-lg font-semibold sm:text-xl">Data Exports</h2>
+          <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
             Direct file exports backed by existing export endpoints.
           </p>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="size-5 text-primary" />
-                  <h3 className="text-lg font-semibold">Historical Data Export</h3>
+        <div className="grid gap-4 2xl:grid-cols-2">
+          <Card className="p-3 sm:p-5">
+            <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <FileSpreadsheet className="size-4 text-primary sm:size-5" />
+                  <h3 className="text-base font-semibold sm:text-lg">Historical Data Export</h3>
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-xs leading-snug text-muted-foreground sm:text-sm">
                   Exports historical records for the active session with optional date/time and depth filters.
                 </p>
               </div>
               <Badge variant="outline">CSV / JSON</Badge>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="historical-from">Measured From</Label>
-                <Input
-                  id="historical-from"
-                  type="datetime-local"
-                  value={historicalFrom}
-                  onChange={(event) => setHistoricalFrom(event.target.value)}
-                />
+            <div className="mt-3 grid gap-3 sm:mt-5">
+              <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="historical-from" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                    Measured From
+                  </Label>
+                  <Input
+                    id="historical-from"
+                    type="datetime-local"
+                    className="h-9"
+                    value={historicalFrom}
+                    onChange={(event) => setHistoricalFrom(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="historical-to" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                    Measured To
+                  </Label>
+                  <Input
+                    id="historical-to"
+                    type="datetime-local"
+                    className="h-9"
+                    value={historicalTo}
+                    onChange={(event) => setHistoricalTo(event.target.value)}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="historical-to">Measured To</Label>
-                <Input
-                  id="historical-to"
-                  type="datetime-local"
-                  value={historicalTo}
-                  onChange={(event) => setHistoricalTo(event.target.value)}
-                />
+              <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="historical-depth-min" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                    Depth Min
+                  </Label>
+                  <Input
+                    id="historical-depth-min"
+                    type="number"
+                    inputMode="decimal"
+                    className="h-9"
+                    value={historicalDepthMin}
+                    onChange={(event) => setHistoricalDepthMin(event.target.value)}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:space-y-2">
+                  <Label htmlFor="historical-depth-max" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                    Depth Max
+                  </Label>
+                  <Input
+                    id="historical-depth-max"
+                    type="number"
+                    inputMode="decimal"
+                    className="h-9"
+                    value={historicalDepthMax}
+                    onChange={(event) => setHistoricalDepthMax(event.target.value)}
+                    placeholder="Optional"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="historical-depth-min">Depth Min</Label>
-                <Input
-                  id="historical-depth-min"
-                  type="number"
-                  inputMode="decimal"
-                  value={historicalDepthMin}
-                  onChange={(event) => setHistoricalDepthMin(event.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="historical-depth-max">Depth Max</Label>
-                <Input
-                  id="historical-depth-max"
-                  type="number"
-                  inputMode="decimal"
-                  value={historicalDepthMax}
-                  onChange={(event) => setHistoricalDepthMax(event.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="historical-format">Format</Label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="historical-format" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                  Format
+                </Label>
                 <Select
                   value={historicalFormat}
                   onValueChange={(value) => setHistoricalFormat(value as ExportFormat)}
                 >
-                  <SelectTrigger id="historical-format">
+                  <SelectTrigger id="historical-format" className="h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -610,7 +632,8 @@ export const ExportPage: React.FC = () => {
 
             <Button
               type="button"
-              className="mt-5 w-full"
+              size="sm"
+              className="mt-3 h-9 w-full text-xs sm:mt-5 sm:text-sm"
               disabled={!canRunDirectExport || runningJob === 'historical'}
               onClick={() => void runExport('historical')}
             >
@@ -619,24 +642,26 @@ export const ExportPage: React.FC = () => {
             </Button>
           </Card>
 
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="size-5 text-primary" />
-                  <h3 className="text-lg font-semibold">Survey Records Export</h3>
+          <Card className="p-3 sm:p-5">
+            <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <FileSpreadsheet className="size-4 text-primary sm:size-5" />
+                  <h3 className="text-base font-semibold sm:text-lg">Survey Records Export</h3>
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-xs leading-snug text-muted-foreground sm:text-sm">
                   Exports survey stations for the active session using the existing survey export endpoint.
                 </p>
               </div>
               <Badge variant="outline">CSV</Badge>
             </div>
 
-            <div className="mt-5 space-y-2">
-              <Label htmlFor="survey-station-type">Station Type</Label>
+            <div className="mt-3 space-y-1.5 sm:mt-5 sm:space-y-2">
+              <Label htmlFor="survey-station-type" className="text-xs uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+                Station Type
+              </Label>
               <Select value={surveyStationType} onValueChange={setSurveyStationType}>
-                <SelectTrigger id="survey-station-type">
+                <SelectTrigger id="survey-station-type" className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -651,7 +676,8 @@ export const ExportPage: React.FC = () => {
 
             <Button
               type="button"
-              className="mt-5 w-full"
+              size="sm"
+              className="mt-3 h-9 w-full text-xs sm:mt-5 sm:text-sm"
               disabled={!canRunDirectExport || runningJob === 'surveys'}
               onClick={() => void runExport('surveys')}
             >
@@ -664,16 +690,16 @@ export const ExportPage: React.FC = () => {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-xl font-semibold">Reports & Logs</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-lg font-semibold sm:text-xl">Reports & Logs</h2>
+          <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
             Plot and LAS exports that need plotting or column configuration.
           </p>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
+        <div className="grid gap-4 2xl:grid-cols-2">
+          <Card className="p-3 sm:p-5">
+            <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <FileText className="size-5 text-primary" />
                   <h3 className="text-lg font-semibold">PDF Plot Export</h3>
@@ -685,7 +711,7 @@ export const ExportPage: React.FC = () => {
               <Badge variant="outline">PDF</Badge>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="plot-template">Plot Template</Label>
                 <Select
@@ -766,9 +792,9 @@ export const ExportPage: React.FC = () => {
             </div>
           </Card>
 
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
+          <Card className="p-3 sm:p-5">
+            <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Archive className="size-5 text-primary" />
                   <h3 className="text-lg font-semibold">LAS Export</h3>
@@ -810,8 +836,8 @@ export const ExportPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="p-5">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <Card className="p-3 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -834,8 +860,8 @@ export const ExportPage: React.FC = () => {
             </Button>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-md border">
-            <div className="grid grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 bg-muted px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="responsive-table-card mt-5 rounded-md border">
+            <div className="grid min-w-[620px] grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 bg-muted px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:px-4">
               <div>File</div>
               <div>Type</div>
               <div>Created</div>
@@ -856,7 +882,7 @@ export const ExportPage: React.FC = () => {
               recentRecords.map((record) => (
                 <div
                   key={record.id}
-                  className="grid grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 border-t px-4 py-3 text-sm"
+                  className="grid min-w-[620px] grid-cols-[minmax(0,1.4fr)_110px_145px_90px] gap-3 border-t px-3 py-3 text-sm sm:px-4"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{record.fileName ?? record.id}</div>
@@ -883,7 +909,7 @@ export const ExportPage: React.FC = () => {
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card className="p-3 sm:p-5">
           <div className="flex items-center gap-2">
             <FileJson className="size-5 text-primary" />
             <h2 className="text-xl font-semibold">Excluded From Center</h2>

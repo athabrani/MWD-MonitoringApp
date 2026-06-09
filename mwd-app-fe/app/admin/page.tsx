@@ -611,50 +611,50 @@ export const AdminPage: React.FC = () => {
   const draftAllowedPages = new Set(draftPageAccess);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="mb-2 text-3xl font-bold">Admin Panel</h1>
-        <p className="text-muted-foreground">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
+      <div className="min-w-0">
+        <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Admin Panel</h1>
+        <p className="break-words text-sm text-muted-foreground sm:text-base">
           User management, system health, and audit logs
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Server Status</div>
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3 xl:grid-cols-4">
+        <Card className="p-3 sm:p-4">
+          <div className="mb-1 text-xs text-muted-foreground sm:text-sm">Server Status</div>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <Badge
               variant={backendStatusBadgeVariant(backendReachability.status)}
-              className={backendStatusBadgeClassName(backendReachability.status)}
+              className={cn("h-5 px-1.5 text-[10px] sm:h-6 sm:px-2 sm:text-xs", backendStatusBadgeClassName(backendReachability.status))}
             >
               {backendStatusLabel(backendReachability.status)}
             </Badge>
           </div>
-          <div className="mt-2 text-xs text-muted-foreground">
+          <div className="mt-1.5 text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:text-xs">
             {backendStatusDescription(backendReachability.status, backendReachability.errorMessage)}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="mb-1 text-sm text-muted-foreground">API Probe Latency</div>
-          <div className="text-2xl font-bold">
+        <Card className="p-3 sm:p-4">
+          <div className="mb-1 text-xs text-muted-foreground sm:text-sm">API Probe Latency</div>
+          <div className="text-xl font-bold leading-tight sm:text-2xl">
             {formatApiLatency(backendReachability)}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
             Probe {backendReachabilityProbePath} · Last checked {formatHealthCheckedAt(backendReachability.lastCheckedAt)}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Active Users</div>
-          <div className="text-2xl font-bold">{adminUsers.length}</div>
+        <Card className="p-3 sm:p-4">
+          <div className="mb-1 text-xs text-muted-foreground sm:text-sm">Active Users</div>
+          <div className="text-xl font-bold leading-tight sm:text-2xl">{adminUsers.length}</div>
         </Card>
-        <Card className="p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Roles</div>
-          <div className="text-2xl font-bold">{adminRoles.length}</div>
+        <Card className="p-3 sm:p-4">
+          <div className="mb-1 text-xs text-muted-foreground sm:text-sm">Roles</div>
+          <div className="text-xl font-bold leading-tight sm:text-2xl">{adminRoles.length}</div>
         </Card>
       </div>
 
       <Tabs defaultValue="users">
-        <TabsList>
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1 sm:w-fit">
           <TabsTrigger value="users">
             <Users className="mr-2 size-4" />
             Users
@@ -673,16 +673,16 @@ export const AdminPage: React.FC = () => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users" className="mt-6">
-          <Card className="p-6">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">Backend User Management</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
+        <TabsContent value="users" className="mt-4 sm:mt-6">
+          <Card className="p-3 sm:p-6">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold sm:text-base">Backend User Management</h3>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                   Users are loaded from the backend API and managed by admin role.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 gap-2 min-[420px]:flex min-[420px]:flex-wrap">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -690,11 +690,13 @@ export const AdminPage: React.FC = () => {
                     void loadAdminRoles();
                   }}
                   disabled={usersLoading || rolesLoading}
+                  size="sm"
+                  className="h-9 text-xs sm:text-sm"
                 >
-                  <RefreshCw className="mr-2 size-4" />
+                  <RefreshCw className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                   Refresh
                 </Button>
-                <Button onClick={() => setAddUserOpen(true)} disabled={rolesLoading}>
+                <Button size="sm" className="h-9 text-xs sm:text-sm" onClick={() => setAddUserOpen(true)} disabled={rolesLoading}>
                   Add User
                 </Button>
               </div>
@@ -711,7 +713,7 @@ export const AdminPage: React.FC = () => {
               </div>
             ) : null}
 
-            <Table>
+            <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
@@ -794,17 +796,17 @@ export const AdminPage: React.FC = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="roles" className="mt-6">
-          <Card className="p-6">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">Backend Roles</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
+        <TabsContent value="roles" className="mt-4 sm:mt-6">
+          <Card className="p-3 sm:p-6">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold sm:text-base">Backend Roles</h3>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                   Roles are loaded from GET /api/roles and used by user create/edit forms.
                 </p>
               </div>
-              <Button variant="outline" onClick={() => void loadAdminRoles()} disabled={rolesLoading}>
-                <RefreshCw className="mr-2 size-4" />
+              <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={() => void loadAdminRoles()} disabled={rolesLoading}>
+                <RefreshCw className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                 Refresh Roles
               </Button>
             </div>
@@ -815,7 +817,7 @@ export const AdminPage: React.FC = () => {
               </div>
             ) : null}
 
-            <Table>
+            <Table className="min-w-[520px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
@@ -856,25 +858,25 @@ export const AdminPage: React.FC = () => {
               </TableBody>
             </Table>
 
-            <div className="mt-8 border-t pt-6">
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold">Role Page Access</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
+            <div className="mt-5 border-t pt-4 sm:mt-8 sm:pt-6">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold sm:text-base">Role Page Access</h3>
+                  <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                     Frontend page-level access for navigation visibility and route guard. Backend endpoint permissions still need backend enforcement.
                   </p>
                 </div>
-                <Button variant="outline" onClick={resetRolePageAccess}>
+                <Button size="sm" className="h-9 text-xs sm:text-sm" variant="outline" onClick={resetRolePageAccess}>
                   Reset Defaults
                 </Button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-border/80 bg-background/70 p-4">
-                  <div className="flex h-full flex-col justify-between gap-4">
+              <div className="grid gap-2 sm:gap-3 lg:grid-cols-3">
+                <div className="rounded-xl border border-border/80 bg-background/70 p-3 sm:p-4">
+                  <div className="flex h-full flex-col justify-between gap-3 sm:gap-4">
                     <div>
-                      <div className="font-medium capitalize">Admin</div>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <div className="text-sm font-medium capitalize sm:text-base">Admin</div>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                         Full access by default. No page-by-page selection required.
                       </p>
                     </div>
@@ -888,14 +890,14 @@ export const AdminPage: React.FC = () => {
                   const allowedPages = new Set(rolePageAccess[role]);
 
                   return (
-                    <div key={role} className="rounded-xl border border-border/80 bg-background/70 p-4">
-                      <div className="flex h-full flex-col justify-between gap-4">
+                    <div key={role} className="rounded-xl border border-border/80 bg-background/70 p-3 sm:p-4">
+                      <div className="flex h-full flex-col justify-between gap-3 sm:gap-4">
                         <div>
-                          <div className="font-medium capitalize">{role}</div>
-                          <p className="mt-1 text-sm text-muted-foreground">
+                          <div className="text-sm font-medium capitalize sm:text-base">{role}</div>
+                          <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                             {allowedPages.size} pages allowed for this role.
                           </p>
-                          <div className="mt-3 flex flex-wrap gap-1.5">
+                          <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3">
                             {Array.from(allowedPages).slice(0, 4).map((pageKey) => {
                               const page = editablePageAccessRegistry.find((item) => item.key === pageKey);
                               return page ? (
@@ -911,7 +913,7 @@ export const AdminPage: React.FC = () => {
                             ) : null}
                           </div>
                         </div>
-                        <Button variant="outline" className="w-full" onClick={() => openRoleAccessDialog(role)}>
+                        <Button size="sm" variant="outline" className="h-9 w-full text-xs sm:text-sm" onClick={() => openRoleAccessDialog(role)}>
                           Manage Access
                         </Button>
                       </div>
@@ -923,21 +925,23 @@ export const AdminPage: React.FC = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="audit" className="mt-6">
-          <Card className="p-6">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">Audit Logs</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
+        <TabsContent value="audit" className="mt-4 sm:mt-6">
+          <Card className="p-3 sm:p-6">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold sm:text-base">Audit Logs</h3>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm">
                   Loaded from GET /api/audit-logs for admin activity review.
                 </p>
               </div>
               <Button
                 variant="outline"
+                size="sm"
+                className="h-9 text-xs sm:text-sm"
                 onClick={() => void loadAuditLogs()}
                 disabled={auditLogsLoading}
               >
-                <RefreshCw className="mr-2 size-4" />
+                <RefreshCw className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
                 Refresh Logs
               </Button>
             </div>
@@ -948,7 +952,7 @@ export const AdminPage: React.FC = () => {
               </div>
             ) : null}
 
-            <Table>
+            <Table className="min-w-[820px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Time</TableHead>
@@ -1013,7 +1017,7 @@ export const AdminPage: React.FC = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="system" className="mt-6">
+        <TabsContent value="system" className="mt-4 sm:mt-6">
           <SystemHealthPanel
             mode="admin"
             title="System Health Dashboard"
@@ -1025,7 +1029,7 @@ export const AdminPage: React.FC = () => {
       </Tabs>
 
       <Dialog open={Boolean(accessDialogRole)} onOpenChange={handleAccessDialogOpenChange}>
-        <DialogContent className="flex max-h-[min(92dvh,calc(100vh-1rem))] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[calc(100vh-2rem)] sm:w-[calc(100vw-2rem)]">
+        <DialogContent className="flex max-h-[min(92dvh,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)]">
           <DialogHeader className="shrink-0 px-4 py-3 pr-10 text-left sm:px-5 sm:py-4">
             <DialogTitle className="capitalize">
               {accessDialogRole ? `${accessDialogRole} Page Access` : "Manage Page Access"}
@@ -1033,7 +1037,7 @@ export const AdminPage: React.FC = () => {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {Object.entries(groupedEditablePages).map(([section, pages]) => (
                 <section key={`dialog-${section}`} className="rounded-lg border border-border/90 bg-background/70 p-2.5 sm:p-3">
                   <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1083,7 +1087,7 @@ export const AdminPage: React.FC = () => {
       </Dialog>
 
       <Dialog open={addUserOpen} onOpenChange={handleAddOpenChange}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Backend User</DialogTitle>
             <DialogDescription>
@@ -1211,7 +1215,7 @@ export const AdminPage: React.FC = () => {
       </Dialog>
 
       <Dialog open={editUserOpen} onOpenChange={handleEditOpenChange}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Backend User</DialogTitle>
             <DialogDescription>

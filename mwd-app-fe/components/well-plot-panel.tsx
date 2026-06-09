@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -450,17 +450,17 @@ function MetricHeader({
     <div
       className={
         compact
-          ? "grid grid-cols-[22px_1fr_32px] items-center gap-1 text-[8px] leading-none"
+          ? "grid grid-cols-[22px_1fr_32px] items-start gap-1 text-[8px] leading-tight"
           : dense
-            ? "grid grid-cols-[18px_1fr_28px] items-center gap-1 text-[7px] leading-none sm:grid-cols-[20px_1fr_32px] sm:text-[8px] lg:grid-cols-[22px_1fr_34px]"
-          : "grid grid-cols-[28px_1fr_40px] items-center gap-1 text-[9px] leading-none sm:grid-cols-[32px_1fr_48px] sm:text-[10px] lg:grid-cols-[36px_1fr_54px] lg:text-[11px]"
+            ? "grid grid-cols-[18px_1fr_28px] items-start gap-1 text-[7px] leading-tight sm:grid-cols-[20px_1fr_32px] sm:text-[10px] lg:grid-cols-[22px_1fr_34px]"
+          : "grid grid-cols-[28px_1fr_40px] items-start gap-1 text-[9px] leading-tight sm:grid-cols-[32px_1fr_48px] sm:text-[11px] lg:grid-cols-[36px_1fr_54px] lg:text-[11px]"
       }
     >
       <span className="tabular-nums text-slate-500 dark:text-slate-400">
         {metric.min ?? 0}
       </span>
       <span
-        className="truncate text-center font-medium"
+        className="min-w-0 whitespace-normal break-words text-center font-medium [overflow-wrap:anywhere]"
         style={{ color: metric.color }}
         title={metric.label}
       >
@@ -470,6 +470,42 @@ function MetricHeader({
         {metric.max ?? "-"}
       </span>
     </div>
+  );
+}
+
+function getMetricHeaderLineCount(metric: MetricConfig, compact: boolean, dense: boolean) {
+  const labelCharsPerLine = compact ? 16 : dense ? 16 : 22;
+  const scaleCharsPerLine = compact ? 7 : dense ? 7 : 8;
+  const labelLines = Math.ceil(metric.label.length / labelCharsPerLine);
+  const minLines = Math.ceil(String(metric.min ?? 0).length / scaleCharsPerLine);
+  const maxLines = Math.ceil(String(metric.max ?? "-").length / scaleCharsPerLine);
+
+  return Math.max(1, labelLines, minLines, maxLines);
+}
+
+function getTrackHeaderHeightPx(track: PlotTrack, compact: boolean, dense: boolean) {
+  const baseHeight = compact ? 56 : dense ? 68 : 80;
+  const titleHeight = compact ? 10 : dense ? 11 : 12;
+  const verticalPadding = dense ? 8 : 16;
+  const rowGap = dense ? 3 : 4;
+  const lineHeight = compact ? 9 : dense ? 9 : 11;
+  const metricRowsHeight = track.metrics.reduce((total, metric) => {
+    return total + getMetricHeaderLineCount(metric, compact, dense) * lineHeight;
+  }, 0);
+  const contentHeight =
+    verticalPadding +
+    titleHeight +
+    (track.metrics.length > 0 ? rowGap : 0) +
+    metricRowsHeight +
+    Math.max(track.metrics.length - 1, 0) * rowGap;
+
+  return Math.max(baseHeight, Math.ceil(contentHeight));
+}
+
+function getSharedTrackHeaderHeightPx(tracks: PlotTrack[], compact: boolean, dense: boolean) {
+  return Math.max(
+    compact ? 56 : dense ? 68 : 80,
+    ...tracks.map((track) => getTrackHeaderHeightPx(track, compact, dense))
   );
 }
 
@@ -498,10 +534,10 @@ function DepthScale({
             <div
               className={
                 compact
-                  ? "text-[8px] font-semibold tabular-nums text-slate-700 dark:text-slate-200"
+                  ? "text-[9px] font-semibold tabular-nums text-slate-700 dark:text-slate-200"
                   : dense
-                    ? "text-[7px] font-semibold tabular-nums text-slate-700 sm:text-[8px] dark:text-slate-200"
-                  : "text-[9px] font-semibold tabular-nums text-slate-700 sm:text-[10px] lg:text-[11px] dark:text-slate-200"
+                    ? "text-[8px] font-semibold tabular-nums text-slate-700 sm:text-[9px] dark:text-slate-200"
+                  : "text-[10px] font-semibold tabular-nums text-slate-700 sm:text-[11px] lg:text-[12px] dark:text-slate-200"
               }
             >
               {row.depth}
@@ -509,10 +545,10 @@ function DepthScale({
             <div
               className={
                 compact
-                  ? "text-[7px] tabular-nums text-slate-500 dark:text-slate-400"
+                  ? "text-[8px] tabular-nums text-slate-500 dark:text-slate-400"
                   : dense
-                    ? "text-[6px] tabular-nums text-slate-500 sm:text-[7px] dark:text-slate-400"
-                  : "text-[8px] tabular-nums text-slate-500 sm:text-[9px] lg:text-[10px] dark:text-slate-400"
+                    ? "text-[7px] tabular-nums text-slate-500 sm:text-[9px] dark:text-slate-400"
+                  : "text-[9px] tabular-nums text-slate-500 sm:text-[10px] lg:text-[11px] dark:text-slate-400"
               }
             >
               {row.time}
@@ -568,6 +604,8 @@ function WellPlotTrack({
   compact = false,
   fullWidth = false,
   dense = false,
+  headerHeightPx,
+  onHeaderHeightChange,
 }: {
   track: PlotTrack;
   rows: DepthRow[];
@@ -576,12 +614,12 @@ function WellPlotTrack({
   compact?: boolean;
   fullWidth?: boolean;
   dense?: boolean;
+  headerHeightPx?: number;
+  onHeaderHeightChange?: (trackId: string, height: number) => void;
 }) {
-  const headerHeightClass = compact
-    ? "h-[56px]"
-    : dense
-      ? "h-[64px] sm:h-[68px] lg:h-[72px]"
-      : "h-[80px] sm:h-[70px] lg:h-[90px]";
+  const resolvedHeaderHeightPx = headerHeightPx ?? getTrackHeaderHeightPx(track, compact, dense);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const headerContentRef = useRef<HTMLDivElement | null>(null);
   const footerHeightClass = compact ? "min-h-[34px]" : dense ? "min-h-[48px]" : "min-h-[64px]";
   const depthOffsetClass = compact
     ? "left-[52px]"
@@ -589,6 +627,31 @@ function WellPlotTrack({
       ? "left-[46px] sm:left-[48px] lg:left-[52px]"
       : "left-[64px] sm:left-[72px] lg:left-[84px]";
   const hasWrappedData = track.metrics.some((metric) => metricHasWrappedValues(metric, rows));
+
+  useLayoutEffect(() => {
+    if (!onHeaderHeightChange || !headerRef.current || !headerContentRef.current) return;
+
+    const measureHeader = () => {
+      if (!headerRef.current || !headerContentRef.current || headerRef.current.offsetParent === null) return;
+
+      const headerStyle = window.getComputedStyle(headerRef.current!);
+      const paddingY =
+        Number.parseFloat(headerStyle.paddingTop || "0") +
+        Number.parseFloat(headerStyle.paddingBottom || "0");
+      const measuredHeight = Math.ceil(headerContentRef.current!.scrollHeight + paddingY + 2);
+
+      onHeaderHeightChange(track.id, measuredHeight);
+    };
+
+    measureHeader();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(measureHeader);
+    observer.observe(headerContentRef.current);
+
+    return () => observer.disconnect();
+  }, [compact, dense, onHeaderHeightChange, track.id, track.metrics]);
 
   return (
     <div
@@ -599,12 +662,14 @@ function WellPlotTrack({
       }
     >
       <div
-        className={`border-b border-slate-300 bg-slate-100 ${dense ? "px-1 py-1" : "px-2 py-2"} dark:border-slate-700 dark:bg-slate-900 ${headerHeightClass}`}
+        ref={headerRef}
+        className={`border-b border-slate-300 bg-slate-100 ${dense ? "px-1 py-1" : "px-2 py-2"} dark:border-slate-700 dark:bg-slate-900`}
+        style={{ height: `${resolvedHeaderHeightPx}px` }}
       >
-        <div className="flex h-full flex-col justify-start space-y-1">
-          <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[9px]">
+        <div ref={headerContentRef} className="flex flex-col justify-start space-y-1">
+          <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[10px]">
             <span className="truncate" title={track.title}>{track.title}</span>
-            <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[8px]">
+            <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[9px]">
               {track.scaleType}
             </span>
           </div>
@@ -666,7 +731,7 @@ function WellPlotTrack({
             compact
               ? "gap-y-1 text-[8px]"
               : dense
-                ? "gap-y-1 text-[7px] sm:text-[8px]"
+                ? "gap-y-1 text-[7px] sm:text-[9px]"
                 : "gap-y-1.5 text-[9px] sm:text-[10px] lg:text-[11px]",
             "text-slate-500 dark:text-slate-400"
           )}
@@ -864,6 +929,7 @@ export function WellPlotPanel({
   const [activePlotId, setActivePlotId] = useState<string>(tracks[0]?.id ?? "");
   const [trackWindowStart, setTrackWindowStart] = useState(0);
   const [panelWidth, setPanelWidth] = useState<number | null>(null);
+  const [measuredHeaderHeights, setMeasuredHeaderHeights] = useState<Record<string, number>>({});
 
   const compactDashboardMode = compact && !showHeader;
   const plotHeightPx = compact
@@ -875,11 +941,11 @@ export function WellPlotPanel({
       : 1320;
   const plotHeightCss = compact
     ? compactDashboardMode
-      ? (compactDashboardHeightCss ?? "clamp(520px, 72vh, 820px)")
-      : "clamp(420px, 60vh, 640px)"
+      ? (compactDashboardHeightCss ?? "clamp(520px, 72dvh, 820px)")
+      : "clamp(420px, 60dvh, 640px)"
     : dashboardStretch
-      ? "clamp(980px, calc(100vh - 120px), 1480px)"
-      : "clamp(720px, calc(100vh - 180px), 1280px)";
+      ? "clamp(980px, calc(100dvh - 120px), 1480px)"
+      : "clamp(720px, calc(100dvh - 180px), 1280px)";
 
   const activeTrack = useMemo(
     () => tracks.find((track) => track.id === activePlotId) ?? tracks[0],
@@ -891,6 +957,51 @@ export function WellPlotPanel({
     ? getResponsiveTracksPerView(panelWidth, configuredMultiTrackLimit)
     : configuredMultiTrackLimit;
   const visibleTrackWindow = getTrackWindow(tracks, trackWindowStart, multiTrackLimit);
+  const trackHeaderSignature = useMemo(
+    () =>
+      tracks
+        .map((track) => `${track.id}:${track.title}:${track.scaleType}:${track.metrics.map((metric) => `${metric.label}:${metric.min ?? ""}:${metric.max ?? ""}`).join(",")}`)
+        .join("|"),
+    [tracks]
+  );
+  const handleHeaderHeightChange = React.useCallback((trackId: string, height: number) => {
+    setMeasuredHeaderHeights((current) => {
+      if (current[trackId] === height) return current;
+
+      return {
+        ...current,
+        [trackId]: height,
+      };
+    });
+  }, []);
+  const getMeasuredSharedHeaderHeight = React.useCallback(
+    (targetTracks: PlotTrack[], compactMode: boolean, denseMode: boolean) => {
+      const estimatedHeight = getSharedTrackHeaderHeightPx(targetTracks, compactMode, denseMode);
+      const measuredHeight = Math.max(
+        0,
+        ...targetTracks.map((track) => measuredHeaderHeights[track.id] ?? 0)
+      );
+
+      return Math.max(estimatedHeight, measuredHeight);
+    },
+    [measuredHeaderHeights]
+  );
+  const compactActiveHeaderHeightPx = activeTrack
+    ? getMeasuredSharedHeaderHeight([activeTrack], true, false)
+    : undefined;
+  const activeHeaderHeightPx = activeTrack
+    ? getMeasuredSharedHeaderHeight([activeTrack], false, false)
+    : undefined;
+  const visibleDenseHeaderHeightPx = getMeasuredSharedHeaderHeight(
+    visibleTrackWindow.tracks,
+    false,
+    dashboardDense
+  );
+  const visibleHeaderHeightPx = getMeasuredSharedHeaderHeight(
+    visibleTrackWindow.tracks,
+    false,
+    false
+  );
 
   useEffect(() => {
     if (!responsiveTrackWindow) return;
@@ -914,6 +1025,10 @@ export function WellPlotPanel({
 
     return () => observer.disconnect();
   }, [responsiveTrackWindow]);
+
+  useEffect(() => {
+    setMeasuredHeaderHeights({});
+  }, [trackHeaderSignature]);
 
   useEffect(() => {
     let nextActivePlotId = activePlotId;
@@ -1066,6 +1181,8 @@ export function WellPlotPanel({
             plotHeightCss={plotHeightCss}
             compact
             fullWidth
+            headerHeightPx={compactActiveHeaderHeightPx}
+            onHeaderHeightChange={handleHeaderHeightChange}
           />
         </Card>
       ) : showAllTracks ? (
@@ -1093,6 +1210,8 @@ export function WellPlotPanel({
                   plotHeightCss={plotHeightCss}
                   fullWidth
                   dense={dashboardDense}
+                  headerHeightPx={visibleDenseHeaderHeightPx}
+                  onHeaderHeightChange={handleHeaderHeightChange}
                 />
               ))}
             </div>
@@ -1108,6 +1227,8 @@ export function WellPlotPanel({
                 plotHeightPx={plotHeightPx}
                 plotHeightCss={plotHeightCss}
                 fullWidth
+                headerHeightPx={activeHeaderHeightPx}
+                onHeaderHeightChange={handleHeaderHeightChange}
               />
             </Card>
           </div>
@@ -1134,6 +1255,8 @@ export function WellPlotPanel({
                     plotHeightPx={plotHeightPx}
                     plotHeightCss={plotHeightCss}
                     fullWidth
+                    headerHeightPx={visibleHeaderHeightPx}
+                    onHeaderHeightChange={handleHeaderHeightChange}
                   />
                 ))}
               </div>

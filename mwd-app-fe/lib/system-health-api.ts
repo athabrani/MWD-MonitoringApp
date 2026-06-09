@@ -1,4 +1,5 @@
-import { apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiRequest } from "@/lib/api-client";
+import { BACKEND_REACHABILITY_PROBE_PATH } from "@/lib/admin-backend-health-api";
 
 type BackendRecord = Record<string, unknown>;
 
@@ -60,24 +61,62 @@ function normalizeDependencies(value: unknown) {
   }));
 }
 
-export async function getSystemHealth(token: string): Promise<BackendSystemHealth> {
-  const response = await apiRequest<unknown>("/api/health", {
-    method: "GET",
-    token,
-  });
-  const record = unwrapSingle(response);
+const DEFAULT_SYSTEM_HEALTH_PROBE_PATH =
+  process.env.NEXT_PUBLIC_SYSTEM_HEALTH_PATH?.trim() || BACKEND_REACHABILITY_PROBE_PATH;
 
-  if (!record) {
-    throw new Error("Backend returned empty system health.");
-  }
+function toRawRecord(response: unknown): BackendRecord {
+  return isRecord(response) ? response : { response };
+}
+
+function buildProbeHealth(response: unknown, path: string): BackendSystemHealth {
+  const record = unwrapSingle(response);
+  const raw = record ?? toRawRecord(response);
+  const status = readString(raw, ["status", "state", "health"]) ?? "online";
+  const dependencies = normalizeDependencies(raw.dependencies ?? raw.services);
 
   return {
-    status: readString(record, ["status", "state", "health"]),
-    uptimeSeconds: readNumber(record, ["uptimeSeconds", "uptime_seconds", "uptime"]),
-    version: readString(record, ["version", "appVersion", "app_version"]),
-    databaseStatus: readString(record, ["databaseStatus", "database_status", "dbStatus", "db_status"]),
-    dependencies: normalizeDependencies(record.dependencies ?? record.services),
-    checkedAt: readString(record, ["checkedAt", "checked_at", "timestamp", "time"]),
-    raw: record,
+    status,
+    uptimeSeconds: readNumber(raw, ["uptimeSeconds", "uptime_seconds", "uptime"]),
+    version: readString(raw, ["version", "appVersion", "app_version"]),
+    databaseStatus: readString(raw, ["databaseStatus", "database_status", "dbStatus", "db_status"]),
+    dependencies: dependencies.length
+      ? dependencies
+      : [
+          {
+            name: "Backend API",
+            status: "online",
+            message: `Probe ${path} responded successfully.`,
+          },
+        ],
+    checkedAt: readString(raw, ["checkedAt", "checked_at", "timestamp", "time"]) ?? new Date().toISOString(),
+    raw,
   };
+}
+
+export async function getSystemHealth(token: string): Promise<BackendSystemHealth> {
+  const path = DEFAULT_SYSTEM_HEALTH_PROBE_PATH;
+
+  try {
+    const response = await apiRequest<unknown>(path, {
+      method: "GET",
+      token,
+    });
+
+    return buildProbeHealth(response, path);
+  } catch (error) {
+    if (
+      error instanceof ApiClientError &&
+      error.status === 404 &&
+      path !== BACKEND_REACHABILITY_PROBE_PATH
+    ) {
+      const response = await apiRequest<unknown>(BACKEND_REACHABILITY_PROBE_PATH, {
+        method: "GET",
+        token,
+      });
+
+      return buildProbeHealth(response, BACKEND_REACHABILITY_PROBE_PATH);
+    }
+
+    throw error;
+  }
 }
