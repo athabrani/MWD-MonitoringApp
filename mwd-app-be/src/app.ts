@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import { corsOptions } from "./config/cors.js";
 import auditLogRoutes from "./routes/audit-log.route.js";
 import authRoutes from "./routes/auth.route.js";
 import connectionStatusRoutes from "./routes/connection-status.route.js";
@@ -33,11 +34,6 @@ import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js
 import { validateSecurityEnvironment } from "./utils/security-env.js";
 
 const app = express();
-const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const allowedCorsOrigins = new Set(corsOrigins);
 
 validateSecurityEnvironment();
 
@@ -93,18 +89,8 @@ app.set("json replacer", (_key: string, value: unknown) =>
 app.set("trust proxy", 1);
 
 app.use(securityHeaders);
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedCorsOrigins.has(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(null, false);
-    },
-    credentials: true,
-  }),
-);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(
   "/api/auth/login",
@@ -147,6 +133,14 @@ app.get("/", (_req, res) => {
   res.json({
     name: "MWD Monitoring API",
     status: "ok",
+  });
+});
+
+app.get("/health", (_req, res) => {
+  res.json({
+    name: "MWD Monitoring API",
+    status: "ok",
+    checkedAt: new Date().toISOString(),
   });
 });
 

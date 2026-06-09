@@ -48,7 +48,35 @@ const silentlyIgnoredEventTypes = new Set([
 ]);
 
 function getWsUrl() {
-  return process.env.NEXT_PUBLIC_WS_URL?.trim() ?? "";
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL?.trim() ?? "";
+
+  if (!wsUrl || typeof window === "undefined") {
+    return wsUrl;
+  }
+
+  try {
+    const parsed = new URL(wsUrl);
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "ws:";
+    }
+    if (parsed.protocol === "https:") {
+      parsed.protocol = "wss:";
+    }
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = "/ws";
+    }
+    const frontendHost = window.location.hostname;
+    const envUsesLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    const frontendUsesNetworkHost = frontendHost !== "localhost" && frontendHost !== "127.0.0.1";
+
+    if (envUsesLoopback && frontendUsesNetworkHost) {
+      parsed.hostname = frontendHost;
+    }
+
+    return parsed.toString();
+  } catch {
+    return wsUrl;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

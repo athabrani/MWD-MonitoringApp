@@ -20,11 +20,13 @@ type ApiRequestOptions = RequestInit & {
 };
 
 export function getApiBaseUrl() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const baseUrl =
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 
   if (!baseUrl) {
     throw new Error(
-      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in the frontend environment before calling the backend API."
+      "Missing NEXT_PUBLIC_API_URL. Set it in the frontend environment before calling the backend API."
     );
   }
 
@@ -32,14 +34,24 @@ export function getApiBaseUrl() {
   try {
     parsed = new URL(baseUrl);
   } catch {
-    throw new Error("NEXT_PUBLIC_API_BASE_URL must be an absolute http(s) URL.");
+    throw new Error("NEXT_PUBLIC_API_URL must be an absolute http(s) URL.");
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("NEXT_PUBLIC_API_BASE_URL must use http or https.");
+    throw new Error("NEXT_PUBLIC_API_URL must use http or https.");
   }
 
-  return baseUrl.replace(/\/$/, "");
+  if (typeof window !== "undefined") {
+    const frontendHost = window.location.hostname;
+    const envUsesLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    const frontendUsesNetworkHost = frontendHost !== "localhost" && frontendHost !== "127.0.0.1";
+
+    if (envUsesLoopback && frontendUsesNetworkHost) {
+      parsed.hostname = frontendHost;
+    }
+  }
+
+  return parsed.toString().replace(/\/$/, "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

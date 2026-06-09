@@ -1,6 +1,7 @@
 import { Server as HTTPServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { EventEmitter } from "events";
+import { isCorsOriginAllowed } from "../config/cors.js";
 
 let wss: WebSocketServer | null = null;
 const websocketEventEmitter = new EventEmitter();
@@ -75,6 +76,13 @@ export const initializeWebSocket = (
   wss = new WebSocketServer({
     server: httpServer,
     path: "/ws",
+    verifyClient: ({ origin }, done) => {
+      if (isCorsOriginAllowed(origin)) {
+        return done(true);
+      }
+
+      return done(false, 403, "CORS origin not allowed");
+    },
   });
 
   wss.on("connection", (ws: WebSocket) => {
@@ -92,7 +100,7 @@ export const initializeWebSocket = (
         const messageText = rawMessage.toString();
         const parsedMessage = JSON.parse(messageText);
 
-        const event = parsedMessage?.event;
+        const event = parsedMessage?.event ?? parsedMessage?.type;
         const payload = parsedMessage?.payload ?? {};
 
         if (event === "ping") {
@@ -107,7 +115,19 @@ export const initializeWebSocket = (
           return;
         }
 
-        websocketEventEmitter.emit(event, ws, payload);
+        if (event === "subscribe" || event === "unsubscribe") {
+          const sessionId =
+            parsedMessage?.sessionId ?? parsedMessage?.payload?.sessionId ?? null;
+          websocketEventEmitter.emit(event, ws, { ...payload, sessionId });
+          sendToClient(ws, event === "subscribe" ? "subscribed" : "unsubscribed", {
+            sessionId,
+          });
+          return;
+        }
+
+        if (typeof event === "string" && event.trim()) {
+          websocketEventEmitter.emit(event, ws, payload);
+        }
       } catch {
         sendToClient(ws, "error", {
           message: "Invalid WebSocket message format",

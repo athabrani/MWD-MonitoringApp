@@ -1,0 +1,15 @@
+{
+  "name": "mwd-monitoring-local-package",
+  "private": true,
+  "scripts": {
+    "install:all": "cd mwd-app-be && npm install && cd ../mwd-app-fe && npm install",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run dev\" \"npm --prefix mwd-app-fe run dev\"",
+    "build": "npm --prefix mwd-app-be run build && npm --prefix mwd-app-fe run build",
+    "start": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start\"",
+    "clean": "rimraf mwd-app-be/dist mwd-app-fe/.next"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "rimraf": "^6.0.0"
+  }
+}

@@ -829,7 +829,10 @@ function SystemInfoTab() {
     events,
   } = useApp();
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "Not configured";
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_API_URL ??
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    "Not configured";
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "Not configured";
   const browserHost = typeof window === "undefined" ? "Unavailable" : window.location.host;
 

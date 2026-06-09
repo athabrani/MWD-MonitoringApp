@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { AppProvider } from "@/context/AppContext";
 import { FrontendSecurityGate } from "@/components/frontend-security-gate";
 import { RolePageAccessGuard } from "@/components/role-page-access-guard";
+import { PWARegister } from "./pwa-register";
 import { Toaster } from "sonner";
 
 type ProvidersProps = {
@@ -16,6 +17,7 @@ export default function Providers({ children }: ProvidersProps) {
     <AuthProvider>
       <FrontendSecurityGate>
         <AppProvider>
+          <PWARegister />
           <RolePageAccessGuard>{children}</RolePageAccessGuard>
           <Toaster />
         </AppProvider>
