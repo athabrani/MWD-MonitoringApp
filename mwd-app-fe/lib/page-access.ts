@@ -35,6 +35,18 @@ export type PageAccessRegistryItem = {
   parent?: PageAccessKey;
 };
 
+export type NavigationDisplayGroupKey =
+  | "monitoring"
+  | "data-management"
+  | "configuration"
+  | "system-utilities";
+
+export type NavigationDisplayGroup = {
+  key: NavigationDisplayGroupKey;
+  label: string;
+  pages: PageAccessKey[];
+};
+
 export const rolePageAccessStorageKey = "mwd_role_page_access";
 export const rolePageAccessChangedEvent = "mwd-role-page-access-changed";
 
@@ -64,6 +76,43 @@ export const pageAccessRegistry: PageAccessRegistryItem[] = [
   { key: "help", label: "Help", section: "Support", path: "/help" },
 ];
 
+export const navigationDisplayGroups: NavigationDisplayGroup[] = [
+  {
+    key: "monitoring",
+    label: "Monitoring",
+    pages: [
+      "dashboard",
+      "trajectory-well-plot",
+      "trajectory-analysis",
+      "charts",
+      "monitoring-rig-wits",
+      "monitoring-aux-port",
+    ],
+  },
+  {
+    key: "data-management",
+    label: "Data Management",
+    pages: [
+      "data-management-survey-data",
+      "data-management-log-data",
+      "data-management-plotting",
+      "data-management-generate-las",
+    ],
+  },
+  {
+    key: "configuration",
+    label: "Configuration",
+    pages: ["configuration", "configuration-wellplan-surveys"],
+  },
+  {
+    key: "system-utilities",
+    label: "System Utilities",
+    pages: ["system-utilities", "export", "admin", "help"],
+  },
+];
+
+export const groupedNavigationUtilityPages: PageAccessKey[] = ["alerts", "settings"];
+
 export const editablePageAccessRegistry = pageAccessRegistry.filter((page) => page.key !== "admin");
 
 const allPageKeys = pageAccessRegistry.map((page) => page.key);
@@ -74,6 +123,30 @@ const sectionDefaultTargets: Partial<Record<PageAccessKey, PageAccessKey>> = {
 };
 const pagePathAliases: Record<string, PageAccessKey> = {
   "/dashboard": "dashboard",
+};
+
+const navigationDisplayGroupByPage: Partial<Record<PageAccessKey, NavigationDisplayGroupKey>> = {
+  dashboard: "monitoring",
+  monitoring: "monitoring",
+  "monitoring-rig-wits": "monitoring",
+  "monitoring-aux-port": "monitoring",
+  trajectory: "monitoring",
+  "trajectory-analysis": "monitoring",
+  "trajectory-well-plot": "monitoring",
+  charts: "monitoring",
+  "data-management": "data-management",
+  "data-management-survey-data": "data-management",
+  "data-management-log-data": "data-management",
+  "data-management-memory-import": "data-management",
+  "data-management-plotting": "data-management",
+  "data-management-generate-las": "data-management",
+  configuration: "configuration",
+  "configuration-wellplan-surveys": "configuration",
+  "system-utilities": "system-utilities",
+  history: "system-utilities",
+  export: "system-utilities",
+  admin: "system-utilities",
+  help: "system-utilities",
 };
 
 export const defaultRolePageAccess: RolePageAccessMap = {
@@ -180,4 +253,8 @@ export function getPageAccessKeyForPath(pathname: string): PageAccessKey | null 
   const sortedPages = [...pageAccessRegistry].sort((left, right) => right.path.length - left.path.length);
 
   return sortedPages.find((page) => page.path === normalizedPath)?.key ?? null;
+}
+
+export function getNavigationDisplayGroupForPage(page: PageAccessKey) {
+  return navigationDisplayGroupByPage[page] ?? null;
 }

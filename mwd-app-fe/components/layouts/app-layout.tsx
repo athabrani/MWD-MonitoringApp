@@ -63,9 +63,12 @@ import { ConnectionStatus } from "@/components/connection-status";
 import {
   canAccessPage,
   getAccessiblePageTarget,
+  getNavigationDisplayGroupForPage,
   pageAccessRegistry,
   readRolePageAccess,
   RolePageAccessMap,
+  navigationDisplayGroups,
+  groupedNavigationUtilityPages,
   subscribeRolePageAccess,
 } from "@/lib/page-access";
 
@@ -104,96 +107,56 @@ interface NavigationItem {
   id: AppPage;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles: Array<"operator" | "engineer" | "admin">;
 }
 
-const navigationItems: NavigationItem[] = [
-  {
-    id: "dashboard",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "monitoring",
-    label: "Monitoring",
-    icon: SquareActivity,
-     roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "data-management",
-    label: "Data Management",
-    icon: FileText,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "trajectory-analysis",
-    label: "Trajectory",
-    icon: Radar,
-    roles: ["engineer", "admin", "operator"],
-  },
-  {
-    id: "trajectory-well-plot",
-    label: "Well Plots",
-    icon: Gauge,
-    roles: ["engineer", "admin", "operator"],
-  },
-     {
-    id: "configuration",
-    label: "Configuration",
-    icon: SlidersHorizontal,
-    roles: ["operator", "engineer", "admin"],
-  },
-    {
-    id: "system-utilities",
-    label: "System Utilities",
-    icon: Wrench,
-    roles: ["engineer", "admin"],
-  },
-  {
-    id: "charts",
-    label: "Charts",
-    icon: LineChart,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "alerts",
-    label: "Alerts",
-    icon: Bell,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "history",
-    label: "History",
-    icon: History,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "export",
-    label: "Export",
-    icon: Download,
-    roles: ["engineer", "admin"],
-  },
-
-  {
-    id: "settings",
-    label: "Settings",
-    icon: Settings,
-    roles: ["operator", "engineer", "admin"],
-  },
-  {
-    id: "admin",
-    label: "Admin",
-    icon: Shield,
-    roles: ["admin"],
-  },
-  {
-    id: "help",
-    label: "Help",
-    icon: HelpCircle,
-    roles: ["operator", "engineer", "admin"],
-  },
+const navigationItemOrder: AppPage[] = [
+  "dashboard",
+  "monitoring",
+  "data-management",
+  "trajectory-analysis",
+  "trajectory-well-plot",
+  "configuration",
+  "system-utilities",
+  "charts",
+  "alerts",
+  "history",
+  "export",
+  "settings",
+  "admin",
+  "help",
 ];
+
+const navigationItemIcons: Record<AppPage, React.ComponentType<{ className?: string }>> = {
+  dashboard: LayoutDashboard,
+  configuration: SlidersHorizontal,
+  "configuration-wellplan-surveys": NotebookText,
+  monitoring: SquareActivity,
+  "monitoring-rig-wits": Cable,
+  "monitoring-aux-port": Cable,
+  "data-management": FileText,
+  "data-management-survey-data": FilePen,
+  "data-management-log-data": NotebookText,
+  "data-management-memory-import": FileDigit,
+  "data-management-plotting": FileText,
+  "data-management-generate-las": FileDigit,
+  trajectory: Radar,
+  "trajectory-well-plot": Gauge,
+  "trajectory-analysis": Radar,
+  charts: LineChart,
+  alerts: Bell,
+  history: History,
+  export: Download,
+  "system-utilities": Wrench,
+  settings: Settings,
+  admin: Shield,
+  help: HelpCircle,
+};
+
+const navigationItems: NavigationItem[] = navigationItemOrder.map((page) => ({
+  id: page,
+  label: getRegistryItem(page)?.label ?? page,
+  icon: navigationItemIcons[page],
+}));
 
 const pageThemeClasses: Record<AppPage, string> = {
   dashboard: "page-surface page-dashboard",
@@ -275,17 +238,6 @@ export function getAppPagePath(page: AppPage): string {
   }
 }
 
-function getDefaultPage(page: AppPage): AppPage {
-  switch (page) {
-    case "monitoring":
-      return "monitoring-rig-wits";
-    case "data-management":
-      return "data-management-survey-data";
-    default:
-      return page;
-  }
-}
-
 function getParentSection(page: AppPage): AppPage {
   if (page === "configuration-wellplan-surveys") {
     return "configuration";
@@ -354,6 +306,46 @@ function getSecondaryNavigationItems(
     .filter((item) => canViewPage(item.id));
 }
 
+function getWideNavigationLabel(page: AppPage) {
+  switch (page) {
+    case "configuration":
+      return "General";
+    case "trajectory-analysis":
+    case "trajectory":
+      return "Trajectory Analysis";
+    default:
+      return getRegistryItem(page)?.label ?? page;
+  }
+}
+
+function getWideNavigationItemsForGroup(
+  groupKey: ReturnType<typeof getNavigationDisplayGroupForPage>,
+  currentPage: AppPage,
+  canViewPage: (page: AppPage) => boolean
+) {
+  if (!groupKey) return [];
+
+  const group = navigationDisplayGroups.find((item) => item.key === groupKey);
+  if (!group) return [];
+
+  const items = group.pages.filter((page) => canViewPage(page as AppPage)) as AppPage[];
+  const currentGroup = getNavigationDisplayGroupForPage(currentPage);
+  const shouldAppendCurrentPage =
+    currentGroup === groupKey &&
+    !groupedNavigationUtilityPages.includes(currentPage) &&
+    !items.includes(currentPage) &&
+    canViewPage(currentPage);
+
+  if (shouldAppendCurrentPage) {
+    items.push(currentPage);
+  }
+
+  return items.map((page) => ({
+    id: page,
+    label: getWideNavigationLabel(page),
+  }));
+}
+
 function isVerticallyScrollable(element: HTMLElement) {
   const style = window.getComputedStyle(element);
   const overflowY = style.overflowY;
@@ -412,7 +404,7 @@ function TopNavigation({
     <nav
       aria-label="Primary navigation"
       className={cn(
-        "sticky top-16 z-40 hidden border-b backdrop-blur sm:top-20 xl:block",
+        "sticky top-16 z-40 hidden border-b backdrop-blur sm:top-20 xl:block min-[1440px]:hidden",
         isDark
           ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
           : "border-border/70 bg-card/95 supports-[backdrop-filter]:bg-card/80"
@@ -483,7 +475,7 @@ function SecondaryNavigation({
     <nav
       aria-label="Section navigation"
       className={cn(
-        "hidden border-b xl:block",
+        "hidden border-b xl:block min-[1440px]:hidden",
         isDark ? "border-white/10 bg-[#122037]" : "border-border/70 bg-background/80"
       )}
     >
@@ -520,6 +512,120 @@ function SecondaryNavigation({
         </div>
       </div>
     </nav>
+  );
+}
+
+function WideDesktopNavigation({
+  currentPage,
+  onNavigate,
+  onActiveClick,
+  canViewPage,
+  isDark,
+}: {
+  currentPage: AppPage;
+  onNavigate: (page: AppPage) => void;
+  onActiveClick: () => void;
+  canViewPage: (page: AppPage) => boolean;
+  isDark: boolean;
+}) {
+  const activeGroup = getNavigationDisplayGroupForPage(currentPage);
+  const visibleGroups = navigationDisplayGroups
+    .map((group) => ({
+      ...group,
+      items: getWideNavigationItemsForGroup(group.key, currentPage, canViewPage),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const activeGroupItems =
+    visibleGroups.find((group) => group.key === activeGroup)?.items ?? [];
+
+  return (
+    <div className="sticky top-20 z-40 hidden min-[1440px]:block">
+      <nav
+        aria-label="Primary navigation"
+        className={cn(
+          "border-b backdrop-blur",
+          isDark
+            ? "border-white/10 bg-[#0f1b2d]/95 supports-[backdrop-filter]:bg-[#0f1b2d]/85"
+            : "border-border/70 bg-card/95 supports-[backdrop-filter]:bg-card/80"
+        )}
+      >
+        <div className="flex min-w-0 items-center px-6 py-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {visibleGroups.map((group) => {
+              const isActive = activeGroup === group.key;
+              const targetPage = group.items[0]?.id;
+
+              if (!targetPage) return null;
+
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => {
+                    if (isActive) {
+                      onActiveClick();
+                      return;
+                    }
+
+                    onNavigate(targetPage);
+                  }}
+                  className={cn(
+                    "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {group.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
+      {activeGroupItems.length > 0 ? (
+        <nav
+          aria-label="Section navigation"
+          className={cn(
+            "border-b",
+            isDark ? "border-white/10 bg-[#122037]" : "border-border/70 bg-background/80"
+          )}
+        >
+          <div className="flex min-w-0 items-center px-6 py-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {activeGroupItems.map((item) => {
+                const isActive = isCurrentPage(currentPage, item.id);
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (isActive) {
+                        onActiveClick();
+                        return;
+                      }
+
+                      onNavigate(item.id);
+                    }}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-primary/12 text-primary ring-1 ring-primary/25"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
+      ) : null}
+    </div>
   );
 }
 
@@ -1677,6 +1783,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const isDark = settings.display.theme === "dark";
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [isWideDesktop, setIsWideDesktop] = useState(false);
   const [rolePageAccess, setRolePageAccess] = useState<RolePageAccessMap>(() => readRolePageAccess());
 
   const [activeSection, setActiveSection] = useState<AppPage>(
@@ -1685,6 +1792,25 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(min-width: 1440px)");
+    const syncWideDesktop = (event?: MediaQueryListEvent) => {
+      setIsWideDesktop(event ? event.matches : mediaQuery.matches);
+    };
+
+    syncWideDesktop();
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", syncWideDesktop);
+      return () => mediaQuery.removeEventListener("change", syncWideDesktop);
+    }
+
+    mediaQuery.addListener(syncWideDesktop);
+    return () => mediaQuery.removeListener(syncWideDesktop);
   }, []);
 
   useEffect(() => subscribeRolePageAccess(() => setRolePageAccess(readRolePageAccess())), []);
@@ -1697,11 +1823,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const filteredNavItems = useMemo(
     () =>
       (mounted ? navigationItems : []).filter(
-        (item) =>
-          isPrimaryNavigationItem(item) &&
-          user &&
-          item.roles.includes(user.role) &&
-          canViewPage(item.id)
+        (item) => isPrimaryNavigationItem(item) && user && canViewPage(item.id)
       ),
     [canViewPage, mounted, user]
   );
@@ -1976,23 +2098,35 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         isDark={isDark}
       />
 
-      <TopNavigation
-        items={filteredNavItems}
-        currentPage={currentPage}
-        onNavigate={handleNavigate}
-        onActiveClick={scrollActivePageToTop}
-        activeAlarms={activeAlarms}
-        isDark={isDark}
-      />
+      {mounted && isWideDesktop ? (
+        <WideDesktopNavigation
+          currentPage={currentPage}
+          onNavigate={handleNavigate}
+          onActiveClick={scrollActivePageToTop}
+          canViewPage={canViewPage}
+          isDark={isDark}
+        />
+      ) : (
+        <>
+          <TopNavigation
+            items={filteredNavItems}
+            currentPage={currentPage}
+            onNavigate={handleNavigate}
+            onActiveClick={scrollActivePageToTop}
+            activeAlarms={activeAlarms}
+            isDark={isDark}
+          />
 
-      <SecondaryNavigation
-        currentPage={currentPage}
-        activeSection={activeSection}
-        onNavigate={handleNavigate}
-        onActiveClick={scrollActivePageToTop}
-        canViewPage={canViewPage}
-        isDark={isDark}
-      />
+          <SecondaryNavigation
+            currentPage={currentPage}
+            activeSection={activeSection}
+            onNavigate={handleNavigate}
+            onActiveClick={scrollActivePageToTop}
+            canViewPage={canViewPage}
+            isDark={isDark}
+          />
+        </>
+      )}
 
       {globalConnectionNotice ? (
         <div

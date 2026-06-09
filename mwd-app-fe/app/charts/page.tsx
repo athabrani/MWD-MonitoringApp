@@ -243,7 +243,7 @@ export const ChartsPage: React.FC = () => {
       <div className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Charts & Analytics</h1>
-          <p className="max-w-3xl break-words text-sm text-muted-foreground sm:text-base">
+          <p className="max-w-4xl lg:max-w-5xl break-words text-sm text-muted-foreground sm:text-base">
             Historical trends for {activeSessionLabel || 'current session'}
           </p>
         </div>
