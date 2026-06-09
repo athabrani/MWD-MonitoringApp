@@ -12,6 +12,8 @@ interface KPICardProps {
 
 export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) => {
   const { name, value, unit, status, trend, change1min } = parameter;
+  const hasValue = typeof value === 'number' && Number.isFinite(value);
+  const formattedValue = hasValue ? value.toFixed(1) : '-';
 
   const getTrendIcon = () => {
     if (!trend || trend === 'stable') return <Minus className="size-3" />;
@@ -28,6 +30,8 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
         return 'border-yellow-500/50 bg-yellow-500/5';
       case 'critical':
         return 'border-red-500/50 bg-red-500/5';
+      default:
+        return 'border-border bg-muted/20';
     }
   };
 
@@ -38,7 +42,7 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
       case 'critical':
         return <AlertCircle className="size-4 text-red-500" />;
       default:
-        return null;
+        return hasValue ? null : <Minus className="size-4 text-muted-foreground" />;
     }
   };
 
@@ -50,7 +54,7 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
           {getStatusIcon()}
         </div>
         <div className="flex items-baseline gap-2">
-          <div className="text-2xl font-mono">{value.toFixed(1)}</div>
+          <div className="text-2xl font-mono">{formattedValue}</div>
           <div className="text-sm text-muted-foreground">{unit}</div>
         </div>
         {change1min !== undefined && (
@@ -69,7 +73,7 @@ export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) 
         <div>
           <div className="text-sm text-muted-foreground mb-1">{name}</div>
           <div className="flex items-baseline gap-2">
-            <div className="text-3xl font-mono font-semibold">{value.toFixed(1)}</div>
+            <div className="text-3xl font-mono font-semibold">{formattedValue}</div>
             <div className="text-base text-muted-foreground">{unit}</div>
           </div>
         </div>

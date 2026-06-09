@@ -8,17 +8,23 @@ export interface User {
   role: UserRole;
   fullName: string;
   avatar?: string;
+  isActive?: boolean;
+  lastLoginAt?: string;
 }
 
 // Connection Status Types
 export type ConnectionStatus = 'connected' | 'degraded' | 'offline';
 export type DataSource = 'primary' | 'backup';
+export type ConnectionLatencySource = 'connection-status' | 'api-probe';
+export type NetworkStatus = 'online' | 'offline' | 'unknown';
+export type BackendRestStatus = 'unknown' | 'checking' | 'online' | 'offline' | 'auth-error' | 'error';
 
 export interface ConnectionState {
   status: ConnectionStatus;
-  latency: number;
-  packetLoss: number;
-  lastReceived: Date;
+  latency?: number;
+  latencySource?: ConnectionLatencySource;
+  packetLoss?: number;
+  lastReceived?: Date | null;
   dataSource: DataSource;
   reconnecting?: boolean;
 }
@@ -27,9 +33,9 @@ export interface ConnectionState {
 export interface MWDParameter {
   id: string;
   name: string;
-  value: number;
+  value?: number;
   unit: string;
-  status: 'normal' | 'warning' | 'critical';
+  status?: 'normal' | 'warning' | 'critical';
   trend?: 'up' | 'down' | 'stable';
   change1min?: number;
   category: 'drilling' | 'mud' | 'directional' | 'formation' | 'tool';
@@ -135,6 +141,9 @@ export interface ToolfaceData {
 // Settings
 export interface ThresholdSettings {
   parameter: string;
+  enabled?: boolean;
+  low?: number;
+  high?: number;
   warning: number;
   critical: number;
 }

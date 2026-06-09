@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
@@ -24,7 +24,16 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   onReconnect,
   compact = false 
 }) => {
-  const { status, latency, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+  const { status, latency, latencySource, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const getStatusIcon = () => {
     switch (status) {
@@ -48,7 +57,22 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     }
   };
 
-  const timeSinceLastData = Math.floor((Date.now() - lastReceived.getTime()) / 1000);
+  const timeSinceLastData =
+    lastReceived instanceof Date && !Number.isNaN(lastReceived.getTime())
+      ? Math.floor((now - lastReceived.getTime()) / 1000)
+      : null;
+  const formatLatency = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(0)} ms` : '- ms';
+  const formatPacketLoss = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}%` : '- %';
+  const latencyLabel =
+    latencySource === 'api-probe' ? 'API' : latencySource === 'connection-status' ? 'Conn' : 'Latency';
+  const latencyTitle =
+    latencySource === 'api-probe'
+      ? 'Backend API probe latency via /api/mwd-sessions.'
+      : latencySource === 'connection-status'
+        ? 'Connection status latency from /api/connection-status.'
+        : 'Latency metric unavailable.';
 
   if (compact) {
     return (
@@ -90,18 +114,23 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </Badge>
       </div>
 
-      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+      <div
+        className="flex items-center gap-1 text-sm text-muted-foreground"
+        title={latencyTitle}
+        aria-label={`${latencyLabel} latency ${formatLatency(latency)}`}
+      >
         <Activity className="size-3" />
-        <span>{latency.toFixed(0)} ms</span>
+        <span>{latencyLabel}:</span>
+        <span>{formatLatency(latency)}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
-        <span>Loss: {packetLoss.toFixed(1)}%</span>
+        <span>Loss: {formatPacketLoss(packetLoss)}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
         <Clock className="size-3" />
-        <span>{timeSinceLastData}s ago</span>
+        <span>{timeSinceLastData === null ? 'No backend data yet' : `${timeSinceLastData}s ago`}</span>
       </div>
 
       <div className="flex items-center gap-1 text-sm">
