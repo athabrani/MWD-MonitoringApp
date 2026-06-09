@@ -3,6 +3,25 @@ import type { Request, Response } from "express";
 const isProduction = process.env.NODE_ENV === "production";
 const ACCESS_TOKEN_COOKIE = "mwd_access_token";
 const CSRF_TOKEN_COOKIE = "mwd_csrf_token";
+const COOKIE_SAME_SITE_VALUES = new Set(["Lax", "Strict", "None"]);
+
+const getCookieSameSite = () => {
+  const configured = process.env.AUTH_COOKIE_SAME_SITE?.trim();
+
+  return COOKIE_SAME_SITE_VALUES.has(configured ?? "")
+    ? (configured as "Lax" | "Strict" | "None")
+    : "Lax";
+};
+
+const shouldUseSecureCookie = () => {
+  const configured = process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase();
+
+  if (configured !== undefined && configured !== "") {
+    return ["1", "true", "yes", "on"].includes(configured);
+  }
+
+  return isProduction;
+};
 
 export const parseCookies = (req: Request) => {
   const rawCookie = req.headers.cookie;
@@ -50,7 +69,7 @@ const serializeCookie = (
     parts.push("HttpOnly");
   }
 
-  if (isProduction) {
+  if (shouldUseSecureCookie()) {
     parts.push("Secure");
   }
 
@@ -80,6 +99,7 @@ export const setAuthCookies = (
     serializeCookie(ACCESS_TOKEN_COOKIE, input.accessToken, {
       httpOnly: true,
       maxAgeSeconds: input.maxAgeSeconds,
+      sameSite: getCookieSameSite(),
     }),
   );
   res.append(
@@ -87,6 +107,7 @@ export const setAuthCookies = (
     serializeCookie(CSRF_TOKEN_COOKIE, input.csrfToken, {
       httpOnly: false,
       maxAgeSeconds: input.maxAgeSeconds,
+      sameSite: getCookieSameSite(),
     }),
   );
 };
@@ -97,6 +118,7 @@ export const clearAuthCookies = (res: Response) => {
     serializeCookie(ACCESS_TOKEN_COOKIE, "", {
       httpOnly: true,
       maxAgeSeconds: 0,
+      sameSite: getCookieSameSite(),
     }),
   );
   res.append(
@@ -104,6 +126,7 @@ export const clearAuthCookies = (res: Response) => {
     serializeCookie(CSRF_TOKEN_COOKIE, "", {
       httpOnly: false,
       maxAgeSeconds: 0,
+      sameSite: getCookieSameSite(),
     }),
   );
 };

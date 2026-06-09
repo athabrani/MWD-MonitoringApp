@@ -63,6 +63,35 @@ const parseBoolean = (value: unknown) => {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const readSerialPortText = (portInfo: unknown, key: string) => {
+  if (!isRecord(portInfo)) {
+    return "";
+  }
+
+  const value = portInfo[key];
+  return typeof value === "string" ? value : "";
+};
+
+const isBluetoothSerialPort = (portInfo: unknown) => {
+  const text = [
+    readSerialPortText(portInfo, "manufacturer"),
+    readSerialPortText(portInfo, "pnpId"),
+    readSerialPortText(portInfo, "friendlyName"),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    text.includes("bthenum") ||
+    text.includes("bluetooth") ||
+    text.includes("standard serial over bluetooth")
+  );
+};
+
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
     return value;
@@ -319,6 +348,7 @@ const getLatestDepthFromWits = (wits: Record<string, string>) => {
 let SerialPortClassCache: typeof import("serialport").SerialPort | null = null;
 let port: SerialPortInstance | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
+let autoDiscoveryTimer: NodeJS.Timeout | null = null;
 let activeOptions: Required<SerialGatewayConnectOptions> | null = null;
 let stopped = true;
 let witsStreamParser = new SerialWitsStreamParser(MAX_BUFFER_LENGTH);
@@ -380,6 +410,34 @@ export const listSerialPorts = async () => {
   return SerialPortClass.list();
 };
 
+const resolveConfiguredSerialPath = async (configuredPath: string) => {
+  if (configuredPath.trim().toLowerCase() !== "auto") {
+    return configuredPath;
+  }
+
+  const ports = await listSerialPorts();
+  const selectedPort = ports.find((item) => {
+    if (!isRecord(item) || typeof item.path !== "string") {
+      return false;
+    }
+
+    return item.path.trim().length > 0 && !isBluetoothSerialPort(item);
+  });
+  const selectedPath =
+    isRecord(selectedPort) && typeof selectedPort.path === "string"
+      ? selectedPort.path.trim()
+      : "";
+
+  if (!selectedPath) {
+    runtimeStatus.lastError = "SERIAL_PORT=auto but no serial ports were found";
+    console.warn("[Serial GW] SERIAL_PORT=auto but no serial ports were found.");
+    return null;
+  }
+
+  console.log(`[Serial GW] SERIAL_PORT=auto selected ${selectedPath}`);
+  return selectedPath;
+};
+
 export const getSerialGatewayStatus = () => ({
   ...runtimeStatus,
 });
@@ -427,6 +485,13 @@ const closeActivePort = () => {
 
   runtimeStatus.connected = false;
   runtimeStatus.reconnecting = false;
+};
+
+const clearAutoDiscoveryTimer = () => {
+  if (autoDiscoveryTimer) {
+    clearTimeout(autoDiscoveryTimer);
+    autoDiscoveryTimer = null;
+  }
 };
 
 const buildRequiredOptions = (
@@ -826,6 +891,7 @@ export const connectSerialGateway = async (
 
 export const disconnectSerialGateway = async () => {
   stopped = true;
+  clearAutoDiscoveryTimer();
   closeActivePort();
   activeOptions = null;
   runtimeStatus.enabled = false;
@@ -872,6 +938,7 @@ export const startSerialGateway = async () => {
   const verboseLogging = parseBoolean(process.env.SERIAL_GATEWAY_VERBOSE);
   const source = process.env.SERIAL_GATEWAY_SOURCE?.trim() || "esp32-serial";
   const transmitterId = process.env.SERIAL_GATEWAY_TRANSMITTER_ID?.trim();
+  const isAutoPort = portPath.toLowerCase() === "auto";
 
   if (defaultSessionId === null) {
     console.warn(
@@ -879,17 +946,48 @@ export const startSerialGateway = async () => {
     );
   }
 
-  await connectSerialGateway({
-    path: portPath,
-    baudRate,
-    ...(defaultSessionId !== null ? { sessionId: defaultSessionId } : {}),
-    reconnectMs,
-    verbose: verboseLogging,
-    source,
-    ...(transmitterId ? { transmitterId } : {}),
-  });
+  const connectResolvedPort = async () => {
+    const resolvedPortPath = await resolveConfiguredSerialPath(portPath);
+
+    if (!resolvedPortPath) {
+      if (!isAutoPort || autoDiscoveryTimer) {
+        return;
+      }
+
+      runtimeStatus.enabled = true;
+      runtimeStatus.connected = false;
+      runtimeStatus.reconnecting = true;
+      runtimeStatus.path = "auto";
+      runtimeStatus.baudRate = baudRate;
+      runtimeStatus.sessionId = defaultSessionId;
+      runtimeStatus.source = source;
+      runtimeStatus.transmitterId = transmitterId || null;
+      runtimeStatus.startedAt = runtimeStatus.startedAt ?? new Date().toISOString();
+
+      autoDiscoveryTimer = setTimeout(() => {
+        autoDiscoveryTimer = null;
+        void connectResolvedPort();
+      }, reconnectMs);
+      autoDiscoveryTimer.unref();
+      return;
+    }
+
+    clearAutoDiscoveryTimer();
+    await connectSerialGateway({
+      path: resolvedPortPath,
+      baudRate,
+      ...(defaultSessionId !== null ? { sessionId: defaultSessionId } : {}),
+      reconnectMs,
+      verbose: verboseLogging,
+      source,
+      ...(transmitterId ? { transmitterId } : {}),
+    });
+  };
+
+  await connectResolvedPort();
 
   return () => {
+    clearAutoDiscoveryTimer();
     void disconnectSerialGateway();
   };
 };

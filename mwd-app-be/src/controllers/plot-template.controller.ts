@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import * as plotTemplateService from "../services/plot-template.service.js";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -42,6 +44,9 @@ const parseOptionalBoolean = (value: unknown) => {
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  isRecord(value) ? value : {};
 
 const parseTemplateBody = (
   body: Record<string, unknown>,
@@ -125,6 +130,21 @@ export const createPlotTemplate = async (req: Request, res: Response) => {
     const template = await plotTemplateService.createPlotTemplate(
       result.data as plotTemplateService.PlotTemplateInput,
     );
+    const authUser = (req as AuthenticatedRequest).user;
+    const templateRecord = toRecord(template);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "plot_template.create",
+      details: `Created plot template ${String(templateRecord.name ?? "")}`,
+      metadata: {
+        plotTemplateId:
+          templateRecord.id !== undefined ? String(templateRecord.id) : null,
+        name:
+          templateRecord.name !== undefined ? String(templateRecord.name) : null,
+        isDefault: templateRecord.isDefault ?? null,
+      },
+    });
 
     res.status(201).json(template);
   } catch (error: unknown) {
@@ -199,6 +219,21 @@ export const updatePlotTemplate = async (req: Request, res: Response) => {
       id,
       result.data as plotTemplateService.PlotTemplateUpdateInput,
     );
+    const authUser = (req as AuthenticatedRequest).user;
+    const templateRecord = toRecord(template);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "plot_template.update",
+      details: `Updated plot template ${String(templateRecord.name ?? id)}`,
+      metadata: {
+        plotTemplateId:
+          templateRecord.id !== undefined ? String(templateRecord.id) : String(id),
+        name:
+          templateRecord.name !== undefined ? String(templateRecord.name) : null,
+        updatedFields: Object.keys(result.data),
+      },
+    });
 
     res.json(template);
   } catch (error: unknown) {
@@ -214,7 +249,24 @@ export const deletePlotTemplate = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid plot template id" });
     }
 
+    const template = await plotTemplateService.getPlotTemplateById(id);
     await plotTemplateService.deletePlotTemplate(id);
+
+    const authUser = (req as AuthenticatedRequest).user;
+    const templateRecord = toRecord(template);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "plot_template.delete",
+      details: `Deleted plot template ${String(templateRecord.name ?? id)}`,
+      metadata: {
+        plotTemplateId:
+          templateRecord.id !== undefined ? String(templateRecord.id) : String(id),
+        name:
+          templateRecord.name !== undefined ? String(templateRecord.name) : null,
+      },
+    });
+
     res.json({ message: "Plot template deleted successfully" });
   } catch (error: unknown) {
     return handlePlotTemplateError(error, res);

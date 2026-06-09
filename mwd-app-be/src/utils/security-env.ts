@@ -26,4 +26,24 @@ export const validateSecurityEnvironment = () => {
   if (process.env.GATEWAY_HMAC_SECRET) {
     requireLongSecret("GATEWAY_HMAC_SECRET");
   }
+
+  const exposesToken = ["1", "true", "yes", "on"].includes(
+    process.env.AUTH_EXPOSE_TOKEN?.trim().toLowerCase() ?? "",
+  );
+
+  if (exposesToken) {
+    throw new Error("AUTH_EXPOSE_TOKEN must be disabled in production");
+  }
+
+  if (process.env.AUTH_COOKIE_SAME_SITE === "None") {
+    const secureCookie = ["1", "true", "yes", "on"].includes(
+      process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase() ?? "",
+    );
+
+    if (!secureCookie) {
+      throw new Error(
+        "AUTH_COOKIE_SECURE=true is required when AUTH_COOKIE_SAME_SITE=None in production",
+      );
+    }
+  }
 };

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   exportHistoricalData,
+  exportHistoricalLast24Hours,
   exportLasData,
   exportPdfPlot,
   exportSurveyData,
@@ -16,6 +17,7 @@ const router = Router();
 router.use(authenticate, authorize("admin", "engineer"));
 
 router.post("/historical", exportHistoricalData);
+router.get("/historical/last-24-hours", exportHistoricalLast24Hours);
 router.post("/wits", exportWitsData);
 router.post("/surveys", exportSurveyData);
 router.post("/las", exportLasData);

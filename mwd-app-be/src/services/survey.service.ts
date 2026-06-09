@@ -41,6 +41,18 @@ export type WellPlanImportResult = {
   data: unknown[];
 };
 
+export type SurveyTrajectoryPoint = {
+  id: string;
+  stationType: string;
+  measuredDepth: number;
+  inclination: number;
+  azimuth: number;
+  tvd: number | null;
+  northing: number | null;
+  easting: number | null;
+  verticalSection: number | null;
+};
+
 const surveyStationSelect = {
   id: true,
   sessionId: true,
@@ -117,6 +129,121 @@ const toFiniteNumber = (value: unknown) => {
   }
 
   return null;
+};
+
+const toStringId = (value: unknown) =>
+  typeof value === "bigint" ? value.toString() : String(value ?? "");
+
+const normalizeTrajectoryPoint = (row: unknown): SurveyTrajectoryPoint | null => {
+  if (typeof row !== "object" || row === null) {
+    return null;
+  }
+
+  const record = row as Record<string, unknown>;
+  const measuredDepth = toFiniteNumber(record.measuredDepth);
+  const inclination = toFiniteNumber(record.inclination);
+  const azimuth = toFiniteNumber(record.azimuth);
+
+  if (measuredDepth === null || inclination === null || azimuth === null) {
+    return null;
+  }
+
+  return {
+    id: toStringId(record.id),
+    stationType:
+      typeof record.stationType === "string" ? record.stationType : "actual",
+    measuredDepth,
+    inclination,
+    azimuth,
+    tvd: toFiniteNumber(record.tvd),
+    northing: toFiniteNumber(record.northing),
+    easting: toFiniteNumber(record.easting),
+    verticalSection: toFiniteNumber(record.verticalSection),
+  };
+};
+
+export const getTrajectoryPlotData = async (input: {
+  sessionId: number;
+  depthMin?: number;
+  depthMax?: number;
+  actualStationType?: string;
+  planStationType?: string;
+}) => {
+  const depthFilter: Record<string, number> = {};
+
+  if (input.depthMin !== undefined) {
+    depthFilter.gte = input.depthMin;
+  }
+
+  if (input.depthMax !== undefined) {
+    depthFilter.lte = input.depthMax;
+  }
+
+  const whereBase = {
+    sessionId: input.sessionId,
+    ...(Object.keys(depthFilter).length > 0
+      ? { measuredDepth: depthFilter }
+      : {}),
+  };
+  const [actualRows, plannedRows] = await Promise.all([
+    client(prisma).surveyStation.findMany({
+      where: {
+        ...whereBase,
+        stationType: input.actualStationType ?? "actual",
+      },
+      orderBy: [{ measuredDepth: "asc" }, { id: "asc" }],
+      select: surveyStationSelect,
+    }),
+    client(prisma).surveyStation.findMany({
+      where: {
+        ...whereBase,
+        stationType: input.planStationType ?? "plan",
+      },
+      orderBy: [{ measuredDepth: "asc" }, { id: "asc" }],
+      select: surveyStationSelect,
+    }),
+  ]);
+
+  const actual = actualRows
+    .map(normalizeTrajectoryPoint)
+    .filter((row): row is SurveyTrajectoryPoint => row !== null);
+  const planned = plannedRows
+    .map(normalizeTrajectoryPoint)
+    .filter((row): row is SurveyTrajectoryPoint => row !== null);
+
+  return {
+    sessionId: input.sessionId,
+    actual,
+    planned,
+    planView: {
+      actual: actual.map((point) => ({
+        md: point.measuredDepth,
+        x: point.easting,
+        y: point.northing,
+        tvd: point.tvd,
+        verticalSection: point.verticalSection,
+      })),
+      planned: planned.map((point) => ({
+        md: point.measuredDepth,
+        x: point.easting,
+        y: point.northing,
+        tvd: point.tvd,
+        verticalSection: point.verticalSection,
+      })),
+    },
+    verticalSection: {
+      actual: actual.map((point) => ({
+        md: point.measuredDepth,
+        x: point.verticalSection,
+        y: point.tvd,
+      })),
+      planned: planned.map((point) => ({
+        md: point.measuredDepth,
+        x: point.verticalSection,
+        y: point.tvd,
+      })),
+    },
+  };
 };
 
 const normalizeStationType = (value: unknown, fallback = "actual") => {

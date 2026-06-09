@@ -10,6 +10,8 @@ const portFromEnv = Number(process.env.PORT)
 const PORT =
   Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 5001
 
+const HOST = process.env.HOST || '0.0.0.0'
+
 const startServer = async () => {
   await syncSystemRoles()
 
@@ -19,8 +21,8 @@ const startServer = async () => {
   // Initialize native WebSocket
   initializeWebSocket(httpServer)
 
-  httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`)
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`Express server running on http://${HOST}:${PORT}`)
     startEspWebSocketGateway()
     void startSerialGateway()
   })

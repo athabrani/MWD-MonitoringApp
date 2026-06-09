@@ -4,6 +4,7 @@ import {
   deleteSurveyStation,
   getSurveyStationById,
   getSurveyStations,
+  getSurveyTrajectoryPlotData,
   importSurveyFromMwdData,
   importWellPlanCsv,
   recalculateSurveyStations,
@@ -16,6 +17,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", getSurveyStations);
+router.get("/trajectory", getSurveyTrajectoryPlotData);
 router.post("/", authorize("admin", "engineer"), createSurveyStation);
 router.post("/recalculate", authorize("admin", "engineer"), recalculateSurveyStations);
 router.post("/from-mwd-data", authorize("admin", "engineer"), importSurveyFromMwdData);

@@ -147,6 +147,14 @@ const auditExport = async (input: {
   })
 }
 
+const parseExportFormat = (value: unknown): 'csv' | 'json' | null => {
+  if (value === undefined || value === null || value === '') {
+    return 'csv'
+  }
+
+  return value === 'csv' || value === 'json' ? value : null
+}
+
 export const exportHistoricalData = async (req: Request, res: Response) => {
   try {
     const authUser = (req as AuthenticatedRequest).user
@@ -251,6 +259,96 @@ export const exportHistoricalData = async (req: Request, res: Response) => {
       fileName,
       fileType: format,
       rowCount: historicalData.count,
+    })
+
+    res.setHeader(
+      'Content-Type',
+      format === 'json'
+        ? 'application/json; charset=utf-8'
+        : 'text/csv; charset=utf-8',
+    )
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.status(200).send(body)
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : 'Internal server error'
+    res.status(500).json({ message })
+  }
+}
+
+export const exportHistoricalLast24Hours = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as AuthenticatedRequest).user
+
+    if (!authUser) {
+      return res.status(401).json({ message: 'Unauthorized' })
+    }
+
+    const parsedSessionId =
+      req.query.sessionId === undefined
+        ? undefined
+        : parsePositiveInt(req.query.sessionId)
+    const format = parseExportFormat(req.query.format)
+
+    if (req.query.sessionId !== undefined && parsedSessionId === null) {
+      return res.status(400).json({ message: 'sessionId must be a positive integer' })
+    }
+
+    if (format === null) {
+      return res.status(400).json({ message: 'format must be csv or json' })
+    }
+
+    let session: Awaited<ReturnType<typeof sessionService.getSessionById>> | null = null
+    const sessionId =
+      typeof parsedSessionId === 'number' ? parsedSessionId : undefined
+
+    if (sessionId !== undefined) {
+      session = await sessionService.getSessionById(sessionId)
+
+      if (!session) {
+        return res.status(404).json({ message: 'Session not found' })
+      }
+    }
+
+    const measuredTo = new Date()
+    const measuredFrom = new Date(measuredTo.getTime() - 24 * 60 * 60 * 1000)
+    const historicalData = await historicalDataService.getHistoricalData({
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      measuredFrom,
+      measuredTo,
+    })
+    const safeSessionCode = session?.sessionCode ?? 'all_sessions'
+    const fileName = buildExportFileName(safeSessionCode, format).replace(
+      '_historical_',
+      '_historical_last_24_hours_',
+    )
+    const body =
+      format === 'json'
+        ? serializeHistoricalDataAsJson(historicalData.data)
+        : serializeHistoricalDataAsCsv(historicalData.data)
+
+    if (sessionId !== undefined) {
+      await exportRecordService.createExportRecord({
+        sessionId,
+        exportedById: authUser.userId,
+        fileName,
+        fileType: `historical_last_24h_${format}`,
+        rowCount: historicalData.count,
+      })
+    }
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: 'export.historical_last_24h',
+      details: `Exported historical last 24 hours ${fileName}`,
+      metadata: {
+        sessionId: sessionId ?? null,
+        fileName,
+        fileType: format,
+        rowCount: historicalData.count,
+        measuredFrom: measuredFrom.toISOString(),
+        measuredTo: measuredTo.toISOString(),
+      },
     })
 
     res.setHeader(

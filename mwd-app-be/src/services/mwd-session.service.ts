@@ -43,6 +43,13 @@ const sessionSelect = {
       checkedAt: true,
     },
   },
+  _count: {
+    select: {
+      mwdData: true,
+      surveyStations: true,
+      witsDataValues: true,
+    },
+  },
 } as const;
 
 type SessionInput = {
@@ -153,7 +160,22 @@ export const getAllSessions = async (userId?: number) => {
 
   return await prisma.mWDSession.findMany({
     ...args,
-  });
+  }).then((sessions) =>
+    sessions.sort((left, right) => {
+      const leftDataCount =
+        left._count.mwdData + left._count.surveyStations + left._count.witsDataValues;
+      const rightDataCount =
+        right._count.mwdData + right._count.surveyStations + right._count.witsDataValues;
+
+      if (leftDataCount > 0 && rightDataCount === 0) return -1;
+      if (leftDataCount === 0 && rightDataCount > 0) return 1;
+
+      return (
+        right.startedAt.getTime() - left.startedAt.getTime() ||
+        right.id - left.id
+      );
+    }),
+  );
 };
 
 export const getSessionById = async (id: number) => {

@@ -4,6 +4,16 @@ import * as authService from "../services/auth.service.js";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import { clearAuthCookies, setAuthCookies } from "../utils/cookies.js";
 
+const shouldExposeAccessToken = () => {
+  const configured = process.env.AUTH_EXPOSE_TOKEN?.trim().toLowerCase();
+
+  if (configured !== undefined && configured !== "") {
+    return ["1", "true", "yes", "on"].includes(configured);
+  }
+
+  return process.env.NODE_ENV !== "production";
+};
+
 const normalizeString = (value: unknown) => {
   return typeof value === "string" ? value.trim() : "";
 };
@@ -49,10 +59,17 @@ export const login = async (req: Request, res: Response) => {
       maxAgeSeconds: 24 * 60 * 60,
     });
 
-    res.json({
-      ...result,
+    const responseBody: Record<string, unknown> = {
+      user: result.user,
       csrfToken,
-    });
+      authMode: "cookie",
+    };
+
+    if (shouldExposeAccessToken()) {
+      responseBody.token = result.token;
+    }
+
+    res.json(responseBody);
   } catch (error: unknown) {
     if (error instanceof authService.LoginLockedError) {
       res.setHeader("Retry-After", String(error.retryAfterSeconds));

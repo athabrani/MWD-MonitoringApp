@@ -361,6 +361,63 @@ export const getSurveyStations = async (req: Request, res: Response) => {
   }
 };
 
+export const getSurveyTrajectoryPlotData = async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req);
+    const sessionId =
+      typeof req.query.sessionId === "string"
+        ? parsePositiveInt(req.query.sessionId)
+        : null;
+
+    if (!authUser) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (sessionId === null) {
+      return res.status(400).json({ message: "sessionId must be a positive integer" });
+    }
+
+    const session = await ensureSessionAccess(req, res, sessionId);
+
+    if (!session) {
+      return;
+    }
+
+    const depthMin = parseOptionalNumber(req.query.depthMin, "depthMin");
+    const depthMax = parseOptionalNumber(req.query.depthMax, "depthMax");
+
+    if ("error" in depthMin) {
+      return res.status(400).json({ message: depthMin.error });
+    }
+
+    if ("error" in depthMax) {
+      return res.status(400).json({ message: depthMax.error });
+    }
+
+    if (
+      depthMin.value !== undefined &&
+      depthMax.value !== undefined &&
+      depthMin.value > depthMax.value
+    ) {
+      return res.status(400).json({ message: "depthMin must be less than or equal to depthMax" });
+    }
+
+    const data = await surveyService.getTrajectoryPlotData({
+      sessionId,
+      ...(depthMin.value !== undefined ? { depthMin: depthMin.value } : {}),
+      ...(depthMax.value !== undefined ? { depthMax: depthMax.value } : {}),
+      actualStationType: normalizeStationType(req.query.actualStationType, "actual"),
+      planStationType: normalizeStationType(req.query.planStationType, "plan"),
+    });
+
+    res.json(data);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
+    res.status(500).json({ message });
+  }
+};
+
 export const getSurveyStationById = async (req: Request, res: Response) => {
   try {
     const id = parsePositiveBigInt(req.params.id);
