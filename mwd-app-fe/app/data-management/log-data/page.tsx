@@ -86,6 +86,7 @@ import {
   unhideMwdDepthRange,
 } from "@/lib/mwd-edit-tools-api";
 import { getWitsConfig, getWitsDataValues, WitsDataValue } from "@/lib/api/wits";
+import { logSecurityError } from "@/lib/security/errors";
 import { formatConfiguredWitsId } from "@/lib/wits-config-store";
 import { getWitsDescription } from "@/lib/wits-map";
 import { DepthRange, LogDataRecord, RescaleMode, RescalePreview, RescaleRequest, RescaleResultSummary } from "@/types/monitoring";
@@ -365,9 +366,7 @@ export default function LogDataPage({
       nextConfigs = configResult.value;
       setConfiguredWitsIds(configResult.value);
     } else {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load WITS config.", configResult.reason);
-      }
+      logSecurityError("Unable to load WITS config.", configResult.reason);
       setConfiguredWitsIds([]);
       setSelectedWitsId("");
       setWitsConfigError("Gagal memuat data dari backend.");
@@ -378,9 +377,7 @@ export default function LogDataPage({
       const scopedMwdData = filterMwdDataForSession(mwdResult.value, activeMwdSessionId);
       setMwdDataRecords(scopedMwdData);
     } else {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load MWD data.", mwdResult.reason);
-      }
+      logSecurityError("Unable to load MWD data.", mwdResult.reason);
       setMwdDataError("Gagal memuat data dari backend.");
     }
     setMwdDataLoading(false);
@@ -400,9 +397,7 @@ export default function LogDataPage({
         return scopedValues[0]?.witsId ?? (nextConfigs[0] ? formatConfiguredWitsId(nextConfigs[0].numericId) : "");
       });
     } else {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load WITS data values.", valuesResult.reason);
-      }
+      logSecurityError("Unable to load WITS data values.", valuesResult.reason);
       setWitsValuesError("Gagal memuat data dari backend.");
     }
     setWitsValuesLoading(false);
@@ -421,9 +416,7 @@ export default function LogDataPage({
     try {
       setEditOperations(await getMwdEditOperations(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}));
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load MWD edit operations.", error);
-      }
+      logSecurityError("Unable to load MWD edit operations.", error);
       setEditOperationsError("Gagal memuat data dari backend.");
     } finally {
       setEditOperationsLoading(false);
@@ -1263,8 +1256,8 @@ export default function LogDataPage({
               <div className="relative mt-4">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  className="pl-9"
-                  placeholder="Search WITS ID, label, units, or LAS mnemonic"
+                  className="!pl-9 text-sm "
+                  placeholder="Search WITS ID"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />

@@ -66,9 +66,7 @@ function normalizeRealtimeMessage(raw: string): RealtimeEvent | null {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    if (process.env.NODE_ENV === "development") {
-      console.warn("Ignoring non-JSON realtime message.");
-    }
+    logSecurityDebug("Ignoring non-JSON realtime message.");
     return null;
   }
 

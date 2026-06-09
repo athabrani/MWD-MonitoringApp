@@ -3,12 +3,13 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { logSecurityDebug } from "@/lib/security/errors";
 
 const NotFound = () => {
   const pathname = usePathname() ?? "";
 
   useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", pathname);
+    logSecurityDebug("404 route not found.", { pathname });
   }, [pathname]);
 
   return (

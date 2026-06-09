@@ -27,7 +27,7 @@ import {
   type BackendReachability,
 } from "@/lib/admin-backend-health-api";
 import { updateWitsConfig, witsConfigToPayload } from "@/lib/api/wits";
-import { resolveWitsConfigThreshold } from "@/lib/dashboard-thresholds";
+import { groupWitsThresholdConfigs, resolveWitsConfigThreshold, WitsThresholdGroup } from "@/lib/dashboard-thresholds";
 import { PolarisWitsId } from "@/types/polaris";
 
 type WitsThresholdDraft = Pick<PolarisWitsId, "alarmEnabled" | "alarmLow" | "alarmHigh">;
@@ -64,15 +64,19 @@ export const SettingsPage: React.FC<{
       }),
     [witsConfig]
   );
+  const thresholdGroups = useMemo(
+    () => groupWitsThresholdConfigs(thresholdRows),
+    [thresholdRows]
+  );
 
   useEffect(() => {
     setThresholdDrafts(
       Object.fromEntries(
-        witsConfig.map((config) => {
-          const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
+        thresholdGroups.map((group) => {
+          const resolved = resolveWitsConfigThreshold(group.configs[0], settings.thresholds);
 
           return [
-            config.id,
+            group.key,
             {
               alarmEnabled: resolved.enabled,
               alarmLow: resolved.low,
@@ -82,19 +86,19 @@ export const SettingsPage: React.FC<{
         })
       )
     );
-  }, [settings.thresholds, witsConfig]);
+  }, [settings.thresholds, thresholdGroups]);
 
-  const getThresholdDraft = (config: PolarisWitsId): WitsThresholdDraft => {
-    const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
+  const getThresholdDraft = (group: WitsThresholdGroup): WitsThresholdDraft => {
+    const resolved = resolveWitsConfigThreshold(group.configs[0], settings.thresholds);
 
-    return thresholdDrafts[config.id] ?? {
+    return thresholdDrafts[group.key] ?? {
       alarmEnabled: resolved.enabled,
       alarmLow: resolved.low,
       alarmHigh: resolved.high,
     };
   };
 
-  const patchThreshold = (configId: string, patch: Partial<WitsThresholdDraft>) => {
+  const patchThreshold = (groupKey: string, patch: Partial<WitsThresholdDraft>) => {
     if (!canManageSettings) {
       toast.warning("Operator role can view settings only.");
       return;
@@ -102,8 +106,8 @@ export const SettingsPage: React.FC<{
 
     setThresholdDrafts((current) => ({
       ...current,
-      [configId]: {
-        ...(current[configId] ?? { alarmEnabled: false, alarmLow: 0, alarmHigh: 0 }),
+      [groupKey]: {
+        ...(current[groupKey] ?? { alarmEnabled: false, alarmLow: 0, alarmHigh: 0 }),
         ...patch,
       },
     }));
@@ -111,33 +115,52 @@ export const SettingsPage: React.FC<{
 
   const isGeneratedConfigId = (config: PolarisWitsId) => config.id.startsWith("wits-");
 
-  const changedThresholdConfigs = thresholdRows.filter((config) => {
-    const draft = getThresholdDraft(config);
-    const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
+  const changedThresholdGroups = thresholdGroups.filter((group) => {
+    const draft = getThresholdDraft(group);
 
-    return (
-      draft.alarmEnabled !== resolved.enabled ||
-      draft.alarmLow !== resolved.low ||
-      draft.alarmHigh !== resolved.high
-    );
+    return group.configs.some((config) => {
+      const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
+
+      return (
+        draft.alarmEnabled !== resolved.enabled ||
+        draft.alarmLow !== resolved.low ||
+        draft.alarmHigh !== resolved.high
+      );
+    });
   });
+  const changedThresholdConfigs = changedThresholdGroups.flatMap((group) =>
+    group.configs.map((config) => ({
+      config,
+      draft: getThresholdDraft(group),
+    }))
+  );
+
+  const totalGroupedThresholdMembers = thresholdGroups.reduce(
+    (count, group) => count + Math.max(0, group.configs.length - 1),
+    0
+  );
 
   const normalizedThresholdSearch = thresholdSearch.trim().toLowerCase();
-  const visibleThresholdRows = useMemo(() => {
-    if (!normalizedThresholdSearch) return thresholdRows;
+  const visibleThresholdGroups = useMemo(() => {
+    if (!normalizedThresholdSearch) return thresholdGroups;
 
-    return thresholdRows.filter((config) => {
-      const witsId = String(config.numericId).padStart(4, "0");
+    return thresholdGroups.filter((group) => {
       const searchable = [
-        config.name,
-        config.units,
-        config.mappedField,
-        config.dataSourceType,
-        config.lasMnemonic,
-        config.lasDescription,
-        config.realTimePlot,
-        config.depthTracking,
-        witsId,
+        group.label,
+        group.unit,
+        group.mappedField,
+        group.category,
+        ...group.configs.flatMap((config) => [
+          config.name,
+          config.units,
+          config.mappedField,
+          config.dataSourceType,
+          config.lasMnemonic,
+          config.lasDescription,
+          config.realTimePlot,
+          config.depthTracking,
+          String(config.numericId).padStart(4, "0"),
+        ]),
       ]
         .filter(Boolean)
         .join(" ")
@@ -145,7 +168,30 @@ export const SettingsPage: React.FC<{
 
       return searchable.includes(normalizedThresholdSearch);
     });
-  }, [normalizedThresholdSearch, thresholdRows]);
+  }, [normalizedThresholdSearch, thresholdGroups]);
+
+  const thresholdCardCount = thresholdGroups.length;
+  const rawThresholdRowCount = thresholdRows.length;
+
+  const getGroupResolvedSources = (group: WitsThresholdGroup) => {
+    const sources = group.configs.map((config) => resolveWitsConfigThreshold(config, settings.thresholds));
+
+    return {
+      low: Array.from(new Set(sources.map((source) => source.lowSource))).join("/"),
+      high: Array.from(new Set(sources.map((source) => source.highSource))).join("/"),
+    };
+  };
+
+  const getGroupReadOnly = (group: WitsThresholdGroup) => group.configs.every(isGeneratedConfigId);
+  const getGroupMemberWitsIds = (group: WitsThresholdGroup) =>
+    group.configs.map((config) => String(config.numericId).padStart(4, "0"));
+
+  const getGroupScaleLabel = (group: WitsThresholdGroup) => {
+    const scaleLabels = Array.from(
+      new Set(group.configs.map((config) => `${config.leftScale} - ${config.rightScale}`))
+    );
+    return scaleLabels.length === 1 ? scaleLabels[0] : "Mixed";
+  };
 
   const handleSaveThresholds = async () => {
     if (!canManageSettings) {
@@ -158,7 +204,7 @@ export const SettingsPage: React.FC<{
       return;
     }
 
-    const persistableConfigs = changedThresholdConfigs.filter((config) => !isGeneratedConfigId(config));
+    const persistableConfigs = changedThresholdConfigs.filter(({ config }) => !isGeneratedConfigId(config));
     const skippedConfigs = changedThresholdConfigs.length - persistableConfigs.length;
 
     if (persistableConfigs.length === 0) {
@@ -170,8 +216,7 @@ export const SettingsPage: React.FC<{
 
     try {
       await Promise.all(
-        persistableConfigs.map((config) => {
-          const draft = getThresholdDraft(config);
+        persistableConfigs.map(({ config, draft }) => {
           return updateWitsConfig(
             token,
             config.id,
@@ -187,8 +232,8 @@ export const SettingsPage: React.FC<{
       await refreshWitsConfig();
       toast.success(
         skippedConfigs > 0
-          ? `Saved ${persistableConfigs.length} threshold config(s). ${skippedConfigs} row(s) were read-only because backend id is missing.`
-          : `Saved ${persistableConfigs.length} threshold config(s).`
+          ? `Saved ${changedThresholdGroups.length} threshold group(s) across ${persistableConfigs.length} WITS config(s). ${skippedConfigs} read-only row(s) were skipped.`
+          : `Saved ${changedThresholdGroups.length} threshold group(s) across ${persistableConfigs.length} WITS config(s).`
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save WITS threshold config.");
@@ -379,10 +424,10 @@ export const SettingsPage: React.FC<{
                   <Button
                     size="sm"
                     onClick={() => void handleSaveThresholds()}
-                    disabled={witsConfigLoading || thresholdsSaving || changedThresholdConfigs.length === 0}
+                    disabled={witsConfigLoading || thresholdsSaving || changedThresholdGroups.length === 0}
                     className="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
                   >
-                    {thresholdsSaving ? "Saving..." : `Save${changedThresholdConfigs.length ? ` (${changedThresholdConfigs.length})` : ""}`}
+                    {thresholdsSaving ? "Saving..." : `Save${changedThresholdGroups.length ? ` (${changedThresholdGroups.length})` : ""}`}
                   </Button>
                 ) : null}
               </div>
@@ -399,12 +444,13 @@ export const SettingsPage: React.FC<{
                 <Input
                   value={thresholdSearch}
                   onChange={(event) => setThresholdSearch(event.target.value)}
-                  placeholder="Search thresholds by name, unit, tag, or WITS ID..."
-                  className="h-9 pl-9 text-sm"
+                  placeholder="Search thresholds by name, unit, tag, or WITS ID"
+                  className="h-9 !pl-10 pr-3 text-sm sm:!pl-10"
                 />
               </div>
               <div className="text-xs text-muted-foreground">
-                Showing {visibleThresholdRows.length} of {thresholdRows.length}
+                Showing {visibleThresholdGroups.length} of {thresholdCardCount} groups
+                {totalGroupedThresholdMembers > 0 ? ` (${rawThresholdRowCount} WITS rows)` : ""}
               </div>
             </div>
 
@@ -416,63 +462,86 @@ export const SettingsPage: React.FC<{
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive sm:rounded-xl sm:p-4 sm:text-sm">
                 {witsConfigError}
               </div>
-            ) : thresholdRows.length === 0 ? (
+            ) : thresholdGroups.length === 0 ? (
               <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 No WITS config rows were returned by /api/wits-config.
               </div>
-            ) : visibleThresholdRows.length === 0 ? (
+            ) : visibleThresholdGroups.length === 0 ? (
               <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground sm:rounded-xl sm:p-4 sm:text-sm">
                 No threshold parameters match {thresholdSearch}.
               </div>
             ) : (
               <div className="grid gap-2 min-[420px]:grid-cols-2 sm:gap-3 2xl:grid-cols-4">
-                {visibleThresholdRows.map((config) => {
-                  const draft = getThresholdDraft(config);
-                  const resolved = resolveWitsConfigThreshold(config, settings.thresholds);
-                  const witsId = String(config.numericId).padStart(4, "0");
-                  const label = config.name || config.lasMnemonic || `WITS ${witsId}`;
-                  const readOnly = isGeneratedConfigId(config);
+                {visibleThresholdGroups.map((group) => {
+                  const draft = getThresholdDraft(group);
+                  const resolvedSources = getGroupResolvedSources(group);
+                  const memberWitsIds = getGroupMemberWitsIds(group);
+                  const visibleWitsIds = memberWitsIds.slice(0, 6);
+                  const hiddenWitsIdCount = Math.max(0, memberWitsIds.length - visibleWitsIds.length);
+                  const readOnly = getGroupReadOnly(group);
+                  const readOnlyCount = group.configs.filter(isGeneratedConfigId).length;
+                  const decimalLabels = Array.from(
+                    new Set(
+                      group.configs
+                        .map((config) => config.decimalPlaces)
+                        .filter((value): value is number => value !== undefined)
+                    )
+                  );
+                  const decimalLabel = decimalLabels.length === 0 ? null : decimalLabels.length === 1 ? decimalLabels[0] : "Mixed";
 
                   return (
-                    <div key={config.id} className="rounded-lg border border-border/80 bg-background/70 p-2.5 sm:rounded-xl sm:p-3">
+                    <div key={group.key} className="rounded-lg border border-border/80 bg-background/70 p-2.5 sm:rounded-xl sm:p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <Label className="text-xs font-medium sm:text-sm">{label}</Label>
+                          <Label className="text-xs font-medium sm:text-sm">{group.label}</Label>
                           <div className="truncate text-xs text-muted-foreground">
-                            WITS {witsId} {config.units ? `| ${config.units}` : "| No unit"}
+                            {group.unit} | {group.configs.length} WITS ID{group.configs.length > 1 ? "s" : ""}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground sm:px-2 sm:text-[10px]">
-                            {config.mappedField || config.dataSourceType}
+                            {group.mappedField || group.category}
                           </span>
                           <Switch
                             checked={draft.alarmEnabled}
                             disabled={!canManageSettings || thresholdsSaving || readOnly}
-                            onCheckedChange={(alarmEnabled) => patchThreshold(config.id, { alarmEnabled })}
+                            onCheckedChange={(alarmEnabled) => patchThreshold(group.key, { alarmEnabled })}
                           />
                         </div>
+                      </div>
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {visibleWitsIds.map((witsId) => (
+                          <span key={witsId} className="rounded-full border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            WITS {witsId}
+                          </span>
+                        ))}
+                        {hiddenWitsIdCount > 0 ? (
+                          <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            +{hiddenWitsIdCount} more
+                          </span>
+                        ) : null}
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <ThresholdInput
                           label="Low"
                           value={draft.alarmLow}
                           disabled={!canManageSettings || thresholdsSaving || readOnly}
-                          onChange={(alarmLow) => patchThreshold(config.id, { alarmLow })}
+                          onChange={(alarmLow) => patchThreshold(group.key, { alarmLow })}
                         />
                         <ThresholdInput
                           label="High"
                           value={draft.alarmHigh}
                           disabled={!canManageSettings || thresholdsSaving || readOnly}
-                          onChange={(alarmHigh) => patchThreshold(config.id, { alarmHigh })}
+                          onChange={(alarmHigh) => patchThreshold(group.key, { alarmHigh })}
                         />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-                        <span>Scale {config.leftScale} - {config.rightScale}</span>
-                        {config.decimalPlaces !== undefined ? <span>Decimals {config.decimalPlaces}</span> : null}
-                        <span>Low {resolved.lowSource}</span>
-                        <span>High {resolved.highSource}</span>
+                        <span>Scale {getGroupScaleLabel(group)}</span>
+                        {decimalLabel !== null ? <span>Decimals {decimalLabel}</span> : null}
+                        <span>Low {resolvedSources.low}</span>
+                        <span>High {resolvedSources.high}</span>
                         {readOnly ? <span>Read-only: missing backend id</span> : null}
+                        {!readOnly && readOnlyCount > 0 ? <span>{readOnlyCount} read-only member(s) skipped on save</span> : null}
                       </div>
                     </div>
                   );

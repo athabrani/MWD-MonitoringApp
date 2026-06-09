@@ -17,6 +17,7 @@ import { VerticalTrajectory } from "@/components/contents/trajectory/vertical-tr
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { createSurveysFromMwdData, getSurveys } from "@/lib/surveys-api";
+import { logSecurityDebug, logSecurityError } from "@/lib/security/errors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -141,19 +142,15 @@ export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ onNavigate }) =>
       setActualSurveys(actual);
       setPlannedSurveys(plan);
 
-      if (process.env.NODE_ENV === "development") {
-        console.info("[Trajectory Analysis] survey load", {
-          sessionId: activeMwdSessionId,
-          actualCount: actual.length,
-          plannedCount: plan.length,
-          actualSample: actual[0] ?? null,
-          plannedSample: plan[0] ?? null,
-        });
-      }
+      logSecurityDebug("[Trajectory Analysis] survey load", {
+        sessionId: activeMwdSessionId,
+        actualCount: actual.length,
+        plannedCount: plan.length,
+        actualSample: actual[0] ?? null,
+        plannedSample: plan[0] ?? null,
+      });
     } catch (nextError) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load trajectory surveys.", nextError);
-      }
+      logSecurityError("Unable to load trajectory surveys.", nextError);
       setActualSurveys([]);
       setPlannedSurveys([]);
       setError("Gagal memuat survey trajectory dari backend.");

@@ -20,6 +20,7 @@ import {
   surveyRecordToPayload,
   updateSurvey,
 } from "@/lib/surveys-api";
+import { logSecurityError } from "@/lib/security/errors";
 import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from "@/lib/survey-defaults";
 import { SurveyRecord } from "@/types/monitoring";
 
@@ -84,9 +85,7 @@ export default function WellplanSurveysPage({
       });
       setSurveys(rows);
     } catch (loadError) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load wellplan surveys.", loadError);
-      }
+      logSecurityError("Unable to load wellplan surveys.", loadError);
       const message = "Gagal memuat data dari backend.";
       setSurveys([]);
       setError(message);

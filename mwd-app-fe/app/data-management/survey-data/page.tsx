@@ -49,6 +49,7 @@ import {
   updateSurvey,
 } from "@/lib/surveys-api";
 import { downloadBlob, exportSurveys, type SurveyExportFormat } from "@/lib/exports-api";
+import { logSecurityError } from "@/lib/security/errors";
 import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from "@/lib/survey-defaults";
 import { cn } from "@/lib/utils";
 
@@ -210,9 +211,7 @@ export default function SurveyDataPage({
         return surveys[0]?.id ?? "";
       });
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load surveys.", error);
-      }
+      logSecurityError("Unable to load surveys.", error);
       const message = "Gagal memuat data dari backend.";
       setSurveysError(message);
       toast.error(message);
@@ -384,9 +383,7 @@ export default function SurveyDataPage({
       const detail = await getSurveyById(token, record.id);
       setEditRecord(detail);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load survey detail.", error);
-      }
+      logSecurityError("Unable to load survey detail.", error);
       const message = "Gagal memuat data dari backend.";
       setSurveysError(message);
       toast.error(message);
@@ -713,25 +710,25 @@ export default function SurveyDataPage({
       ) : null}
 
       <Card className="overflow-hidden rounded-2xl p-0">
-        <div className="grid gap-3 border-b px-3 py-3 sm:px-5 sm:py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-          <div className="min-w-0">
+        <div className="space-y-3 border-b px-3 py-3 sm:px-5 sm:py-4 lg:space-y-4">
+          <div className="min-w-0 lg:flex lg:items-center lg:justify-between lg:gap-4">
             <h2 className="text-base font-semibold sm:text-lg">Survey List</h2>
-            <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5 sm:gap-2">
-              <Badge variant="outline">{surveyRecords.length} records</Badge>
-              <Badge variant="secondary">{reverseSort ? "Oldest first" : "Newest first"}</Badge>
-              <Badge variant={activeMwdSessionId ? "outline" : "secondary"} className="max-w-full">
-                {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "No active session"}
-              </Badge>
-              <Badge variant="outline">
-                Depth {plotConfig.depthFrom.toFixed(2)}-{plotConfig.depthTo.toFixed(2)}
-              </Badge>
-              {surveysLoading ? <Badge variant="outline">Loading API</Badge> : null}
-            </div>
           </div>
-          <div className="grid min-w-0 gap-2 min-[300px]:grid-cols-2 sm:flex sm:flex-wrap sm:justify-end lg:max-w-[680px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2  lg:px-3 lg:py-2">
+            <Badge variant="outline">{surveyRecords.length} records</Badge>
+            <Badge variant="secondary">{reverseSort ? "Oldest first" : "Newest first"}</Badge>
+            <Badge variant={activeMwdSessionId ? "outline" : "secondary"} className="max-w-full">
+              {activeMwdSessionId ? `Session ${activeMwdSessionId}` : "No active session"}
+            </Badge>
+            <Badge variant="outline">
+              Depth {plotConfig.depthFrom.toFixed(2)}-{plotConfig.depthTo.toFixed(2)}
+            </Badge>
+            {surveysLoading ? <Badge variant="outline">Loading API</Badge> : null}
+          </div>
+          <div className="grid min-w-0 gap-2 min-[300px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center sm:justify-start lg:flex lg:flex-wrap lg:justify-end lg:gap-2 lg:p-2 lg:[&>*]:shrink-0 xl:flex-nowrap">
             {canManageSurveys ? (
               <>
-                <div className="contents sm:flex sm:flex-wrap sm:justify-end sm:gap-2">
+                <div className="contents sm:contents">
                   <Button
                     size="sm"
                     variant="outline"
@@ -776,7 +773,7 @@ export default function SurveyDataPage({
                   className="hidden"
                   onChange={(event) => void handleImportSurveyCsv(event.target.files?.[0])}
                 />
-                <div className="contents sm:flex sm:flex-wrap sm:justify-end sm:gap-2">
+                <div className="contents sm:contents">
                   <Button
                     size="sm"
                     variant="outline"
@@ -831,24 +828,24 @@ export default function SurveyDataPage({
             </Button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-5">
+        <div className="grid gap-3 px-3 py-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
           {selectedSurvey ? (
-            <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
-              <div>
+            <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-xs text-muted-foreground">MD</div>
                 <div className="font-mono font-medium">{selectedSurvey.md.toFixed(2)}</div>
               </div>
-              <div>
+              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-xs text-muted-foreground">Inc / Azm</div>
                 <div className="font-mono font-medium">
                   {selectedSurvey.inc.toFixed(2)} / {selectedSurvey.azm.toFixed(2)}
                 </div>
               </div>
-              <div>
+              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-xs text-muted-foreground">Mode</div>
                 <div className="font-medium">{selectedSurvey.toolfaceMode}</div>
               </div>
-              <div>
+              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-xs text-muted-foreground">Captured</div>
                 <div className="font-medium">{format(new Date(selectedSurvey.timestamp), "dd MMM HH:mm")}</div>
               </div>
@@ -856,7 +853,7 @@ export default function SurveyDataPage({
           ) : (
             <div className="text-sm text-muted-foreground">No survey selected.</div>
           )}
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/60 px-3 py-2 text-sm lg:justify-self-end">
             <span className="text-muted-foreground">Rows</span>
             <select
               className="h-8 rounded-md border bg-background px-2 text-sm"

@@ -51,6 +51,7 @@ import {
   MemoryFilePoint,
   MemoryFileRecord,
 } from "@/lib/memory-files-api";
+import { logSecurityError } from "@/lib/security/errors";
 import {
   parseMemoryCsv,
   validateMemoryWitsId,
@@ -315,9 +316,7 @@ export function MemoryImportWizard() {
       setBackendMemoryFiles(files);
       setSelectedBackendFileId((current) => current || files[0]?.id || "");
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load memory files.", error);
-      }
+      logSecurityError("Unable to load memory files.", error);
       setMemoryFilesError("Gagal memuat data dari backend.");
     } finally {
       setMemoryFilesLoading(false);
@@ -343,9 +342,7 @@ export function MemoryImportWizard() {
         setBackendFileDetail(detail);
         setBackendFilePoints(points);
       } catch (error) {
-        if (process.env.NODE_ENV === "development") {
-          console.error("Unable to load memory file detail.", error);
-        }
+        logSecurityError("Unable to load memory file detail.", error);
         setMemoryFilesError("Gagal memuat data dari backend.");
       } finally {
         setMemoryFileDetailLoading(false);
@@ -367,9 +364,7 @@ export function MemoryImportWizard() {
       );
       setBackendCorrelations(correlations);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load memory correlations.", error);
-      }
+      logSecurityError("Unable to load memory correlations.", error);
       setCorrelationError("Gagal memuat data dari backend.");
     }
   }, [activeMwdSessionId, token]);

@@ -52,6 +52,7 @@ import {
   updatePlotTemplate,
 } from "@/lib/plot-templates-api";
 import { getRenderableTracksFromPlotConfig, isTrackEnabled } from "@/lib/plot-track-config";
+import { logSecurityError } from "@/lib/security/errors";
 import { cn } from "@/lib/utils";
 import {
   AzimuthalPlotSettings,
@@ -1245,7 +1246,18 @@ function TrackFormattingEditor({
 
   useEffect(() => {
     if (normalizedTracks.some((track) => track.id === activeTrackId)) return;
-    setActiveTrackId(normalizedTracks[0]?.id ?? "");
+    const nextActiveTrackId = normalizedTracks[0]?.id ?? "";
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setActiveTrackId(nextActiveTrackId);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeTrackId, normalizedTracks]);
 
   const addTrack = () => {
@@ -1882,9 +1894,7 @@ export default function PlottingPage({
           toast.message("Plot template detail returned metadata only. Using current local configuration.");
         }
       } catch (error) {
-        if (process.env.NODE_ENV === "development") {
-          console.error("Unable to load plot template detail.", error);
-        }
+        logSecurityError("Unable to load plot template detail.", error);
         toast.error("Gagal memuat data dari backend.");
       } finally {
         setLoadingConfigId("");
@@ -1940,9 +1950,7 @@ export default function PlottingPage({
 
       toast.success(`${normalizedConfig.name} preview loaded from ${general.depthRange.start}-${general.depthRange.end} ${general.depthCorrection}`);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load MWD data for plot preview.", error);
-      }
+      logSecurityError("Unable to load MWD data for plot preview.", error);
       const message = "Gagal memuat data dari backend.";
       setPreviewError(message);
       toast.error("Plot preview failed", { description: message });

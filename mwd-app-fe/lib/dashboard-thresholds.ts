@@ -46,6 +46,15 @@ export type ResolvedWitsConfigThreshold = {
   highSource: "backend" | "default" | "empty";
 };
 
+export type WitsThresholdGroup = {
+  key: string;
+  label: string;
+  unit: string;
+  mappedField?: string;
+  category: string;
+  configs: PolarisWitsId[];
+};
+
 export function buildDefaultDashboardThresholds(): ThresholdSettings[] {
   return dashboardThresholdDefinitions.map((definition) => ({
     parameter: definition.key,
@@ -138,6 +147,52 @@ function inferDashboardThresholdKeys(config: PolarisWitsId) {
   return Array.from(keys);
 }
 
+function getThresholdGroupLabel(config: PolarisWitsId) {
+  return config.name || config.lasMnemonic || config.lasDescription || `WITS ${formatWitsId(config.numericId)}`;
+}
+
+function getThresholdGroupUnit(config: PolarisWitsId) {
+  return config.units || "No unit";
+}
+
+function normalizeThresholdGroupTitle(title: string) {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function getWitsThresholdGroupKey(config: PolarisWitsId) {
+  return `title:${normalizeThresholdGroupTitle(getThresholdGroupLabel(config))}`;
+}
+
+export function groupWitsThresholdConfigs(configs: PolarisWitsId[]): WitsThresholdGroup[] {
+  const groups = new Map<string, WitsThresholdGroup>();
+
+  for (const config of configs) {
+    const key = getWitsThresholdGroupKey(config);
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.configs.push(config);
+      continue;
+    }
+
+    groups.set(key, {
+      key,
+      label: getThresholdGroupLabel(config),
+      unit: getThresholdGroupUnit(config),
+      mappedField: config.mappedField,
+      category: config.realTimePlot || config.dataSourceType || "parameter",
+      configs: [config],
+    });
+  }
+
+  return Array.from(groups.values()).sort((left, right) => {
+    const leftFirst = left.configs[0]?.numericId ?? 0;
+    const rightFirst = right.configs[0]?.numericId ?? 0;
+    if (left.label !== right.label) return left.label.localeCompare(right.label);
+    return leftFirst - rightFirst;
+  });
+}
+
 function getDefaultThresholdForWitsConfig(
   config: PolarisWitsId,
   fallbackThresholds: ThresholdSettings[] = []
@@ -186,21 +241,29 @@ export function buildDashboardThresholdsFromWitsConfig(
 
   const byParameter = new Map(fallback.map((threshold) => [threshold.parameter, threshold]));
 
-  for (const config of configs) {
-    const resolved = resolveWitsConfigThreshold(config, fallbackThresholds);
+  for (const group of groupWitsThresholdConfigs(configs)) {
+    const representativeConfig = group.configs[0];
+    if (!representativeConfig) {
+      continue;
+    }
+
+    const resolved = resolveWitsConfigThreshold(representativeConfig, fallbackThresholds);
     const low = Number.isFinite(resolved.low) ? resolved.low : undefined;
     const high = Number.isFinite(resolved.high) ? resolved.high : undefined;
-    const keys = inferDashboardThresholdKeys(config);
 
-    for (const parameter of keys) {
-      byParameter.set(parameter, {
-        parameter,
-        enabled: resolved.enabled,
-        low,
-        high,
-        warning: high ?? low ?? 0,
-        critical: high ?? low ?? 0,
-      });
+    for (const config of group.configs) {
+      const keys = inferDashboardThresholdKeys(config);
+
+      for (const parameter of keys) {
+        byParameter.set(parameter, {
+          parameter,
+          enabled: resolved.enabled,
+          low,
+          high,
+          warning: high ?? low ?? 0,
+          critical: high ?? low ?? 0,
+        });
+      }
     }
   }
 

@@ -200,21 +200,21 @@ export const DashboardPage: React.FC = () => {
         ? 'Auth error'
         : backendRestStatus;
   const dashboardHealthItems = [
-    {
-      label: 'Browser',
-      value: networkStatus,
-      tone: networkStatus === 'offline' ? 'destructive' : networkStatus === 'online' ? 'secondary' : 'outline',
-    },
-    {
-      label: 'Backend',
-      value: backendStatusLabel,
-      tone:
-        backendRestStatus === 'online'
-          ? 'secondary'
-          : backendRestStatus === 'checking' || backendRestStatus === 'unknown'
-            ? 'outline'
-            : 'destructive',
-    },
+    // {
+    //   label: 'Browser',
+    //   value: networkStatus,
+    //   tone: networkStatus === 'offline' ? 'destructive' : networkStatus === 'online' ? 'secondary' : 'outline',
+    // },
+    // {
+    //   label: 'Backend',
+    //   value: backendStatusLabel,
+    //   tone:
+    //     backendRestStatus === 'online'
+    //       ? 'secondary'
+    //       : backendRestStatus === 'checking' || backendRestStatus === 'unknown'
+    //         ? 'outline'
+    //         : 'destructive',
+    // },
     {
       label: 'DTS',
       value: depthTrackingLabel,

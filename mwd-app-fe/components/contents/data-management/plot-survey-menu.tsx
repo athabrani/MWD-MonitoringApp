@@ -44,7 +44,7 @@ export function PlotSurveyMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline">
+          <Button size="sm" variant="outline" className="justify-center whitespace-nowrap">
             <LineChart className="mr-2 size-4" />
             Plot Surveys
             <ChevronDown className="ml-2 size-4" />

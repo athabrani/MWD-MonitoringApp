@@ -24,6 +24,7 @@ import {
   LasExportColumnPayload,
   LasWellInfoItem,
 } from "@/lib/exports-api";
+import { logSecurityError } from "@/lib/security/errors";
 import { cn } from "@/lib/utils";
 import { LasExportColumn, LasPreviewResult, LasPreset } from "@/types/las";
 
@@ -299,9 +300,7 @@ export default function GenerateLasPage({
       setExportRecords(records);
     } catch (error) {
       setExportRecords([]);
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load export history.", error);
-      }
+      logSecurityError("Unable to load export history.", error);
       setExportRecordsError("Gagal memuat data dari backend.");
     } finally {
       setExportRecordsLoading(false);

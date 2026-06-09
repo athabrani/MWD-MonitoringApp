@@ -28,6 +28,7 @@ import {
   WitsOutputQueueStatus,
 } from "@/lib/wits-output-api";
 import { getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
+import { logSecurityError } from "@/lib/security/errors";
 import { decodeWitsPacket } from "@/lib/wits-map";
 import { MonitoringMode, WitsPacketLog } from "@/types/monitoring";
 
@@ -183,9 +184,7 @@ export default function RigWitsPage({
       });
       setReceivedRecords(records);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load Rig WITS received data.", error);
-      }
+      logSecurityError("Unable to load Rig WITS received data.", error);
       setReceivedRecords([]);
       setReceivedError("Gagal memuat data dari backend.");
     } finally {
@@ -211,9 +210,7 @@ export default function RigWitsPage({
       });
       setOutputQueue(items);
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Unable to load WITS output queue.", error);
-      }
+      logSecurityError("Unable to load WITS output queue.", error);
       setOutputQueue([]);
       setOutputQueueError("Gagal memuat data dari backend.");
     } finally {
