@@ -1,0 +1,49 @@
+
+> mwd-app-be@1.0.0 start
+> node dist/server.js
+
+Native WebSocket initialized successfully on path /ws
+Express server running on http://0.0.0.0:5001
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] SERIAL_PORT=auto selected COM9
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[ESP WS] Connecting to ws://192.168.137.141:81
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200
+[Serial GW] Opening COM9 @ 115200

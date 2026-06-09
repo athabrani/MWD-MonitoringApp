@@ -4,7 +4,11 @@
   "scripts": {
     "install:all": "cd mwd-app-be && npm install && cd ../mwd-app-fe && npm install",
     "dev": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run dev\" \"npm --prefix mwd-app-fe run dev\"",
+    "dev:port-3001": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run dev\" \"npm --prefix mwd-app-fe run dev:port-3001\"",
+    "setup:local": "npm --prefix mwd-app-be run prisma:generate && npm --prefix mwd-app-be run prisma:migrate && npm --prefix mwd-app-be run build",
+    "seed:local": "npm --prefix mwd-app-be run seed",
     "build": "npm --prefix mwd-app-be run build && npm --prefix mwd-app-fe run build",
+    "start:local": "npm run build && concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start:port-3001\"",
     "start": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start\"",
     "clean": "rimraf mwd-app-be/dist mwd-app-fe/.next"
   },
