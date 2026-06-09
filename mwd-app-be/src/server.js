@@ -7,4 +7,5 @@ app.listen(PORT, () => {
 app.get("/", (req, res) => {
     res.send("Hello from the server!");
 });
+//http:/localhost:5001
 //# sourceMappingURL=server.js.map

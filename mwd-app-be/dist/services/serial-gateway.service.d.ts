@@ -1,0 +1,116 @@
+export type SerialGatewayConnectOptions = {
+    path: string;
+    baudRate?: number;
+    sessionId?: number;
+    source?: string;
+    transmitterId?: string;
+    reconnectMs?: number;
+    verbose?: boolean;
+};
+export type SerialGatewayStatus = {
+    enabled: boolean;
+    connected: boolean;
+    reconnecting: boolean;
+    path: string | null;
+    baudRate: number | null;
+    sessionId: number | null;
+    source: string;
+    transmitterId: string | null;
+    startedAt: string | null;
+    connectedAt: string | null;
+    lastReceivedAt: string | null;
+    lastIngestedAt: string | null;
+    lastLine: string | null;
+    lastPayload: string | null;
+    lastError: string | null;
+    signal: {
+        rssi: number | null;
+        snr: number | null;
+        sequence: string | null;
+        quality: "unknown" | "good" | "fair" | "poor";
+        lastUpdatedAt: string | null;
+    };
+    ingestedCount: number;
+    ignoredCount: number;
+};
+export declare const listSerialPorts: () => Promise<import("@serialport/bindings-cpp").PortInfo[]>;
+export declare const getSerialGatewayStatus: () => {
+    enabled: boolean;
+    connected: boolean;
+    reconnecting: boolean;
+    path: string | null;
+    baudRate: number | null;
+    sessionId: number | null;
+    source: string;
+    transmitterId: string | null;
+    startedAt: string | null;
+    connectedAt: string | null;
+    lastReceivedAt: string | null;
+    lastIngestedAt: string | null;
+    lastLine: string | null;
+    lastPayload: string | null;
+    lastError: string | null;
+    signal: {
+        rssi: number | null;
+        snr: number | null;
+        sequence: string | null;
+        quality: "unknown" | "good" | "fair" | "poor";
+        lastUpdatedAt: string | null;
+    };
+    ingestedCount: number;
+    ignoredCount: number;
+};
+export declare const connectSerialGateway: (options: SerialGatewayConnectOptions) => Promise<{
+    enabled: boolean;
+    connected: boolean;
+    reconnecting: boolean;
+    path: string | null;
+    baudRate: number | null;
+    sessionId: number | null;
+    source: string;
+    transmitterId: string | null;
+    startedAt: string | null;
+    connectedAt: string | null;
+    lastReceivedAt: string | null;
+    lastIngestedAt: string | null;
+    lastLine: string | null;
+    lastPayload: string | null;
+    lastError: string | null;
+    signal: {
+        rssi: number | null;
+        snr: number | null;
+        sequence: string | null;
+        quality: "unknown" | "good" | "fair" | "poor";
+        lastUpdatedAt: string | null;
+    };
+    ingestedCount: number;
+    ignoredCount: number;
+}>;
+export declare const disconnectSerialGateway: () => Promise<{
+    enabled: boolean;
+    connected: boolean;
+    reconnecting: boolean;
+    path: string | null;
+    baudRate: number | null;
+    sessionId: number | null;
+    source: string;
+    transmitterId: string | null;
+    startedAt: string | null;
+    connectedAt: string | null;
+    lastReceivedAt: string | null;
+    lastIngestedAt: string | null;
+    lastLine: string | null;
+    lastPayload: string | null;
+    lastError: string | null;
+    signal: {
+        rssi: number | null;
+        snr: number | null;
+        sequence: string | null;
+        quality: "unknown" | "good" | "fair" | "poor";
+        lastUpdatedAt: string | null;
+    };
+    ingestedCount: number;
+    ignoredCount: number;
+}>;
+export declare const startSerialGateway: () => Promise<(() => void) | undefined>;
+//# sourceMappingURL=serial-gateway.service.d.ts.map
