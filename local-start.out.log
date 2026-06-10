@@ -86,3 +86,4 @@ Route (pages)
 [backend] 
 [backend] The table `public.Role` does not exist in the current database.
 [backend] npm --prefix mwd-app-be run start exited with code 1
+[frontend] npm --prefix mwd-app-fe run start:port-3001 exited with code 1
