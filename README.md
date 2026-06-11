@@ -40,6 +40,8 @@ DATABASE_URL="postgresql://postgres:password_lokal_anda@localhost:5432/mwd_db"
 JWT_SECRET="change_this_secret_at_least_32_characters"
 CORS_ORIGIN="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://100.110.181.15:3000"
 GATEWAY_API_KEY="change_this_gateway_key_at_least_32_chars"
+ESP_WS_GATEWAY_ENABLED=false
+ESP_WS_URL=
 SERIAL_GATEWAY_ENABLED=false
 SERIAL_PORT=auto
 SERIAL_BAUD_RATE=115200
@@ -66,18 +68,17 @@ copy mwd-app-fe\.env.example mwd-app-fe\.env.local
 Local default:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:5001
 NEXT_PUBLIC_API_BASE_URL=http://localhost:5001
 NEXT_PUBLIC_WS_URL=ws://localhost:5001/ws
-NEXT_PUBLIC_SYSTEM_HEALTH_PATH=/
+NEXT_PUBLIC_SYSTEM_HEALTH_PATH=/api/health
 ```
 
 Untuk akses dari device lain di jaringan lokal, ganti `localhost` dengan IP laptop/server:
 
 ```env
-NEXT_PUBLIC_API_URL=http://<IP-LAPTOP>:5001
 NEXT_PUBLIC_API_BASE_URL=http://<IP-LAPTOP>:5001
 NEXT_PUBLIC_WS_URL=ws://<IP-LAPTOP>:5001/ws
+NEXT_PUBLIC_SYSTEM_HEALTH_PATH=/api/health
 ```
 
 Tambahkan origin frontend network ke backend:

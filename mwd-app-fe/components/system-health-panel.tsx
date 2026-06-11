@@ -17,7 +17,7 @@ import {
 } from "@/lib/gateway-raw-packets-api";
 import { cn } from "@/lib/utils";
 
-type HealthLevel = "connected" | "degraded" | "disconnected" | "loading" | "unknown";
+type HealthLevel = "connected" | "degraded" | "disconnected" | "disabled" | "loading" | "unknown";
 
 type HealthItem = {
   key: string;
@@ -45,7 +45,10 @@ function normalizeLevel(value?: string): HealthLevel {
   const status = value?.toLowerCase();
 
   if (!status) return "unknown";
-  if (status === "connected" || status === "online" || status === "open") return "connected";
+  if (status === "connected" || status === "online" || status === "open" || status === "ok" || status === "healthy") {
+    return "connected";
+  }
+  if (status === "disabled") return "disabled";
   if (status === "connecting" || status === "reconnecting" || status === "degraded") return "degraded";
   if (status === "disconnected" || status === "offline" || status === "closed" || status === "error") {
     return "disconnected";
@@ -318,6 +321,7 @@ export function SystemHealthPanel({
       value: systemHealthLoading ? "Loading" : systemHealth?.status ?? "Unavailable",
       description:
         systemHealthError ||
+        systemHealth?.message ||
         [
           systemHealth?.version ? `Version ${systemHealth.version}` : null,
           systemHealth?.databaseStatus ? `DB ${systemHealth.databaseStatus}` : null,

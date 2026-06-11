@@ -43,12 +43,13 @@ import {
   deleteSurvey,
   getSurveyById,
   getSurveys,
-  importSurveysCsv,
+  importSurveysCsvDetailed,
   recalculateSurveys,
   surveyRecordToPayload,
   updateSurvey,
 } from "@/lib/surveys-api";
 import { downloadBlob, exportSurveys, type SurveyExportFormat } from "@/lib/exports-api";
+import { collectImportSources, countCsvRecords, ImportSourceBatch } from "@/lib/import-sources";
 import { logSecurityError } from "@/lib/security/errors";
 import { DEFAULT_VERTICAL_SECTION_AZIMUTH } from "@/lib/survey-defaults";
 import { cn } from "@/lib/utils";
@@ -152,6 +153,7 @@ export default function SurveyDataPage({
   const { token, user } = useAuth();
   const { activeMwdSessionId } = useApp();
   const surveyImportInputRef = useRef<HTMLInputElement | null>(null);
+  const surveyFolderImportInputRef = useRef<HTMLInputElement | null>(null);
   const [surveyInput, setSurveyInput] = useState<SurveyInputSummary>(emptySurveyInput);
   const [manualStationType, setManualStationType] = useState<"actual" | "plan">("actual");
   const [surveyRecords, setSurveyRecords] = useState<SurveyRecord[]>([]);
@@ -176,6 +178,12 @@ export default function SurveyDataPage({
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [storageConfig, setStorageConfig] = useState<SurveyStorageConfig>(defaultSurveyStorageConfig);
   const [editRecord, setEditRecord] = useState<SurveyRecord | null>(null);
+  const [surveyImportBatch, setSurveyImportBatch] = useState<ImportSourceBatch | null>(null);
+  const [surveyImportResult, setSurveyImportResult] = useState<{
+    imported: Array<{ fileName: string; rows: number; skipped: number }>;
+    failed: Array<{ fileName: string; message: string }>;
+    visibleRows: number;
+  } | null>(null);
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const canManageSurveys = user?.role === "engineer" || user?.role === "admin";
 
@@ -184,14 +192,14 @@ export default function SurveyDataPage({
       setSurveysError("");
       setSurveyRecords([]);
       setSelectedSurveyId("");
-      return;
+      return [];
     }
 
     if (!activeMwdSessionId) {
       setSurveysError("");
       setSurveyRecords([]);
       setSelectedSurveyId("");
-      return;
+      return [];
     }
 
     setSurveysLoading(true);
@@ -210,11 +218,13 @@ export default function SurveyDataPage({
         if (current && surveys.some((survey) => survey.id === current)) return current;
         return surveys[0]?.id ?? "";
       });
+      return surveys;
     } catch (error) {
       logSecurityError("Unable to load surveys.", error);
       const message = "Gagal memuat data dari backend.";
       setSurveysError(message);
       toast.error(message);
+      return [];
     } finally {
       setSurveysLoading(false);
     }
@@ -223,6 +233,11 @@ export default function SurveyDataPage({
   useEffect(() => {
     void loadSurveys();
   }, [loadSurveys]);
+
+  useEffect(() => {
+    surveyFolderImportInputRef.current?.setAttribute("webkitdirectory", "");
+    surveyFolderImportInputRef.current?.setAttribute("directory", "");
+  }, []);
 
   const sortedRecords = useMemo(() => {
     const copy = [...surveyRecords].sort(
@@ -522,53 +537,125 @@ export default function SurveyDataPage({
     }
   };
 
-  const handleImportSurveyCsv = async (file?: File) => {
-    if (!file) return;
+  const handlePrepareSurveyCsvBatch = async (files?: FileList | null) => {
+    if (!files || files.length === 0) return;
 
     if (!token) {
       toast.warning("Backend login is required to import survey CSV.");
       if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      if (surveyFolderImportInputRef.current) surveyFolderImportInputRef.current.value = "";
       return;
     }
 
     if (!canManageSurveys) {
       toast.warning("Only admin or engineer users can import survey CSV.");
       if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
-      return;
-    }
-
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      toast.error("Survey import requires a .csv file.");
-      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      if (surveyFolderImportInputRef.current) surveyFolderImportInputRef.current.value = "";
       return;
     }
 
     if (!activeMwdSessionId) {
       toast.error("Select an active MWD session before importing survey CSV.");
       if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      if (surveyFolderImportInputRef.current) surveyFolderImportInputRef.current.value = "";
+      return;
+    }
+
+    setSurveysActionLoading("scan-csv");
+    setSurveysError("");
+    setSurveyImportBatch(null);
+    setSurveyImportResult(null);
+
+    try {
+      const batch = await collectImportSources(files);
+      setSurveyImportBatch(batch);
+      if (batch.validCsvCount === 0) {
+        toast.warning("No valid survey CSV files found.");
+      } else {
+        toast.success(`${batch.validCsvCount} survey CSV file(s) ready for import.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to scan survey import files.";
+      setSurveysError(message);
+      toast.error("Unable to scan survey import files", { description: message });
+    } finally {
+      setSurveysActionLoading("");
+      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
+      if (surveyFolderImportInputRef.current) surveyFolderImportInputRef.current.value = "";
+    }
+  };
+
+  const handleCommitSurveyCsvBatch = async () => {
+    if (!surveyImportBatch || surveyImportBatch.validSources.length === 0) {
+      toast.error("Select at least one valid CSV before importing.");
+      return;
+    }
+
+    if (!token || !canManageSurveys || !activeMwdSessionId) {
+      toast.warning("Backend login, engineer/admin access, and an active session are required.");
       return;
     }
 
     setSurveysActionLoading("import-csv");
     setSurveysError("");
 
+    const imported: Array<{ fileName: string; rows: number; skipped: number }> = [];
+    const failed: Array<{ fileName: string; message: string }> = [];
+
+    for (const source of surveyImportBatch.validSources) {
+      try {
+        const result = await importSurveysCsvDetailed(token, {
+          content: source.content,
+          sessionId: activeMwdSessionId,
+          stationType: "actual",
+          verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
+        });
+
+        if (result.importedCount <= 0) {
+          failed.push({
+            fileName: source.fileName,
+            message: result.errors[0] ?? "CSV parsed but no valid survey rows were stored.",
+          });
+          continue;
+        }
+
+        imported.push({
+          fileName: source.fileName,
+          rows: result.importedCount,
+          skipped: result.skippedCount,
+        });
+
+        if (result.errors.length > 0) {
+          failed.push({
+            fileName: source.fileName,
+            message: `${result.errors.length} row(s) skipped: ${result.errors.slice(0, 2).join("; ")}`,
+          });
+        }
+      } catch (error) {
+        failed.push({
+          fileName: source.fileName,
+          message: error instanceof Error ? error.message : "Backend request failed.",
+        });
+      }
+    }
+
     try {
-      const content = await file.text();
-      await importSurveysCsv(token, {
-        content,
-        sessionId: activeMwdSessionId,
-        stationType: "plan",
-        verticalSectionAzimuth: DEFAULT_VERTICAL_SECTION_AZIMUTH,
-      });
-      toast.success("Survey CSV imported.");
-      await loadSurveys();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to import survey CSV.";
-      setSurveysError(message);
-      toast.error("Unable to import survey CSV", { description: message });
+      const refreshedSurveys = imported.length > 0 ? await loadSurveys() : surveyRecords;
+      setSurveyImportResult({ imported, failed, visibleRows: refreshedSurveys.length });
+
+      if (imported.length > 0 && refreshedSurveys.length === 0) {
+        const message = "Import returned stored rows, but Survey List still has no actual rows for the active session.";
+        setSurveysError(message);
+        toast.error("Survey import is not visible", { description: message });
+      } else if (imported.length > 0 && failed.length > 0) {
+        toast.warning(`${imported.reduce((total, item) => total + item.rows, 0)} survey row(s) imported, ${failed.length} file/row issue(s) reported.`);
+      } else if (imported.length > 0) {
+        toast.success(`${imported.reduce((total, item) => total + item.rows, 0)} survey row(s) imported and visible in Survey List.`);
+      } else {
+        toast.error("No survey CSV files were imported.");
+      }
     } finally {
       setSurveysActionLoading("");
-      if (surveyImportInputRef.current) surveyImportInputRef.current.value = "";
     }
   };
 
@@ -629,6 +716,108 @@ export default function SurveyDataPage({
       {surveysError ? (
         <Card className="rounded-2xl border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {surveysError}
+        </Card>
+      ) : null}
+
+      {surveyImportBatch ? (
+        <Card className="space-y-3 rounded-2xl p-3 sm:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Survey import summary</h2>
+              <p className="text-xs text-muted-foreground sm:text-sm">
+                CSV files from single upload, multi-file upload, folder selection, or ZIP are normalized, stored as actual survey rows, then reloaded into Survey List for the active session.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => void handleCommitSurveyCsvBatch()}
+                disabled={surveysActionLoading === "import-csv" || surveyImportBatch.validCsvCount === 0}
+              >
+                {surveysActionLoading === "import-csv" ? "Importing..." : "Import Valid CSVs"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSurveyImportBatch(null);
+                  setSurveyImportResult(null);
+                }}
+                disabled={surveysActionLoading === "import-csv"}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryMetric label="Selected" value={String(surveyImportBatch.inputFileCount)} />
+            <SummaryMetric label="ZIP files" value={String(surveyImportBatch.zipFileCount)} />
+            <SummaryMetric label="Discovered" value={String(surveyImportBatch.discoveredFileCount)} />
+            <SummaryMetric label="Valid CSV" value={String(surveyImportBatch.validCsvCount)} />
+            <SummaryMetric label="Skipped" value={String(surveyImportBatch.skippedSources.length)} />
+          </div>
+          {surveyImportBatch.duplicateFileNames.length > 0 ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+              Duplicate file names: {surveyImportBatch.duplicateFileNames.join(", ")}
+            </div>
+          ) : null}
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-lg border p-3">
+              <div className="text-sm font-semibold">Valid CSV files</div>
+              <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-muted-foreground">
+                {surveyImportBatch.validSources.slice(0, 12).map((source) => (
+                  <div key={source.id} className="flex justify-between gap-3">
+                    <span className="truncate">{source.sourcePath}</span>
+                    <span className="shrink-0">{countCsvRecords(source.content)} rows</span>
+                  </div>
+                ))}
+                {surveyImportBatch.validSources.length > 12 ? <div>+{surveyImportBatch.validSources.length - 12} more</div> : null}
+              </div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-sm font-semibold">Skipped / invalid files</div>
+              <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-muted-foreground">
+                {surveyImportBatch.skippedSources.length > 0 ? (
+                  surveyImportBatch.skippedSources.slice(0, 12).map((source) => (
+                    <div key={`${source.sourcePath}-${source.reason}`} className="flex justify-between gap-3">
+                      <span className="truncate">{source.sourcePath}</span>
+                      <span className="shrink-0">{source.reason}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div>No skipped files.</div>
+                )}
+                {surveyImportBatch.skippedSources.length > 12 ? <div>+{surveyImportBatch.skippedSources.length - 12} more</div> : null}
+              </div>
+            </div>
+          </div>
+          {surveyImportResult ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                Imported rows: {surveyImportResult.imported.reduce((total, item) => total + item.rows, 0)}
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Visible in Survey List: {surveyImportResult.visibleRows}
+                </div>
+                {surveyImportResult.imported.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {surveyImportResult.imported.slice(0, 6).map((item) => (
+                      <div key={`${item.fileName}-${item.rows}`}>{item.fileName}: {item.rows} row(s){item.skipped > 0 ? `, ${item.skipped} skipped` : ""}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                Failed: {surveyImportResult.failed.length}
+                {surveyImportResult.failed.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {surveyImportResult.failed.slice(0, 6).map((failure) => (
+                      <div key={`${failure.fileName}-${failure.message}`}>{failure.fileName}: {failure.message}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 
@@ -769,9 +958,18 @@ export default function SurveyDataPage({
                 <input
                   ref={surveyImportInputRef}
                   type="file"
+                  accept=".csv,.zip,text/csv,application/zip"
+                  className="hidden"
+                  multiple
+                  onChange={(event) => void handlePrepareSurveyCsvBatch(event.target.files)}
+                />
+                <input
+                  ref={surveyFolderImportInputRef}
+                  type="file"
                   accept=".csv,text/csv"
                   className="hidden"
-                  onChange={(event) => void handleImportSurveyCsv(event.target.files?.[0])}
+                  multiple
+                  onChange={(event) => void handlePrepareSurveyCsvBatch(event.target.files)}
                 />
                 <div className="contents sm:contents">
                   <Button
@@ -779,10 +977,19 @@ export default function SurveyDataPage({
                     variant="outline"
                     className="justify-center whitespace-nowrap"
                     onClick={() => surveyImportInputRef.current?.click()}
-                    disabled={surveysActionLoading === "import-csv" || !token}
+                    disabled={surveysActionLoading === "import-csv" || surveysActionLoading === "scan-csv" || !token}
                   >
                     <FileUp className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
-                    {surveysActionLoading === "import-csv" ? "Importing..." : "Import Surveys"}
+                    {surveysActionLoading === "scan-csv" ? "Scanning..." : surveysActionLoading === "import-csv" ? "Importing..." : "Import CSV / ZIP"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="justify-center whitespace-nowrap"
+                    onClick={() => surveyFolderImportInputRef.current?.click()}
+                    disabled={surveysActionLoading === "import-csv" || surveysActionLoading === "scan-csv" || !token}
+                  >
+                    Select Folder
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -931,12 +1138,18 @@ export default function SurveyDataPage({
                       {record[column.key].toFixed(2)}
                     </td>
                   ))}
-                  <td className="px-3 py-3 text-right font-mono text-xs">12.75</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">
+                    {record.closureDistance === undefined ? "-" : record.closureDistance.toFixed(2)}
+                  </td>
                   <td className="px-3 py-3 text-right font-mono text-xs">{record.ns.toFixed(2)}</td>
                   <td className="px-3 py-3 text-right font-mono text-xs">{record.ew.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right font-mono text-xs">{record.isProjection ? record.dls.toFixed(2) : "0.00"}</td>
-                  <td className="px-3 py-3 text-right font-mono text-xs">0.00</td>
-                  <td className="px-3 py-3 text-center font-mono text-xs">1</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">
+                    {record.buildRate === undefined ? "-" : record.buildRate.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-xs">
+                    {record.turnRate === undefined ? "-" : record.turnRate.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-3 text-center font-mono text-xs">{record.run ?? "-"}</td>
                   <td className="px-3 py-3">{record.toolfaceMode}</td>
                   <td className="px-3 py-3 text-right text-xs">{record.isProjection ? "Projection" : "Standard"}</td>
                   <td className="px-4 py-3 text-right font-mono text-xs">{format(new Date(record.timestamp), "HH:mm:ss")}</td>
@@ -1052,5 +1265,14 @@ export default function SurveyDataPage({
     <AppLayout currentPage="data-management-survey-data" onNavigate={(page) => router.push(getAppPagePath(page))}>
       {content}
     </AppLayout>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-semibold">{value}</div>
+    </div>
   );
 }

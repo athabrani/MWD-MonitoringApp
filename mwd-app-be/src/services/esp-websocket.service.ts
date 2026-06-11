@@ -23,6 +23,7 @@ export type EspWebSocketGatewayStatus = {
   enabled: boolean
   connected: boolean
   reconnecting: boolean
+  status: 'disabled' | 'connected' | 'reconnecting' | 'disconnected'
   url: string | null
   sessionId: number | null
   source: string
@@ -64,6 +65,14 @@ const parsePositiveInt = (value: unknown) => {
   }
 
   return null
+}
+
+const parseBoolean = (value: unknown) => {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
 const parsePositiveNumber = (value: unknown, fallback: number) => {
@@ -111,6 +120,7 @@ const runtimeStatus: EspWebSocketGatewayStatus = {
   enabled: false,
   connected: false,
   reconnecting: false,
+  status: 'disabled',
   url: null,
   sessionId: null,
   source: 'esp32-websocket',
@@ -168,6 +178,11 @@ const updateSignalStatus = (
 
 export const getEspWebSocketGatewayStatus = () => ({
   ...runtimeStatus,
+  status: !runtimeStatus.enabled
+    ? 'disabled'
+    : runtimeStatus.connected
+      ? 'connected'
+      : 'disconnected',
 })
 
 const parseCsvSet = (value: unknown, fallback: string[]) => {
@@ -407,14 +422,16 @@ const toGatewayPayload = (
 }
 
 export const startEspWebSocketGateway = () => {
+  const enabled = parseBoolean(process.env.ESP_WS_GATEWAY_ENABLED)
   const url = process.env.ESP_WS_URL?.trim()
 
-  if (!url) {
+  if (!enabled || !url) {
     runtimeStatus.enabled = false
     runtimeStatus.connected = false
     runtimeStatus.reconnecting = false
+    runtimeStatus.status = 'disabled'
     runtimeStatus.url = null
-    console.log('[ESP WS] Disabled. Set ESP_WS_URL to enable ESP ingestion.')
+    console.log('[ESP WS] Disabled by configuration.')
     return
   }
 
@@ -452,6 +469,7 @@ export const startEspWebSocketGateway = () => {
   runtimeStatus.enabled = true
   runtimeStatus.connected = false
   runtimeStatus.reconnecting = false
+  runtimeStatus.status = 'disconnected'
   runtimeStatus.url = url
   runtimeStatus.sessionId = defaultSessionId
   runtimeStatus.source = source
@@ -481,6 +499,7 @@ export const startEspWebSocketGateway = () => {
 
     runtimeStatus.connected = false
     runtimeStatus.reconnecting = true
+    runtimeStatus.status = 'disconnected'
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connect()
@@ -624,6 +643,7 @@ export const startEspWebSocketGateway = () => {
       const responseMs = Date.now() - connectStartedAt
       runtimeStatus.connected = true
       runtimeStatus.reconnecting = false
+      runtimeStatus.status = 'connected'
       runtimeStatus.connectedAt = new Date().toISOString()
       runtimeStatus.lastError = null
       console.log(`[ESP WS] Connected to ${url}`)
@@ -656,6 +676,7 @@ export const startEspWebSocketGateway = () => {
     socket.addEventListener('close', (event) => {
       const reason = event.reason ? `: ${event.reason}` : ''
       runtimeStatus.connected = false
+      runtimeStatus.status = 'disconnected'
       runtimeStatus.lastError = `WebSocket closed (${event.code}${reason})`
       console.warn(`[ESP WS] Closed (${event.code}${reason})`)
       void recordConnectionStatus(
@@ -677,6 +698,7 @@ export const startEspWebSocketGateway = () => {
     runtimeStatus.enabled = false
     runtimeStatus.connected = false
     runtimeStatus.reconnecting = false
+    runtimeStatus.status = 'disabled'
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)

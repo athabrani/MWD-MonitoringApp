@@ -25,6 +25,13 @@ import userRoutes from "./routes/user.route.js";
 import witsConfigRoutes from "./routes/wits-config.route.js";
 import { witsAlarmRouter, witsDataRouter } from "./routes/wits-data.route.js";
 import witsOutputRoutes from "./routes/wits-output.route.js";
+import { prisma } from "./lib/prisma.js";
+import { getEspWebSocketGatewayStatus } from "./services/esp-websocket.service.js";
+import { getSerialGatewayStatus } from "./services/serial-gateway.service.js";
+import {
+  getConnectedClientCount,
+  getWebSocketInstance,
+} from "./services/websocket.service.js";
 import {
   csrfProtection,
   rateLimit,
@@ -81,6 +88,105 @@ const normalizeJsonValue = (value: unknown): unknown => {
   }
 
   return value;
+};
+
+const getGatewayHealthStatus = (gateway: {
+  enabled: boolean;
+  connected: boolean;
+  reconnecting: boolean;
+}) => {
+  if (!gateway.enabled) return "disabled";
+  if (gateway.connected) return "connected";
+  return "disconnected";
+};
+
+const getSystemHealth = async () => {
+  const checkedAt = new Date().toISOString();
+  const databaseStartedAt = Date.now();
+  let databaseStatus = "ok";
+  let databaseLatencyMs: number | null = null;
+  let databaseError: string | undefined;
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    databaseLatencyMs = Date.now() - databaseStartedAt;
+  } catch (error: unknown) {
+    databaseStatus = "error";
+    databaseError = error instanceof Error ? error.message : "Database health check failed";
+  }
+
+  const serial = getSerialGatewayStatus();
+  const espWebSocket = getEspWebSocketGatewayStatus();
+  const serialStatus = getGatewayHealthStatus(serial);
+  const espWebSocketStatus = getGatewayHealthStatus(espWebSocket);
+  const hardwareDegraded =
+    (serial.enabled && !serial.connected) ||
+    (espWebSocket.enabled && !espWebSocket.connected);
+  const websocketRunning = Boolean(getWebSocketInstance());
+  const status =
+    databaseStatus === "error" ? "error" : hardwareDegraded ? "degraded" : "ok";
+
+  return {
+    status,
+    timestamp: checkedAt,
+    checkedAt,
+    uptimeSeconds: Math.round(process.uptime()),
+    environment: process.env.NODE_ENV ?? "development",
+    version: process.env.npm_package_version ?? "local",
+    api: {
+      status: "ok",
+    },
+    database: {
+      status: databaseStatus,
+      latencyMs: databaseLatencyMs,
+      ...(databaseError ? { error: databaseError } : {}),
+    },
+    websocket: {
+      status: websocketRunning ? "ok" : "error",
+      path: "/ws",
+      clientCount: getConnectedClientCount(),
+    },
+    gateways: {
+      serial: {
+        enabled: serial.enabled,
+        status: serialStatus,
+        port: serial.path,
+        lastError: serial.lastError,
+      },
+      espWebSocket: {
+        enabled: espWebSocket.enabled,
+        status: espWebSocketStatus,
+        url: espWebSocket.url,
+        lastError: espWebSocket.lastError,
+      },
+    },
+    dependencies: [
+      {
+        name: "Backend API",
+        status: "ok",
+      },
+      {
+        name: "Database",
+        status: databaseStatus,
+        ...(databaseError ? { message: databaseError } : {}),
+      },
+      {
+        name: "Realtime WebSocket",
+        status: websocketRunning ? "ok" : "error",
+        message: "/ws",
+      },
+      {
+        name: "Serial Gateway",
+        status: serialStatus,
+        message: serial.lastError ?? serial.path ?? undefined,
+      },
+      {
+        name: "ESP WebSocket",
+        status: espWebSocketStatus,
+        message: espWebSocket.lastError ?? espWebSocket.url ?? undefined,
+      },
+    ],
+  };
 };
 
 app.set("json replacer", (_key: string, value: unknown) =>
@@ -142,6 +248,15 @@ app.get("/health", (_req, res) => {
     status: "ok",
     checkedAt: new Date().toISOString(),
   });
+});
+
+app.get("/api/health", async (_req, res, next) => {
+  try {
+    const health = await getSystemHealth();
+    res.status(health.status === "error" ? 503 : 200).json(health);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use("/api/auth", authRoutes);

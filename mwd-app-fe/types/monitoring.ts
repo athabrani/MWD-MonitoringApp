@@ -25,6 +25,11 @@ export interface SurveyRecord {
   ew: number;
   dls: number;
   vs: number;
+  buildRate?: number;
+  turnRate?: number;
+  closureDistance?: number;
+  closureAzimuth?: number;
+  run?: number;
   toolfaceMode: string;
   timestamp: string;
   isProjection: boolean;
