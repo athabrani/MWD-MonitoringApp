@@ -67,6 +67,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { ApiClientError } from "@/lib/api-client";
 import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord, postRawMwdDataWithRetry } from "@/lib/mwd-data-api";
 import {
   buildLogDataImportBatch,
@@ -105,6 +106,13 @@ function withinRange(depth: number, range: DepthRange) {
 function formatRescaleMode(mode: RescaleMode) {
   return mode === "example-value" ? "Example value" : "Percentage";
 }
+
+function waitForImportPacing(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+const LOG_IMPORT_POST_PACING_MS = 250;
+const LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS = 15_000;
 
 type LogDataViewMode = "list" | "detail";
 
@@ -322,7 +330,7 @@ export default function LogDataPage({
 }) {
   const router = useRouter();
   const { token, user } = useAuth();
-  const { activeMwdSessionId, refreshMwdData, refreshWitsDataValues } = useApp();
+  const { activeMwdSessionId, refreshMwdData, refreshWitsDataValues, beginBackendImportActivity, endBackendImportActivity } = useApp();
   const folderImportInputRef = useRef<HTMLInputElement | null>(null);
   const [records, setRecords] = useState<LogDataRecord[]>([]);
   const [configuredWitsIds, setConfiguredWitsIds] = useState<PolarisWitsId[]>([]);
@@ -952,6 +960,7 @@ export default function LogDataPage({
     setLogImportCommitting(true);
     setLogImportError("");
     setLogImportCommitResult(null);
+    beginBackendImportActivity();
     const fileErrors: LogImportCommitResult["fileErrors"] = [];
     let importedValues = 0;
     let postedRequests = 0;
@@ -987,7 +996,7 @@ export default function LogDataPage({
 
         try {
           await postRawMwdDataWithRetry(token, request.payload, {
-            maxAttempts: 5,
+            maxAttempts: 8,
             onRetry: ({ attempt, maxAttempts, delayMs }) => {
               setLogImportProgress((current) => ({
                 ...current,
@@ -1006,6 +1015,9 @@ export default function LogDataPage({
             importedValues,
             message: `Imported ${importedValues} of ${logImportBatch.totalImportableValues} WITS value(s).`,
           }));
+          if (currentRequest < requests.length) {
+            await waitForImportPacing(LOG_IMPORT_POST_PACING_MS);
+          }
         } catch (error) {
           for (const entry of request.entries) {
             fileErrors.push({
@@ -1013,6 +1025,16 @@ export default function LogDataPage({
               row: entry.value.sourceRow,
               reason: error instanceof Error ? error.message : "Backend import failed.",
             });
+          }
+          if (error instanceof ApiClientError && error.status === 429 && currentRequest < requests.length) {
+            setLogImportProgress((current) => ({
+              ...current,
+              phase: "retrying",
+              message: `Backend is still rate limiting. Cooling down for ${Math.ceil(LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS / 1000)}s before continuing.`,
+              currentRequest,
+              totalRequests: requests.length,
+            }));
+            await waitForImportPacing(LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS);
           }
         }
       }
@@ -1036,9 +1058,15 @@ export default function LogDataPage({
           totalRequests: requests.length,
           importedValues,
         });
-        toast.success("Log Data import completed", {
-          description: `${importedValues} WITS value(s) imported through ${postedRequests} grouped request(s).`,
-        });
+        if (failedValues === 0) {
+          toast.success("Import completed", {
+            description: `All ${importedValues} WITS value(s) were sent through ${postedRequests} grouped request(s).`,
+          });
+        } else {
+          toast.warning("Import partially completed", {
+            description: `${importedValues} value(s) sent, ${failedValues} value(s) failed. Review import result details.`,
+          });
+        }
       } else {
         setLogImportProgress({
           phase: "complete",
@@ -1052,12 +1080,8 @@ export default function LogDataPage({
         });
       }
 
-      if (failedValues > 0) {
-        toast.warning("Some rows were not imported", {
-          description: `${failedValues} row(s) failed. Review import result details.`,
-        });
-      }
     } finally {
+      endBackendImportActivity();
       setLogImportCommitting(false);
     }
   };

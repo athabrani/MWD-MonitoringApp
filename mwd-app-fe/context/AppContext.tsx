@@ -146,6 +146,9 @@ interface AppContextType {
   witsDataValuesLoading: boolean;
   witsDataValuesError: string;
   refreshWitsDataValues: () => Promise<void>;
+  backendImportInProgress: boolean;
+  beginBackendImportActivity: () => void;
+  endBackendImportActivity: () => void;
   witsConfig: PolarisWitsId[];
   witsConfigLoading: boolean;
   witsConfigError: string;
@@ -543,7 +546,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [gatewayRawPacketsReachable, setGatewayRawPacketsReachable] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>('idle');
   const [realtimeError, setRealtimeError] = useState('');
-  const [failoverEventIds, setFailoverEventIds] = useState<Set<string>>(() => new Set());
+  const [, setFailoverEventIds] = useState<Set<string>>(() => new Set());
   const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
   const connectionStatusRequestInFlight = useRef(false);
@@ -553,6 +556,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const systemHealthRequestInFlight = useRef(false);
   const gatewayRawPacketsRequestInFlight = useRef(false);
   const recoveryRequestInFlight = useRef(false);
+  const backendImportActivityCountRef = useRef(0);
+  const [backendImportInProgress, setBackendImportInProgress] = useState(false);
 
   const [wells] = useState<Well[]>([]);
   const [activeWell, setActiveWell] = useState<Well | null>(null);
@@ -647,6 +652,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }),
     [operationalThresholds, settings]
   );
+
+  const beginBackendImportActivity = useCallback(() => {
+    backendImportActivityCountRef.current += 1;
+    setBackendImportInProgress(true);
+  }, []);
+
+  const endBackendImportActivity = useCallback(() => {
+    backendImportActivityCountRef.current = Math.max(0, backendImportActivityCountRef.current - 1);
+    setBackendImportInProgress(backendImportActivityCountRef.current > 0);
+  }, []);
+
+  const isBackendImportActive = useCallback(() => backendImportActivityCountRef.current > 0, []);
 
   const recordEvent = useCallback((event: Event) => {
     setEvents((current) => {
@@ -1675,6 +1692,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFailoverEventIds(new Set());
       return;
     }
+    if (isBackendImportActive()) return;
 
     void refreshConnectionStatus();
     void refreshFailoverEvents();
@@ -1685,6 +1703,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [
     activeMwdSessionId,
     isAuthenticated,
+    isBackendImportActive,
     refreshConnectionStatus,
     refreshEspWsStatus,
     refreshFailoverEvents,
@@ -1699,6 +1718,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
+      if (isBackendImportActive()) return;
       void refreshConnectionStatus();
       void refreshSerialStatus();
       void refreshEspWsStatus();
@@ -1714,6 +1734,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshGatewayRawPackets,
     refreshSerialStatus,
     refreshSystemHealth,
+    isBackendImportActive,
     settings.display.autoRefresh,
     token,
   ]);
@@ -1723,11 +1744,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
+      if (isBackendImportActive()) return;
       void refreshFailoverEvents();
     }, 30000);
 
     return () => window.clearInterval(interval);
-  }, [isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
+  }, [isAuthenticated, isBackendImportActive, refreshFailoverEvents, settings.display.autoRefresh, token]);
 
   useEffect(() => {
     if (!activePlotConfig) return;
@@ -1758,6 +1780,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (networkStatus === 'offline') return;
 
     const interval = setInterval(() => {
+      if (isBackendImportActive()) return;
       void refreshMwdData();
       void refreshWitsDataValues();
     }, settings.display.refreshInterval * 1000);
@@ -1768,6 +1791,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeMwdSessionId,
     refreshMwdData,
     refreshWitsDataValues,
+    isBackendImportActive,
     networkStatus,
     settings.display.autoRefresh,
     settings.display.refreshInterval,
@@ -1776,6 +1800,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const runRecoveryFlow = useCallback(async () => {
     if (recoveryRequestInFlight.current) return;
+    if (isBackendImportActive()) return;
 
     const browserOnline = typeof navigator === 'undefined' ? networkStatus !== 'offline' : navigator.onLine;
     if (!browserOnline) {
@@ -1887,6 +1912,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshWitsAlarms,
     refreshWitsConfig,
     refreshWitsDataValues,
+    isBackendImportActive,
     token,
   ]);
 
@@ -1947,7 +1973,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         networkStatus === 'online' &&
         isAuthenticated &&
         token &&
-        activeMwdSessionId
+        activeMwdSessionId &&
+        !isBackendImportActive()
       ) {
         void refreshMwdData();
         void refreshWitsAlarms();
@@ -1996,6 +2023,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshEspWsStatus,
     refreshMwdData,
     refreshWitsAlarms,
+    isBackendImportActive,
     token,
   ]);
 
@@ -2143,6 +2171,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       witsDataValuesLoading,
       witsDataValuesError,
       refreshWitsDataValues,
+      backendImportInProgress,
+      beginBackendImportActivity,
+      endBackendImportActivity,
       witsConfig,
       witsConfigLoading,
       witsConfigError,
