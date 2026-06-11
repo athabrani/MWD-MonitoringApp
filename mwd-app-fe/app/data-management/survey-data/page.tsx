@@ -778,6 +778,11 @@ export default function SurveyDataPage({
             <SummaryMetric label="Survey CSV" value={String(surveyImportClassification?.surveyFileCount ?? 0)} />
             <SummaryMetric label="Skipped" value={String(surveyImportClassification?.skippedSources.length ?? 0)} />
           </div>
+          {surveyImportClassification?.derivedSurveyFileCount ? (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+              Derived {surveyImportClassification.derivedSurveyRowCount} survey row(s) from imported channel CSVs with matching MD, Inc, and Azm values.
+            </div>
+          ) : null}
           {surveyImportBatch.duplicateFileNames.length > 0 ? (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
               Duplicate file names: {surveyImportBatch.duplicateFileNames.join(", ")}
