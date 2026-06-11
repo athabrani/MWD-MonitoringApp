@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiRequest } from "@/lib/api-client";
 import { logSecurityDebug } from "@/lib/security/errors";
 import { ChartDataPoint } from "@/types";
 
@@ -23,6 +23,13 @@ export type MwdDataRecord = {
 };
 
 export type MwdDataInput = Record<string, unknown>;
+
+export type MwdDataRetryInfo = {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  status: number;
+};
 
 export type GetMwdDataOptions = {
   sessionId?: string | number;
@@ -371,6 +378,47 @@ export async function postRawMwdData(token: string, input: MwdDataInput): Promis
     token,
     body: JSON.stringify(input),
   });
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(error: ApiClientError, attempt: number) {
+  const retryAfterMs = error.retryAfterMs;
+  if (retryAfterMs !== undefined) {
+    return Math.min(Math.max(retryAfterMs, 500), 30_000);
+  }
+
+  const baseDelay = 800 * 2 ** Math.max(0, attempt - 1);
+  const jitter = Math.floor(Math.random() * 250);
+  return Math.min(baseDelay + jitter, 12_000);
+}
+
+export async function postRawMwdDataWithRetry(
+  token: string,
+  input: MwdDataInput,
+  options: {
+    maxAttempts?: number;
+    onRetry?: (info: MwdDataRetryInfo) => void;
+  } = {},
+): Promise<void> {
+  const maxAttempts = options.maxAttempts ?? 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await postRawMwdData(token, input);
+      return;
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.status !== 429 || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const delayMs = getRetryDelayMs(error, attempt);
+      options.onRetry?.({ attempt, maxAttempts, delayMs, status: error.status });
+      await wait(delayMs);
+    }
+  }
 }
 
 export async function updateMwdData(

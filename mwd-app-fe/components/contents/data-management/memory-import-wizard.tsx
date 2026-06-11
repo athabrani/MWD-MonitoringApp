@@ -220,8 +220,8 @@ function Stepper({
 export function MemoryImportWizard() {
   const { token, user } = useAuth();
   const { activeMwdSessionId, refreshMwdData } = useApp();
-  const [activeStep, setActiveStep] = useState<WizardStep>("storage");
-  const [storageChannels, setStorageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
+  const [activeStep, setActiveStep] = useState<WizardStep>("upload");
+  const [storageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
   const [selectedStorageId, setSelectedStorageId] = useState(initialChannels[0]?.id ?? "");
   const [storageDraft, setStorageDraft] = useState({
     witsId: "8023",
@@ -240,8 +240,8 @@ export function MemoryImportWizard() {
     failed: Array<{ fileName: string; message: string }>;
   } | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
-  const [datasets, setDatasets] = useState<ImportedMemoryDataset[]>([]);
-  const [activeDatasetId, setActiveDatasetId] = useState<string>("");
+  const [datasets] = useState<ImportedMemoryDataset[]>([]);
+  const [activeDatasetId] = useState<string>("");
   const [correlationSettings, setCorrelationSettings] = useState<CorrelationSettings>({
     timeShiftSeconds: 0,
     depthShift: 0,
@@ -249,7 +249,7 @@ export function MemoryImportWizard() {
   });
   const [gapTargetWitsId, setGapTargetWitsId] = useState(existingWitsTargets[0]);
   const [gapMode, setGapMode] = useState<GapFillRequest["mode"]>("fill-gaps-only");
-  const [gapFillRequests, setGapFillRequests] = useState<GapFillRequest[]>([]);
+  const [gapFillRequests] = useState<GapFillRequest[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [backendMemoryFiles, setBackendMemoryFiles] = useState<MemoryFileRecord[]>([]);
   const [backendCorrelations, setBackendCorrelations] = useState<MemoryFileCorrelation[]>([]);
@@ -279,13 +279,13 @@ export function MemoryImportWizard() {
 
   const completedSteps = useMemo(() => {
     const completed = new Set<WizardStep>();
-    if (selectedStorage) completed.add("storage");
+    if (selectedStorage || backendMemoryFiles.length > 0 || memoryBatchResult?.imported.length) completed.add("storage");
     if (importFile) completed.add("upload");
     if (selectedSegment) completed.add("scan");
     if (activeDataset) completed.add("import");
     if (activeDataset?.status === "correlated" || gapFillRequests.length > 0) completed.add("correlate");
     return completed;
-  }, [activeDataset, gapFillRequests.length, importFile, selectedSegment, selectedStorage]);
+  }, [activeDataset, backendMemoryFiles.length, gapFillRequests.length, importFile, memoryBatchResult?.imported.length, selectedSegment, selectedStorage]);
 
   const compareRows = useMemo<Array<{
     sampleId: string;
@@ -499,8 +499,14 @@ export function MemoryImportWizard() {
       return;
     }
 
-    toast.warning("Local memory import disabled", {
-      description: "Use POST /api/memory-files/import from the upload step. The frontend no longer creates local runtime memory datasets.",
+    if (memoryBatchResult?.imported.length) {
+      toast.success(`${memoryBatchResult.imported.length} memory file(s) already imported through POST /api/memory-files/import.`);
+      setActiveStep("correlate");
+      return;
+    }
+
+    toast.warning("Upload a CSV first", {
+      description: "The backend memory import runs during the upload step through POST /api/memory-files/import.",
     });
   };
 
@@ -651,11 +657,11 @@ export function MemoryImportWizard() {
                 Workflow
               </div>
               <div className="mt-2 grid gap-1.5 text-xs leading-snug text-muted-foreground sm:mt-3 sm:grid-cols-2 sm:text-sm lg:grid-cols-5">
-                <div>1. Select or register a non-conflicting WITS ID.</div>
-                <div>2. Upload vendor CSV memory export.</div>
+                <div>1. Upload vendor CSV or ZIP memory export.</div>
+                <div>2. Backend stores the valid CSV file.</div>
                 <div>3. Scan detected fields and segments.</div>
-                <div>4. Import selected segment to memory storage.</div>
-                <div>5. Correlate and stage gap filling.</div>
+                <div>4. Review backend import result.</div>
+                <div>5. Correlate backend memory file to MWD data.</div>
               </div>
             </div>
             <div className="rounded-lg border bg-card p-3 sm:p-4">
@@ -846,7 +852,7 @@ export function MemoryImportWizard() {
 
       {activeStep === "storage" ? (
         <div className="grid gap-3 sm:gap-4 xl:grid-cols-[1fr_1.15fr]">
-          <WorkspaceSection className="p-3 sm:p-5" title="Memory Storage" description="Storage channels must come from backend memory endpoints. No browser-local storage channel is created.">
+          <WorkspaceSection className="p-3 sm:p-5" title="Memory Storage" description="Storage channel registration is optional for the current backend upload flow. Memory CSV import can start from the Upload step now.">
             <div className="space-y-3">
               {storageChannels.map((channel) => (
                 <button
@@ -869,7 +875,7 @@ export function MemoryImportWizard() {
                   </div>
                 </button>
               ))}
-              <Button onClick={() => setActiveStep("upload")} disabled={!selectedStorage}>
+              <Button onClick={() => setActiveStep("upload")}>
                 Continue to upload
               </Button>
             </div>
@@ -1031,7 +1037,7 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "scan" ? (
-        <WorkspaceSection className="p-3 sm:p-5" title="Scan and Select Segment" description="Detected segments are split by large time gaps. Select one run before importing to WITS ID storage.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Scan and Select Segment" description="Detected segments are split by large time gaps. Backend file storage already happens during upload; segment selection is for review and correlation.">
           {importFile ? (
             <div className="grid gap-2.5 sm:gap-3">
               {importFile.segments.map((segment) => (
@@ -1073,17 +1079,17 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "import" ? (
-        <WorkspaceSection className="p-3 sm:p-5" title="Import to Storage" description="Selected segments must be stored by POST /api/memory-files/import. The frontend does not create runtime memory datasets.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Backend Import Result" description="Memory CSV files are stored by POST /api/memory-files/import during upload. This step confirms what was imported before correlation.">
           <div className="grid gap-2 sm:gap-4 lg:grid-cols-3">
-            <SummaryCard icon={Database} label="Target storage" value={selectedStorage ? `${selectedStorage.witsId} - ${selectedStorage.name}` : "None"} />
+            <SummaryCard icon={Database} label="Backend imported" value={memoryBatchResult ? String(memoryBatchResult.imported.length) : "Upload first"} />
             <SummaryCard icon={FileSearch} label="Selected segment" value={selectedSegment ? `${selectedSegment.name}, ${selectedSegment.sampleCount} samples` : "None"} />
-            <SummaryCard icon={Check} label="Runtime datasets" value="Disabled" />
+            <SummaryCard icon={Check} label="Failed files" value={memoryBatchResult ? String(memoryBatchResult.failed.length) : "-"} />
           </div>
           <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <Button variant="outline" onClick={() => setActiveStep("scan")}>Back to scan</Button>
-            <Button onClick={handleImportSegment} disabled={!selectedStorage || !selectedSegment}>
+            <Button onClick={handleImportSegment} disabled={!selectedSegment}>
               <Database className="mr-2 size-4" />
-              Import selected segment
+              Continue to correlation
             </Button>
           </div>
           {datasets.length > 0 ? (

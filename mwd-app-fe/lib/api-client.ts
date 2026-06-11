@@ -5,13 +5,15 @@ export class ApiClientError extends Error {
   status: number;
   payload?: unknown;
   responseBody?: string;
+  retryAfterMs?: number;
 
-  constructor(message: string, status: number, payload?: unknown, responseBody?: string) {
+  constructor(message: string, status: number, payload?: unknown, responseBody?: string, retryAfterMs?: number) {
     super(message);
     this.name = "ApiClientError";
     this.status = status;
     this.payload = payload;
     this.responseBody = responseBody;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -137,6 +139,19 @@ function handleAuthFailure(status: number, message: string, token?: string) {
   }
 }
 
+function parseRetryAfterMs(value: string | null) {
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+
+  const retryDate = new Date(value);
+  const retryAfterMs = retryDate.getTime() - Date.now();
+  return Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : undefined;
+}
+
 export async function apiRequest<T>(
   path: string,
   { token, headers, body, ...options }: ApiRequestOptions = {}
@@ -163,7 +178,13 @@ export async function apiRequest<T>(
   if (!response.ok) {
     const backendMessage = getErrorMessage(payload);
     handleAuthFailure(response.status, backendMessage, token);
-    throw new ApiClientError(getSafeErrorMessage({ status: response.status, message: backendMessage }), response.status, payload, text);
+    throw new ApiClientError(
+      getSafeErrorMessage({ status: response.status, message: backendMessage }),
+      response.status,
+      payload,
+      text,
+      parseRetryAfterMs(response.headers.get("Retry-After"))
+    );
   }
 
   return payload as T;
@@ -195,7 +216,13 @@ export async function apiFetch(
 
     const backendMessage = getErrorMessage(payload);
     handleAuthFailure(response.status, backendMessage, token);
-    throw new ApiClientError(getSafeErrorMessage({ status: response.status, message: backendMessage }), response.status, payload, text);
+    throw new ApiClientError(
+      getSafeErrorMessage({ status: response.status, message: backendMessage }),
+      response.status,
+      payload,
+      text,
+      parseRetryAfterMs(response.headers.get("Retry-After"))
+    );
   }
 
   return response;
