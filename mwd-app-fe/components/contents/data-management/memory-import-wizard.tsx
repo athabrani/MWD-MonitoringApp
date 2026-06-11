@@ -56,6 +56,7 @@ import {
   parseMemoryCsv,
   validateMemoryWitsId,
 } from "@/lib/memory-import";
+import { collectImportSources, countCsvRecords, ImportSourceBatch } from "@/lib/import-sources";
 import {
   CorrelationSettings,
   GapFillRequest,
@@ -232,6 +233,12 @@ export function MemoryImportWizard() {
     plotScaleInfo: "Auto plot scale after import",
   });
   const [importFile, setImportFile] = useState<MemoryImportFile | null>(null);
+  const [importFiles, setImportFiles] = useState<MemoryImportFile[]>([]);
+  const [memoryImportBatch, setMemoryImportBatch] = useState<ImportSourceBatch | null>(null);
+  const [memoryBatchResult, setMemoryBatchResult] = useState<{
+    imported: string[];
+    failed: Array<{ fileName: string; message: string }>;
+  } | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
   const [datasets, setDatasets] = useState<ImportedMemoryDataset[]>([]);
   const [activeDatasetId, setActiveDatasetId] = useState<string>("");
@@ -403,46 +410,82 @@ export function MemoryImportWizard() {
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     setIsParsing(true);
     setMemoryFileImporting(true);
     setMemoryFilesError("");
+    setMemoryImportBatch(null);
+    setMemoryBatchResult(null);
     try {
-      const text = await file.text();
-      const parsedFile = parseMemoryCsv(file.name, text);
-      setImportFile(parsedFile);
-      setSelectedSegmentId(parsedFile.segments[0]?.id ?? "");
+      const batch = await collectImportSources(files);
+      const parsedFiles = batch.validSources.map((source) => parseMemoryCsv(source.fileName, source.content));
+      const firstParsed = parsedFiles[0] ?? null;
+
+      setMemoryImportBatch(batch);
+      setImportFiles(parsedFiles);
+      setImportFile(firstParsed);
+      setSelectedSegmentId(firstParsed?.segments[0]?.id ?? "");
       setActiveStep("scan");
+
+      if (batch.validCsvCount === 0) {
+        toast.warning("No valid memory CSV files found.");
+        return;
+      }
 
       if (!token || !canManageMemoryFiles) {
         toast.warning("Backend import not available for this user", {
-          description: "The file was parsed only for browser-side preview. No memory data was stored.",
+          description: "The files were parsed only for browser-side preview. No memory data was stored.",
         });
         return;
       }
 
-      const depthField =
-        parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
-        "depth";
-      const imported = await importMemoryFile(token, {
-        sessionId: toBackendSessionId(activeMwdSessionId),
-        fileName: file.name,
-        source: "memory_file",
-        content: text,
-        delimiter: ",",
-        hasHeader: true,
-        depthField,
-        fieldMappings: buildDefaultFieldMappings(parsedFile.detectedFields, depthField),
-      });
-      setSelectedBackendFileId(imported.id);
+      const importedNames: string[] = [];
+      const failed: Array<{ fileName: string; message: string }> = [];
+      let latestImportedId = "";
+
+      for (const [index, source] of batch.validSources.entries()) {
+        const parsedFile = parsedFiles[index];
+        try {
+          const depthField =
+            parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
+            "depth";
+          const imported = await importMemoryFile(token, {
+            sessionId: toBackendSessionId(activeMwdSessionId),
+            fileName: source.fileName,
+            source: "memory_file",
+            content: source.content,
+            delimiter: ",",
+            hasHeader: true,
+            depthField,
+            fieldMappings: buildDefaultFieldMappings(parsedFile.detectedFields, depthField),
+          });
+          latestImportedId = imported.id;
+          importedNames.push(source.fileName);
+        } catch (error) {
+          failed.push({
+            fileName: source.fileName,
+            message: error instanceof Error ? error.message : "Backend request failed.",
+          });
+        }
+      }
+
+      setMemoryBatchResult({ imported: importedNames, failed });
+      if (latestImportedId) setSelectedBackendFileId(latestImportedId);
       await loadBackendMemoryFiles();
-      toast.success(`${parsedFile.fileName} imported and scanned with ${parsedFile.segments.length} detected segment(s)`);
+
+      if (importedNames.length > 0 && failed.length > 0) {
+        toast.warning(`${importedNames.length} memory CSV imported, ${failed.length} failed.`);
+      } else if (importedNames.length > 0) {
+        toast.success(`${importedNames.length} memory CSV file(s) imported and scanned.`);
+      } else {
+        toast.error("No memory CSV files were imported.");
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to import memory CSV file.";
+      const message = error instanceof Error ? error.message : "Unable to import memory CSV files.";
       setMemoryFilesError(message);
-      toast.error("Unable to import memory CSV file", { description: message });
+      toast.error("Unable to import memory CSV files", { description: message });
     } finally {
       setIsParsing(false);
       setMemoryFileImporting(false);
@@ -883,18 +926,93 @@ export function MemoryImportWizard() {
               <div className="mt-3 space-y-3 sm:mt-4">
                 <Input
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,.zip,text/csv,application/zip"
+                  multiple
                   onChange={handleFileChange}
                   disabled={isParsing || memoryFileImporting || !canManageMemoryFiles}
                 />
                 <PlaceholderNote>
-                  Upload reads CSV/text in the browser and sends JSON content through POST /api/memory-files/import when backend access is available.
+                  Upload reads one CSV, multiple CSVs, or ZIP dumps in the browser and sends each valid CSV through POST /api/memory-files/import when backend access is available. ZIP upload is the stable folder-dump path.
                 </PlaceholderNote>
               </div>
             </Card>
 
             <Card className="p-3 sm:p-4">
               <div className="font-semibold">File summary</div>
+              {memoryImportBatch ? (
+                <div className="mt-3 space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                    <SummaryTile label="Selected" value={String(memoryImportBatch.inputFileCount)} />
+                    <SummaryTile label="ZIP files" value={String(memoryImportBatch.zipFileCount)} />
+                    <SummaryTile label="Discovered" value={String(memoryImportBatch.discoveredFileCount)} />
+                    <SummaryTile label="Valid CSV" value={String(memoryImportBatch.validCsvCount)} />
+                    <SummaryTile label="Skipped" value={String(memoryImportBatch.skippedSources.length)} />
+                  </div>
+                  {memoryImportBatch.duplicateFileNames.length > 0 ? (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                      Duplicate file names: {memoryImportBatch.duplicateFileNames.join(", ")}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Valid CSV files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.validSources.slice(0, 10).map((source) => (
+                          <div key={source.id} className="flex justify-between gap-3">
+                            <span className="truncate">{source.sourcePath}</span>
+                            <span className="shrink-0">{countCsvRecords(source.content)} rows</span>
+                          </div>
+                        ))}
+                        {memoryImportBatch.validSources.length > 10 ? <div>+{memoryImportBatch.validSources.length - 10} more</div> : null}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Skipped / invalid files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.skippedSources.length > 0 ? (
+                          memoryImportBatch.skippedSources.slice(0, 10).map((source) => (
+                            <div key={`${source.sourcePath}-${source.reason}`} className="flex justify-between gap-3">
+                              <span className="truncate">{source.sourcePath}</span>
+                              <span className="shrink-0">{source.reason}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div>No skipped files.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {memoryBatchResult ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs">
+                        Backend imported: {memoryBatchResult.imported.length}
+                      </div>
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
+                        Failed: {memoryBatchResult.failed.length}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {importFiles.length > 1 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {importFiles.slice(0, 8).map((file) => (
+                    <Button
+                      key={file.id}
+                      type="button"
+                      size="sm"
+                      variant={importFile?.id === file.id ? "default" : "outline"}
+                      onClick={() => {
+                        setImportFile(file);
+                        setSelectedSegmentId(file.segments[0]?.id ?? "");
+                      }}
+                    >
+                      {file.fileName}
+                    </Button>
+                  ))}
+                  {importFiles.length > 8 ? <Badge variant="outline">+{importFiles.length - 8} more</Badge> : null}
+                </div>
+              ) : null}
               {importFile ? (
                 <div className="mt-3 grid gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3">
                   <SummaryTile label="File name" value={importFile.fileName} />

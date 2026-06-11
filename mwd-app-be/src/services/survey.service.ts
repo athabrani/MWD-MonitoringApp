@@ -620,7 +620,44 @@ export const importSurveyFromMwdData = async (
   };
 };
 
-const splitCsvLine = (line: string) => {
+const surveyCsvAliases = {
+  measuredDepth: [
+    "md",
+    "measureddepth",
+    "measureddepthmd",
+    "depthmd",
+    "depth",
+    "surveydepth",
+    "surveydepthmd",
+    "measdepth",
+    "mdepth",
+  ],
+  inclination: [
+    "inc",
+    "incl",
+    "inclination",
+    "inclinationdeg",
+    "inclinationdegree",
+    "surveyinc",
+    "surveyinclination",
+  ],
+  azimuth: [
+    "azm",
+    "azi",
+    "az",
+    "azimuth",
+    "azimuthdeg",
+    "azimuthdegree",
+    "surveyazm",
+    "surveyazi",
+    "surveyazimuth",
+  ],
+  tvd: ["tvd", "trueverticaldepth"],
+  northing: ["north", "northing", "ns", "northsouth"],
+  easting: ["east", "easting", "ew", "eastwest"],
+} as const;
+
+const splitCsvLine = (line: string, delimiter = ",") => {
   const values: string[] = [];
   let current = "";
   let inQuotes = false;
@@ -640,7 +677,7 @@ const splitCsvLine = (line: string) => {
       continue;
     }
 
-    if (character === "," && !inQuotes) {
+    if (character === delimiter && !inQuotes) {
       values.push(current.trim());
       current = "";
       continue;
@@ -653,13 +690,22 @@ const splitCsvLine = (line: string) => {
   return values;
 };
 
+const detectCsvDelimiter = (line: string) => {
+  return [",", ";", "\t"]
+    .map((delimiter) => ({
+      delimiter,
+      count: splitCsvLine(line, delimiter).length,
+    }))
+    .sort((left, right) => right.count - left.count)[0]?.delimiter ?? ",";
+};
+
 const normalizeHeader = (value: string) => {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 };
 
 const findCsvValue = (
   row: Record<string, string>,
-  aliases: string[],
+  aliases: readonly string[],
 ) => {
   for (const alias of aliases) {
     const value = row[alias];
@@ -682,27 +728,50 @@ export const parseWellPlanCsv = (csv: string) => {
     return { stations: [], errors: ["CSV is empty"] };
   }
 
-  const header = splitCsvLine(lines[0] ?? "").map(normalizeHeader);
+  const delimiter = detectCsvDelimiter(lines[0] ?? "");
+  const header = splitCsvLine(lines[0] ?? "", delimiter).map(normalizeHeader);
   const dataLines = lines.slice(1);
   const stations: SurveyStationInputData[] = [];
   const errors: string[] = [];
+  const missingRequiredHeaders = [
+    findCsvValue(Object.fromEntries(header.map((key) => [key, key])), surveyCsvAliases.measuredDepth)
+      ? null
+      : "MD/measured depth",
+    findCsvValue(Object.fromEntries(header.map((key) => [key, key])), surveyCsvAliases.inclination)
+      ? null
+      : "inclination",
+    findCsvValue(Object.fromEntries(header.map((key) => [key, key])), surveyCsvAliases.azimuth)
+      ? null
+      : "azimuth",
+  ].filter((value): value is string => Boolean(value));
+
+  if (missingRequiredHeaders.length > 0) {
+    return {
+      stations: [],
+      errors: [
+        `Missing required survey header(s): ${missingRequiredHeaders.join(", ")}`,
+      ],
+    };
+  }
+
+  if (dataLines.length === 0) {
+    return {
+      stations: [],
+      errors: ["Survey CSV has headers but no data rows"],
+    };
+  }
 
   for (const [index, line] of dataLines.entries()) {
-    const values = splitCsvLine(line);
+    const values = splitCsvLine(line, delimiter);
     const row = Object.fromEntries(
       header.map((key, headerIndex) => [key, values[headerIndex] ?? ""]),
     );
-    const measuredDepth = findCsvValue(row, [
-      "md",
-      "measureddepth",
-      "depthmd",
-      "depth",
-    ]);
-    const inclination = findCsvValue(row, ["inc", "inclination"]);
-    const azimuth = findCsvValue(row, ["azi", "azm", "azimuth"]);
-    const tvd = findCsvValue(row, ["tvd"]);
-    const northing = findCsvValue(row, ["north", "northing", "ns"]);
-    const easting = findCsvValue(row, ["east", "easting", "ew"]);
+    const measuredDepth = findCsvValue(row, surveyCsvAliases.measuredDepth);
+    const inclination = findCsvValue(row, surveyCsvAliases.inclination);
+    const azimuth = findCsvValue(row, surveyCsvAliases.azimuth);
+    const tvd = findCsvValue(row, surveyCsvAliases.tvd);
+    const northing = findCsvValue(row, surveyCsvAliases.northing);
+    const easting = findCsvValue(row, surveyCsvAliases.easting);
 
     if (
       toFiniteNumber(measuredDepth) === null ||
@@ -724,7 +793,7 @@ export const parseWellPlanCsv = (csv: string) => {
       ...(northing !== undefined ? { northing } : {}),
       ...(easting !== undefined ? { easting } : {}),
       stationType: "well_plan",
-      source: "well_plan_csv",
+      source: "survey_csv",
     });
   }
 
@@ -744,6 +813,9 @@ export const importWellPlanCsv = async (
   const stationType = normalizeStationType(input.stationType, "well_plan");
   const parsed = parseWellPlanCsv(input.csv);
   const imported = [];
+  const source = stationType === "well_plan" || stationType === "plan"
+    ? "well_plan_csv"
+    : "survey_csv";
 
   if (input.replace) {
     await client(db).surveyStation.deleteMany({
@@ -769,14 +841,14 @@ export const importWellPlanCsv = async (
         tvd: station.tvd ?? null,
         northing: station.northing ?? null,
         easting: station.easting ?? null,
-        source: "well_plan_csv",
+        source,
       },
       create: {
         ...getStationData({
           ...station,
           sessionId: input.sessionId,
           stationType,
-          source: "well_plan_csv",
+          source,
         }),
       },
       select: surveyStationSelect,

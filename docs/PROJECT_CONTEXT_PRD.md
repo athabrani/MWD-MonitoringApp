@@ -393,14 +393,15 @@ Ini adalah pola yang benar agar Express dan WebSocket tidak melakukan `listen` t
 | `SERIAL_GATEWAY_RECONNECT_MS` | Backend | Opsional | `5000` | Reconnect interval. |
 | `SERIAL_GATEWAY_VERBOSE` | Backend | Opsional | `false` | Log raw serial verbose. |
 | `SERIAL_GATEWAY_TRANSMITTER_ID` | Backend | Opsional | `tx-1` | Identitas transmitter untuk dedup/fusion. |
-| `ESP_WS_URL` | Backend | Opsional | `ws://192.168.4.1:81` | Jika diisi, backend connect ke ESP WebSocket. |
+| `ESP_WS_GATEWAY_ENABLED` | Backend | Opsional | `false` | Start ESP WebSocket gateway saat server boot. |
+| `ESP_WS_URL` | Backend | Opsional | `ws://192.168.4.1:81` | URL ESP WebSocket saat `ESP_WS_GATEWAY_ENABLED=true`. |
 | `ESP_GATEWAY_SESSION_ID` | Backend | Opsional tetapi diperlukan jika ESP payload tidak membawa `sessionId` | `1` | Default session untuk ESP ingest. |
 | `ESP_GATEWAY_SOURCE` | Backend | Opsional | `esp32-websocket` | Source label ESP WebSocket. |
 | `ESP_WS_RECONNECT_MS` | Backend | Opsional | `5000` | Reconnect ESP WebSocket. |
 | `ESP_WS_INGEST_TYPES` | Backend | Opsional | `rx,tx_ws_only,raw` | Message type ESP yang diingest. |
 | `NEXT_PUBLIC_API_BASE_URL` | Frontend | Wajib | `http://localhost:5001` | Base URL backend untuk browser. |
 | `NEXT_PUBLIC_WS_URL` | Frontend | Wajib untuk realtime | `ws://localhost:5001/ws` | Native WebSocket URL. |
-| `NEXT_PUBLIC_SYSTEM_HEALTH_PATH` | Frontend | Opsional | `/` | Health probe path frontend. |
+| `NEXT_PUBLIC_SYSTEM_HEALTH_PATH` | Frontend | Opsional | `/api/health` | Health probe path frontend. |
 | `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Seed | Opsional | `admin`, `admin@example.com`, `admin12345` | Default admin seed. |
 | `ENGINEER_USERNAME`, `ENGINEER_EMAIL`, `ENGINEER_PASSWORD` | Seed | Opsional | `engineer`, `engineer@example.com`, `engineer12345` | Default engineer seed. |
 | `EMAIL_REPORTS_ENABLED` dan `SMTP_*` | Backend | Opsional | `false` | Email report feature dan SMTP config. |

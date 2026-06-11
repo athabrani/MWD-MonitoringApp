@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useApp } from '@/context/AppContext'
+import { useAuth } from '@/context/AuthContext'
 import {
   getValidTrackValueRange,
   getRenderableTracksFromPlotConfig,
@@ -20,8 +21,10 @@ import {
   TrackValueRange,
   WrappedTrackValue,
 } from '@/lib/plot-track-config'
+import { getSurveys } from '@/lib/surveys-api'
 import { cn } from '@/lib/utils'
 import { ChartDataPoint } from '@/types'
+import type { SurveyRecord } from '@/types/monitoring'
 import { TrackScaleType } from '@/types/plotting'
 import type { PlotConfiguration } from '@/types/plotting'
 
@@ -139,6 +142,47 @@ function buildMetricLookupKeys(metric: MetricConfig) {
   }
 
   if (
+    compactSource.includes('tvd') ||
+    compactSource.includes('trueverticaldepth')
+  ) {
+    ;['tvd', 'trueVerticalDepth'].forEach((key) => addMetricAlias(keys, key))
+  }
+
+  if (
+    compactSource.includes('north') ||
+    compactSource.includes('northsouth') ||
+    compactSource.includes('ns')
+  ) {
+    ;['ns', 'northing', 'northSouth'].forEach((key) =>
+      addMetricAlias(keys, key),
+    )
+  }
+
+  if (
+    compactSource.includes('east') ||
+    compactSource.includes('eastwest') ||
+    compactSource.includes('ew')
+  ) {
+    ;['ew', 'easting', 'eastWest'].forEach((key) =>
+      addMetricAlias(keys, key),
+    )
+  }
+
+  if (
+    compactSource.includes('verticalsection') ||
+    compactSource.includes('vs')
+  ) {
+    ;['vs', 'verticalSection'].forEach((key) => addMetricAlias(keys, key))
+  }
+
+  if (
+    compactSource.includes('dogleg') ||
+    compactSource.includes('dls')
+  ) {
+    ;['dls', 'doglegSeverity'].forEach((key) => addMetricAlias(keys, key))
+  }
+
+  if (
     compactSource.includes('0113') ||
     compactSource.includes('rop') ||
     compactSource.includes('rateofpenetration')
@@ -220,11 +264,75 @@ function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
   }
 }
 
+function surveyRecordToDepthRow(record: SurveyRecord): DepthRow | null {
+  if (!Number.isFinite(record.md)) return null
+
+  const metrics: Record<string, number> = {
+    md: record.md,
+    depthMd: record.md,
+    measuredDepth: record.md,
+    inc: record.inc,
+    inclination: record.inc,
+    azi: record.azm,
+    azimuth: record.azm,
+    tvd: record.tvd,
+    ns: record.ns,
+    northing: record.ns,
+    ew: record.ew,
+    easting: record.ew,
+    vs: record.vs,
+    verticalSection: record.vs,
+    dls: record.dls,
+    doglegSeverity: record.dls,
+  }
+
+  if (record.buildRate !== undefined) {
+    metrics.buildRate = record.buildRate
+  }
+
+  if (record.turnRate !== undefined) {
+    metrics.turnRate = record.turnRate
+  }
+
+  if (record.closureDistance !== undefined) {
+    metrics.closureDistance = record.closureDistance
+  }
+
+  if (record.closureAzimuth !== undefined) {
+    metrics.closureAzimuth = record.closureAzimuth
+  }
+
+  for (const [key, value] of Object.entries(metrics)) {
+    if (!Number.isFinite(value)) {
+      delete metrics[key]
+      continue
+    }
+
+    metrics[normalizeMetricLookupKey(key)] = value
+  }
+
+  const timestamp = new Date(record.timestamp)
+
+  return {
+    depth: Math.round(record.md * 100) / 100,
+    time: !Number.isNaN(timestamp.getTime())
+      ? timestamp.toLocaleTimeString()
+      : '-',
+    metrics,
+  }
+}
+
 function getMetricIdFromCurve(curve: RenderablePlotCurve) {
   const source = curve.dataSource.toLowerCase()
 
   if (source.includes('0713') || source.includes('inclination')) return 'inc'
   if (source.includes('0714') || source.includes('azimuth')) return 'azi'
+  if (source.includes('tvd') || source.includes('trueverticaldepth'))
+    return 'tvd'
+  if (source.includes('north') || source.includes('northsouth')) return 'ns'
+  if (source.includes('east') || source.includes('eastwest')) return 'ew'
+  if (source.includes('verticalsection')) return 'vs'
+  if (source.includes('dogleg') || source.includes('dls')) return 'dls'
   if (source.includes('0824') || source.includes('gamma')) return 'gamma'
   if (source.includes('0836') || source.includes('temperature')) return 'temp'
   if (source.includes('0110') || source.includes('hole depth'))
@@ -1067,6 +1175,8 @@ export function WellPlotPanel({
   chartDataOverride,
   mwdDataLoading = false,
   mwdDataError,
+  useSurveySource = false,
+  surveyStationType = 'actual',
 }: {
   compact?: boolean
   showHeader?: boolean
@@ -1081,9 +1191,16 @@ export function WellPlotPanel({
   chartDataOverride?: ChartDataPoint[]
   mwdDataLoading?: boolean
   mwdDataError?: string
+  useSurveySource?: boolean
+  surveyStationType?: 'actual' | 'plan'
 }) {
-  const { activePlotConfig, activeMwdSession, chartData } = useApp()
+  const { token } = useAuth()
+  const { activePlotConfig, activeMwdSession, activeMwdSessionId, chartData } =
+    useApp()
   const panelRef = useRef<HTMLDivElement>(null)
+  const [surveyRecords, setSurveyRecords] = useState<SurveyRecord[]>([])
+  const [surveyLoading, setSurveyLoading] = useState(false)
+  const [surveyError, setSurveyError] = useState('')
   const selectedPlotConfig =
     plotConfig !== undefined ? plotConfig : activePlotConfig
   const selectedChartData = chartDataOverride ?? chartData
@@ -1104,7 +1221,18 @@ export function WellPlotPanel({
       .filter((row): row is DepthRow => Boolean(row))
       .sort((left, right) => left.depth - right.depth)
   }, [selectedChartData])
-  const plotDepthRows = backendDepthRows
+  const surveyDepthRows = useMemo<DepthRow[]>(() => {
+    return surveyRecords
+      .map(surveyRecordToDepthRow)
+      .filter((row): row is DepthRow => Boolean(row))
+      .sort((left, right) => left.depth - right.depth)
+  }, [surveyRecords])
+  const plotDepthRows = useSurveySource ? surveyDepthRows : backendDepthRows
+  const plotDataLoading = useSurveySource ? surveyLoading : mwdDataLoading
+  const plotDataError = useSurveySource ? surveyError : mwdDataError
+  const emptyPlotDataMessage = useSurveySource
+    ? `Belum ada survey ${surveyStationType} untuk session ini.`
+    : 'Belum ada data MWD untuk session ini.'
   const activeGeneral = selectedPlotConfig?.general
   const activeDepthCorrection = activeGeneral?.depthCorrection ?? 'MD'
   const activeDepthScale =
@@ -1229,7 +1357,61 @@ export function WellPlotPanel({
   }, [responsiveTrackWindow])
 
   useEffect(() => {
-    setMeasuredHeaderHeights({})
+    if (!useSurveySource) return
+
+    if (!token || !activeMwdSessionId) {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (cancelled) return
+        setSurveyRecords([])
+        setSurveyError('')
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setSurveyLoading(true)
+      setSurveyError('')
+    })
+
+    getSurveys(token, {
+      sessionId: activeMwdSessionId,
+      stationType: surveyStationType,
+    })
+      .then((records) => {
+        if (!cancelled) setSurveyRecords(records)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setSurveyRecords([])
+        setSurveyError(
+          error instanceof Error
+            ? error.message
+            : 'Gagal memuat survey untuk Well Plot.',
+        )
+      })
+      .finally(() => {
+        if (!cancelled) setSurveyLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeMwdSessionId, surveyStationType, token, useSurveySource])
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setMeasuredHeaderHeights({})
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [trackHeaderSignature])
 
   useEffect(() => {
@@ -1302,7 +1484,7 @@ export function WellPlotPanel({
     )
   }
 
-  if (mwdDataLoading || !plotDepthRows.length || mwdDataError) {
+  if (plotDataLoading || !plotDepthRows.length || plotDataError) {
     return (
       <div className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}>
         {showHeader ? (
@@ -1330,9 +1512,9 @@ export function WellPlotPanel({
           </div>
         ) : null}
         <Card className="rounded-2xl border-dashed p-5 text-sm text-muted-foreground">
-          {mwdDataLoading
-            ? 'Memuat data MWD untuk plot...'
-            : mwdDataError || 'Belum ada data MWD untuk session ini.'}
+          {plotDataLoading
+            ? 'Memuat data untuk plot...'
+            : plotDataError || emptyPlotDataMessage}
         </Card>
       </div>
     )

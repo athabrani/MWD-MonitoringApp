@@ -22,12 +22,14 @@ export type SerialGatewayConnectOptions = {
   transmitterId?: string;
   reconnectMs?: number;
   verbose?: boolean;
+  onReconnect?: () => void;
 };
 
 export type SerialGatewayStatus = {
   enabled: boolean;
   connected: boolean;
   reconnecting: boolean;
+  status: "disabled" | "connected" | "reconnecting" | "disconnected";
   path: string | null;
   baudRate: number | null;
   sessionId: number | null;
@@ -55,6 +57,12 @@ const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_RECONNECT_MS = 5000;
 const MAX_BUFFER_LENGTH = 8192;
 const SERIAL_METADATA_KEYS = new Set(["SEQ", "TS", "RX_TS", "RSSI", "SNR"]);
+
+type RequiredSerialGatewayConnectOptions = Required<
+  Omit<SerialGatewayConnectOptions, "onReconnect">
+> & {
+  onReconnect?: () => void;
+};
 
 const parseBoolean = (value: unknown) => {
   if (typeof value !== "string") {
@@ -350,7 +358,7 @@ let SerialPortClassCache: typeof import("serialport").SerialPort | null = null;
 let port: SerialPortInstance | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let autoDiscoveryTimer: NodeJS.Timeout | null = null;
-let activeOptions: Required<SerialGatewayConnectOptions> | null = null;
+let activeOptions: RequiredSerialGatewayConnectOptions | null = null;
 let stopped = true;
 let witsStreamParser = new SerialWitsStreamParser(MAX_BUFFER_LENGTH);
 let latestDepthMd: string | null = null;
@@ -361,6 +369,7 @@ const runtimeStatus: SerialGatewayStatus = {
   enabled: false,
   connected: false,
   reconnecting: false,
+  status: "disabled",
   path: null,
   baudRate: null,
   sessionId: null,
@@ -442,14 +451,20 @@ const resolveConfiguredSerialPath = async (configuredPath: string) => {
 
 export const getSerialGatewayStatus = () => ({
   ...runtimeStatus,
+  status: !runtimeStatus.enabled
+    ? "disabled"
+    : runtimeStatus.connected
+      ? "connected"
+      : "disconnected",
 });
 
 const resetRuntimeStatusForConnect = (
-  options: Required<SerialGatewayConnectOptions>,
+  options: RequiredSerialGatewayConnectOptions,
 ) => {
   runtimeStatus.enabled = true;
   runtimeStatus.connected = false;
   runtimeStatus.reconnecting = false;
+  runtimeStatus.status = "disconnected";
   runtimeStatus.path = options.path;
   runtimeStatus.baudRate = options.baudRate;
   runtimeStatus.sessionId = options.sessionId > 0 ? options.sessionId : null;
@@ -487,6 +502,7 @@ const closeActivePort = () => {
 
   runtimeStatus.connected = false;
   runtimeStatus.reconnecting = false;
+  runtimeStatus.status = runtimeStatus.enabled ? "disconnected" : "disabled";
 };
 
 const clearAutoDiscoveryTimer = () => {
@@ -498,7 +514,7 @@ const clearAutoDiscoveryTimer = () => {
 
 const buildRequiredOptions = (
   options: SerialGatewayConnectOptions,
-): Required<SerialGatewayConnectOptions> => ({
+): RequiredSerialGatewayConnectOptions => ({
   path: options.path.trim(),
   baudRate: options.baudRate ?? DEFAULT_BAUD_RATE,
   sessionId: options.sessionId ?? 0,
@@ -506,9 +522,10 @@ const buildRequiredOptions = (
   transmitterId: options.transmitterId?.trim() || "",
   reconnectMs: options.reconnectMs ?? DEFAULT_RECONNECT_MS,
   verbose: options.verbose ?? false,
+  ...(options.onReconnect ? { onReconnect: options.onReconnect } : {}),
 });
 
-const createSerialLineIngestor = (options: Required<SerialGatewayConnectOptions>) => {
+const createSerialLineIngestor = (options: RequiredSerialGatewayConnectOptions) => {
   const logIgnoredLine = (message: string) => {
     const now = Date.now();
 
@@ -802,8 +819,14 @@ const openSerialConnection = async () => {
 
     runtimeStatus.connected = false;
     runtimeStatus.reconnecting = true;
+    runtimeStatus.status = "disconnected";
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
+      if (options.onReconnect) {
+        options.onReconnect();
+        return;
+      }
+
       void openSerialConnection();
     }, options.reconnectMs);
     reconnectTimer.unref();
@@ -819,6 +842,7 @@ const openSerialConnection = async () => {
   port.on("open", () => {
     runtimeStatus.connected = true;
     runtimeStatus.reconnecting = false;
+    runtimeStatus.status = "connected";
     runtimeStatus.connectedAt = new Date().toISOString();
     runtimeStatus.lastError = null;
     console.log(`[Serial GW] Connected to ${options.path}`);
@@ -842,6 +866,7 @@ const openSerialConnection = async () => {
   port.on("close", () => {
     console.warn(`[Serial GW] Closed ${options.path}`);
     runtimeStatus.connected = false;
+    runtimeStatus.status = "disconnected";
     void recordConnectionStatus(
       options.source,
       "offline",
@@ -897,6 +922,7 @@ export const disconnectSerialGateway = async () => {
   closeActivePort();
   activeOptions = null;
   runtimeStatus.enabled = false;
+  runtimeStatus.status = "disabled";
   runtimeStatus.path = null;
   runtimeStatus.baudRate = null;
   runtimeStatus.sessionId = null;
@@ -919,7 +945,11 @@ export const startSerialGateway = async () => {
   const portPath = process.env.SERIAL_PORT?.trim();
 
   if (!enabled) {
-    console.log("[Serial GW] Disabled. Set SERIAL_GATEWAY_ENABLED=true to enable serial ingestion.");
+    runtimeStatus.enabled = false;
+    runtimeStatus.connected = false;
+    runtimeStatus.reconnecting = false;
+    runtimeStatus.status = "disabled";
+    console.log("[Serial GW] Disabled by configuration.");
     return;
   }
 
@@ -968,6 +998,7 @@ export const startSerialGateway = async () => {
       runtimeStatus.enabled = true;
       runtimeStatus.connected = false;
       runtimeStatus.reconnecting = true;
+      runtimeStatus.status = "disconnected";
       runtimeStatus.path = "auto";
       runtimeStatus.baudRate = baudRate;
       runtimeStatus.sessionId = defaultSessionId;
@@ -992,6 +1023,7 @@ export const startSerialGateway = async () => {
       verbose: verboseLogging,
       source,
       ...(transmitterId ? { transmitterId } : {}),
+      ...(isAutoPort ? { onReconnect: connectResolvedPort } : {}),
     });
   };
 

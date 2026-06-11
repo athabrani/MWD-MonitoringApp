@@ -10,6 +10,9 @@ type BackendSurveyResponse = {
   results?: BackendSurveyRecord[] | BackendSurveyRecord;
   count?: number;
   Count?: number;
+  importedCount?: number;
+  skippedCount?: number;
+  errors?: unknown;
 };
 
 export type SurveyInput = Record<string, unknown>;
@@ -26,7 +29,15 @@ export type ImportSurveysCsvInput = {
   content: string;
   sessionId?: string | number;
   stationType?: "actual" | "plan";
+  replace?: boolean;
   verticalSectionAzimuth?: number;
+};
+
+export type ImportSurveysCsvResult = {
+  records: SurveyRecord[];
+  importedCount: number;
+  skippedCount: number;
+  errors: string[];
 };
 
 function isRecord(value: unknown): value is BackendSurveyRecord {
@@ -130,6 +141,11 @@ export function normalizeSurveyRecord(record: BackendSurveyRecord): SurveyRecord
     ew: requireNumber(record, ["ew", "easting", "eastWest", "east_west"]),
     dls: requireNumber(record, ["dls", "doglegSeverity", "dogleg_severity"]),
     vs: requireNumber(record, ["vs", "verticalSection", "vertical_section"]),
+    buildRate: readNumber(record, ["buildRate", "build_rate", "build"]),
+    turnRate: readNumber(record, ["turnRate", "turn_rate", "turn"]),
+    closureDistance: readNumber(record, ["closureDistance", "closure_distance", "cl"]),
+    closureAzimuth: readNumber(record, ["closureAzimuth", "closure_azimuth", "closureAzm"]),
+    run: readNumber(record, ["run", "runNumber", "run_number"]),
     toolfaceMode: readString(record, ["toolfaceMode", "toolface_mode", "toolface"]) ?? "Unknown",
     timestamp:
       readDateString(record, ["timestamp", "time", "capturedAt", "captured_at", "createdAt", "created_at"]) ??
@@ -156,6 +172,11 @@ export function surveyRecordToPayload(
     easting: record.ew,
     doglegSeverity: record.dls,
     verticalSection: record.vs,
+    buildRate: record.buildRate,
+    turnRate: record.turnRate,
+    closureDistance: record.closureDistance,
+    closureAzimuth: record.closureAzimuth,
+    run: record.run,
     toolfaceMode: record.toolfaceMode,
     timestamp: record.timestamp,
     isProjection: record.isProjection,
@@ -247,6 +268,10 @@ export async function recalculateSurveys(token: string, input: SurveyInput): Pro
 }
 
 export async function importSurveysCsv(token: string, input: ImportSurveysCsvInput): Promise<SurveyRecord[]> {
+  return (await importSurveysCsvDetailed(token, input)).records;
+}
+
+export async function importSurveysCsvDetailed(token: string, input: ImportSurveysCsvInput): Promise<ImportSurveysCsvResult> {
   const { content, ...query } = input;
   const response = await apiRequest<BackendSurveyResponse | BackendSurveyRecord[]>(
     `/api/surveys/well-plan/import-csv${toQueryString(query)}`,
@@ -260,7 +285,17 @@ export async function importSurveysCsv(token: string, input: ImportSurveysCsvInp
     }
   );
 
-  return unwrapRecordList(response)
+  const records = unwrapRecordList(response)
     .map(normalizeSurveyRecord)
     .filter((record): record is SurveyRecord => Boolean(record));
+
+  return {
+    records,
+    importedCount: !Array.isArray(response) && typeof response.importedCount === "number" ? response.importedCount : records.length,
+    skippedCount: !Array.isArray(response) && typeof response.skippedCount === "number" ? response.skippedCount : 0,
+    errors:
+      !Array.isArray(response) && Array.isArray(response.errors)
+        ? response.errors.map((error) => String(error))
+        : [],
+  };
 }

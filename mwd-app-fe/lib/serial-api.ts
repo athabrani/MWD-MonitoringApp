@@ -112,8 +112,12 @@ function normalizeSerialPort(record: BackendRecord, index = 0): SerialPortInfo |
 }
 
 function normalizeSerialStatus(record: BackendRecord): SerialStatus {
-  const status = readString(record, ["status", "state", "connectionStatus", "connection_status"]) ?? "disconnected";
-  const connected = readBoolean(record, ["connected", "isConnected", "is_connected", "status", "state"]) ?? status === "connected";
+  const enabled = readBoolean(record, ["enabled", "isEnabled", "is_enabled"]) ?? true;
+  const connected = readBoolean(record, ["connected", "isConnected", "is_connected", "status", "state"]) ?? false;
+  const reconnecting = readBoolean(record, ["reconnecting", "isReconnecting", "is_reconnecting"]) ?? false;
+  const status =
+    readString(record, ["status", "state", "connectionStatus", "connection_status"]) ??
+    (!enabled ? "disabled" : connected ? "connected" : reconnecting ? "reconnecting" : "disconnected");
 
   return {
     connected,

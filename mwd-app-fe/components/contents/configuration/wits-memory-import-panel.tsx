@@ -20,6 +20,7 @@ import {
   importMemorySegment,
   parseMemoryCsv,
 } from "@/lib/memory-import";
+import { collectImportSources, countCsvRecords, ImportSourceBatch } from "@/lib/import-sources";
 import {
   GapFillRequest,
   ImportedMemoryDataset,
@@ -119,6 +120,8 @@ export function WitsMemoryImportPanel({
   onUpdateWits: (patch: Partial<PolarisWitsId>) => void;
 }) {
   const [memoryFile, setMemoryFile] = useState<MemoryImportFile | null>(null);
+  const [memoryFiles, setMemoryFiles] = useState<MemoryImportFile[]>([]);
+  const [memoryImportBatch, setMemoryImportBatch] = useState<ImportSourceBatch | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState("");
   const [selectedFieldName, setSelectedFieldName] = useState("");
   const [datasets, setDatasets] = useState<ImportedMemoryDataset[]>([]);
@@ -140,17 +143,27 @@ export function WitsMemoryImportPanel({
   const compareRows = useMemo(() => buildCompareRows(activeDataset, []), [activeDataset]);
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     try {
-      const parsed = parseMemoryCsv(file.name, await file.text());
+      const batch = await collectImportSources(files);
+      const parsedFiles = batch.validSources.map((source) => parseMemoryCsv(source.fileName, source.content));
+      const parsed = parsedFiles[0] ?? null;
+
+      setMemoryImportBatch(batch);
+      setMemoryFiles(parsedFiles);
       setMemoryFile(parsed);
-      setSelectedSegmentId(parsed.segments[0]?.id ?? "");
-      setSelectedFieldName(parsed.segments[0]?.fieldName ?? parsed.detectedFields[0] ?? "");
-      toast.success(`${parsed.fileName} scanned for WITS ID ${storageChannel.witsId}`);
+      setSelectedSegmentId(parsed?.segments[0]?.id ?? "");
+      setSelectedFieldName(parsed?.segments[0]?.fieldName ?? parsed?.detectedFields[0] ?? "");
+
+      if (!parsed) {
+        toast.warning("No valid memory CSV files found.");
+      } else {
+        toast.success(`${parsedFiles.length} memory CSV file(s) scanned for WITS ID ${storageChannel.witsId}`);
+      }
     } catch {
-      toast.error("Unable to read memory CSV file");
+      toast.error("Unable to read memory CSV files");
     } finally {
       event.target.value = "";
     }
@@ -267,9 +280,15 @@ export function WitsMemoryImportPanel({
                 Select memory CSV
               </div>
               <div className="mt-4 space-y-3">
-                <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} disabled={!activeWitsRecord.useForMemoryImportStorage} />
+                <Input
+                  type="file"
+                  accept=".csv,.zip,text/csv,application/zip"
+                  multiple
+                  onChange={handleFileChange}
+                  disabled={!activeWitsRecord.useForMemoryImportStorage}
+                />
                 <PlaceholderNote>
-                  Parser and imported storage are browser local state. No production backend write is performed.
+                  Parser and imported storage are browser local state. One CSV, multiple CSVs, and ZIP dumps are normalized through the same memory CSV parser.
                 </PlaceholderNote>
               </div>
             </Card>
@@ -291,6 +310,65 @@ export function WitsMemoryImportPanel({
               ) : (
                 <div className="mt-4 rounded-lg border border-dashed p-5 text-sm text-muted-foreground">Belum ada memory file.</div>
               )}
+              {memoryImportBatch ? (
+                <div className="mt-4 space-y-3">
+                  <div className="grid gap-2 md:grid-cols-5">
+                    <SummaryTile label="Selected" value={String(memoryImportBatch.inputFileCount)} />
+                    <SummaryTile label="ZIP files" value={String(memoryImportBatch.zipFileCount)} />
+                    <SummaryTile label="Discovered" value={String(memoryImportBatch.discoveredFileCount)} />
+                    <SummaryTile label="Valid CSV" value={String(memoryImportBatch.validCsvCount)} />
+                    <SummaryTile label="Skipped" value={String(memoryImportBatch.skippedSources.length)} />
+                  </div>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Valid CSV files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.validSources.slice(0, 8).map((source) => (
+                          <div key={source.id} className="flex justify-between gap-3">
+                            <span className="truncate">{source.sourcePath}</span>
+                            <span className="shrink-0">{countCsvRecords(source.content)} rows</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Skipped / invalid files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.skippedSources.length > 0 ? (
+                          memoryImportBatch.skippedSources.slice(0, 8).map((source) => (
+                            <div key={`${source.sourcePath}-${source.reason}`} className="flex justify-between gap-3">
+                              <span className="truncate">{source.sourcePath}</span>
+                              <span className="shrink-0">{source.reason}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div>No skipped files.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {memoryFiles.length > 1 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {memoryFiles.slice(0, 8).map((file) => (
+                        <Button
+                          key={file.id}
+                          type="button"
+                          size="sm"
+                          variant={memoryFile?.id === file.id ? "default" : "outline"}
+                          onClick={() => {
+                            setMemoryFile(file);
+                            setSelectedSegmentId(file.segments[0]?.id ?? "");
+                            setSelectedFieldName(file.segments[0]?.fieldName ?? file.detectedFields[0] ?? "");
+                          }}
+                        >
+                          {file.fileName}
+                        </Button>
+                      ))}
+                      {memoryFiles.length > 8 ? <Badge variant="outline">+{memoryFiles.length - 8} more</Badge> : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </Card>
           </div>
 
