@@ -23,7 +23,7 @@ const startServer = async () => {
 
   httpServer.listen(PORT, HOST, () => {
     console.log(`Express server running on http://${HOST}:${PORT}`)
-    startEspWebSocketGateway()
+    void startEspWebSocketGateway()
     void startSerialGateway()
   })
 }

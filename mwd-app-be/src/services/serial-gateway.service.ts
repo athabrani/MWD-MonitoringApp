@@ -6,6 +6,7 @@ import {
   type ParsedSerialWitsBlock,
   SerialWitsStreamParser,
 } from "../utils/serial-wits-parser.js";
+import { resolveGatewaySessionId } from "./gateway-session-resolver.service.js";
 
 type SerialPortInstance = {
   open: (callback?: (error: Error | null | undefined) => void) => void;
@@ -354,6 +355,7 @@ let stopped = true;
 let witsStreamParser = new SerialWitsStreamParser(MAX_BUFFER_LENGTH);
 let latestDepthMd: string | null = null;
 let lastIgnoredLineLogAt = 0;
+let defaultSessionId: number | null = null;
 
 const runtimeStatus: SerialGatewayStatus = {
   enabled: false,
@@ -926,9 +928,18 @@ export const startSerialGateway = async () => {
     return;
   }
 
-  const defaultSessionId = parsePositiveInt(
-    process.env.SERIAL_GATEWAY_SESSION_ID ?? process.env.ESP_GATEWAY_SESSION_ID,
-  );
+  try {
+    defaultSessionId = await resolveGatewaySessionId(
+      process.env.SERIAL_GATEWAY_SESSION_ID ?? process.env.ESP_GATEWAY_SESSION_ID,
+      "Serial GW",
+    );
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown session resolver error";
+
+    console.warn(`[Serial GW] ${message}`);
+  }
+  
   const baudRate =
     parsePositiveInt(process.env.SERIAL_BAUD_RATE) ?? DEFAULT_BAUD_RATE;
   const reconnectMs = parsePositiveNumber(

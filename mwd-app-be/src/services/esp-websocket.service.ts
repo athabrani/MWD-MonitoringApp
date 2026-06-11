@@ -3,6 +3,7 @@ import { GatewayIngestError } from './gateway-ingest.service.js'
 import { submitGatewayCandidate } from './gateway-fusion.service.js'
 import { createGatewayRawPacketLog } from './gateway-raw-packet-log.service.js'
 import { parseSerialWitsBlock } from '../utils/serial-wits-parser.js'
+import { resolveGatewaySessionId } from './gateway-session-resolver.service.js'
 import {
   broadcastESPGatewayStatus,
 } from './websocket.service.js'
@@ -406,7 +407,7 @@ const toGatewayPayload = (
   return gatewayPayload
 }
 
-export const startEspWebSocketGateway = () => {
+export const startEspWebSocketGateway = async () => {
   const url = process.env.ESP_WS_URL?.trim()
 
   if (!url) {
@@ -426,8 +427,17 @@ export const startEspWebSocketGateway = () => {
     )
     return
   }
-
-  const defaultSessionId = parsePositiveInt(process.env.ESP_GATEWAY_SESSION_ID)
+  
+  let defaultSessionId: number | null = null
+  try {
+    defaultSessionId = await resolveGatewaySessionId(
+      process.env.ESP_GATEWAY_SESSION_ID,
+      'ESP WS',
+    )
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown session resolver error'
+    console.warn(`[ESP WS] ${message}`)
+  }
   const reconnectMs = parsePositiveNumber(
     process.env.ESP_WS_RECONNECT_MS,
     DEFAULT_RECONNECT_MS,
@@ -442,6 +452,7 @@ export const startEspWebSocketGateway = () => {
   let reconnectTimer: NodeJS.Timeout | null = null
   let stopped = false
   let connectStartedAt = 0
+
 
   if (defaultSessionId === null) {
     console.warn(

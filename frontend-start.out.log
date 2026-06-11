@@ -1,0 +1,8 @@
+
+> mwd-monitoringapp@0.1.0 start:port-3001
+> next start -p 3001
+
+▲ Next.js 16.2.4
+- Local:         http://localhost:3001
+- Network:       http://100.110.181.15:3001
+✓ Ready in 568ms
