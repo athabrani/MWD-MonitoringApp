@@ -790,54 +790,23 @@ function MajorMinorGrid({ rows }: { rows: DepthRow[] }) {
   )
 }
 
-function WellPlotTrack({
+function WellPlotTrackHeader({
   track,
-  rows,
-  plotHeightPx,
-  plotHeightCss,
-  plotViewportHeightCss,
   compact = false,
-  fullWidth = false,
   dense = false,
   headerHeightPx,
   onHeaderHeightChange,
-  onScrollViewportMount,
-  onScrollViewport,
 }: {
   track: PlotTrack
-  rows: DepthRow[]
-  plotHeightPx: number
-  plotHeightCss: string
-  plotViewportHeightCss: string
   compact?: boolean
-  fullWidth?: boolean
   dense?: boolean
   headerHeightPx?: number
   onHeaderHeightChange?: (trackId: string, height: number) => void
-  onScrollViewportMount?: (
-    trackId: string,
-    element: HTMLDivElement | null,
-  ) => void
-  onScrollViewport?: (trackId: string) => void
 }) {
   const resolvedHeaderHeightPx =
     headerHeightPx ?? getTrackHeaderHeightPx(track, compact, dense)
   const headerRef = useRef<HTMLDivElement | null>(null)
   const headerContentRef = useRef<HTMLDivElement | null>(null)
-  const scrollViewportRef = useRef<HTMLDivElement | null>(null)
-  const footerHeightClass = compact
-    ? 'min-h-[34px]'
-    : dense
-      ? 'min-h-[48px]'
-      : 'min-h-[64px]'
-  const depthOffsetClass = compact
-    ? 'left-[52px]'
-    : dense
-      ? 'left-[46px] sm:left-[48px] lg:left-[52px]'
-      : 'left-[64px] sm:left-[72px] lg:left-[84px]'
-  const hasWrappedData = track.metrics.some((metric) =>
-    metricHasWrappedValues(metric, rows),
-  )
 
   useLayoutEffect(() => {
     if (
@@ -876,6 +845,204 @@ function WellPlotTrack({
     return () => observer.disconnect()
   }, [compact, dense, onHeaderHeightChange, track.id, track.metrics])
 
+  return (
+    <div
+      ref={headerRef}
+      className={`border-b border-slate-300 bg-slate-100 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 dark:bg-slate-900`}
+      style={{ height: `${resolvedHeaderHeightPx}px` }}
+    >
+      <div
+        ref={headerContentRef}
+        className="flex flex-col justify-start space-y-1"
+      >
+        <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[10px]">
+          <span className="truncate" title={track.title}>
+            {track.title}
+          </span>
+          <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[9px]">
+            {track.scaleType}
+          </span>
+        </div>
+        {track.metrics.map((metric, metricIndex) => (
+          <MetricHeader
+            key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-header`}
+            metric={metric}
+            compact={compact}
+            dense={dense}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function WellPlotTrackBody({
+  track,
+  rows,
+  plotHeightPx,
+  plotHeightCss,
+  compact = false,
+  dense = false,
+}: {
+  track: PlotTrack
+  rows: DepthRow[]
+  plotHeightPx: number
+  plotHeightCss: string
+  compact?: boolean
+  dense?: boolean
+}) {
+  const depthOffsetClass = compact
+    ? 'left-[52px]'
+    : dense
+      ? 'left-[46px] sm:left-[48px] lg:left-[52px]'
+      : 'left-[64px] sm:left-[72px] lg:left-[84px]'
+
+  return (
+    <div className="relative min-h-full" style={{ height: plotHeightCss }}>
+      <DepthScale rows={rows} compact={compact} dense={dense} />
+
+      <div className={`absolute inset-y-0 right-0 ${depthOffsetClass}`}>
+        <MajorMinorGrid rows={rows} />
+
+        {track.metrics.map((metric, idx) => (
+          <svg
+            key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${idx}-curve`}
+            viewBox={`0 0 100 ${plotHeightPx}`}
+            preserveAspectRatio="none"
+            className="absolute inset-0 h-full w-full"
+            style={{ zIndex: idx + 2 }}
+          >
+            {buildMetricSegments(metric, rows, plotHeightPx).map(
+              (segment, segmentIndex) => (
+                <path
+                  key={`${metric.id}-segment-${segmentIndex}`}
+                  d={segment.d}
+                  stroke={metric.color}
+                  strokeWidth={compact ? '1.35' : dense ? '1.6' : '1.8'}
+                  strokeDasharray={segment.isWrapped ? '5 4' : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={segment.isWrapped ? 0.85 : 1}
+                  fill="none"
+                >
+                  <title>
+                    {segment.isWrapped
+                      ? `Wrapped overflow: original ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}, displayed ${formatMetricValue(segment.displayStart)}-${formatMetricValue(segment.displayEnd)}`
+                      : `${metric.label}: ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}`}
+                  </title>
+                </path>
+              ),
+            )}
+          </svg>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function WellPlotTrackFooter({
+  track,
+  rows,
+  compact = false,
+  dense = false,
+}: {
+  track: PlotTrack
+  rows: DepthRow[]
+  compact?: boolean
+  dense?: boolean
+}) {
+  const footerHeightClass = compact
+    ? 'min-h-[34px]'
+    : dense
+      ? 'min-h-[48px]'
+      : 'min-h-[64px]'
+  const hasWrappedData = track.metrics.some((metric) =>
+    metricHasWrappedValues(metric, rows),
+  )
+
+  return (
+    <div
+      className={`border-t border-slate-300 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 ${footerHeightClass}`}
+    >
+      <div
+        className={cn(
+          'flex h-full flex-col justify-start',
+          compact
+            ? 'gap-y-1 text-[8px]'
+            : dense
+              ? 'gap-y-1 text-[7px] sm:text-[9px]'
+              : 'gap-y-1.5 text-[9px] sm:text-[10px] lg:text-[11px]',
+          'text-slate-500 dark:text-slate-400',
+        )}
+      >
+        {track.metrics.map((metric, metricIndex) => {
+          const lastValue =
+            [...rows]
+              .reverse()
+              .map((row) => getMetricValueFromRow(metric, row))
+              .find((value) => Number.isFinite(value)) ?? NaN
+
+          return (
+            <div
+              key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-footer`}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 leading-tight"
+            >
+              <div
+                className="truncate font-medium"
+                style={{ color: metric.color }}
+                title={metric.label}
+              >
+                {metric.label}
+              </div>
+              <div className="tabular-nums text-right text-slate-600 dark:text-slate-300">
+                {Number.isFinite(lastValue) ? formatMetricValue(lastValue) : '-'}
+              </div>
+            </div>
+          )
+        })}
+        {hasWrappedData ? (
+          <div className="mt-0.5 flex items-center gap-1.5 text-[7px] font-medium uppercase tracking-[0.04em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
+            <span className="h-px w-5 border-t border-dashed border-current" />
+            <span className="truncate">wrapped overflow</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function WellPlotTrack({
+  track,
+  rows,
+  plotHeightPx,
+  plotHeightCss,
+  plotViewportHeightCss,
+  compact = false,
+  fullWidth = false,
+  dense = false,
+  headerHeightPx,
+  onHeaderHeightChange,
+  onScrollViewportMount,
+  onScrollViewport,
+}: {
+  track: PlotTrack
+  rows: DepthRow[]
+  plotHeightPx: number
+  plotHeightCss: string
+  plotViewportHeightCss: string
+  compact?: boolean
+  fullWidth?: boolean
+  dense?: boolean
+  headerHeightPx?: number
+  onHeaderHeightChange?: (trackId: string, height: number) => void
+  onScrollViewportMount?: (
+    trackId: string,
+    element: HTMLDivElement | null,
+  ) => void
+  onScrollViewport?: (trackId: string) => void
+}) {
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null)
+
   useLayoutEffect(() => {
     if (!onScrollViewportMount) return
 
@@ -892,33 +1059,13 @@ function WellPlotTrack({
           : 'w-full border-r border-slate-300 bg-white last:border-r-0 dark:border-slate-700 dark:bg-slate-950'
       }
     >
-      <div
-        ref={headerRef}
-        className={`border-b border-slate-300 bg-slate-100 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 dark:bg-slate-900`}
-        style={{ height: `${resolvedHeaderHeightPx}px` }}
-      >
-        <div
-          ref={headerContentRef}
-          className="flex flex-col justify-start space-y-1"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[10px]">
-            <span className="truncate" title={track.title}>
-              {track.title}
-            </span>
-            <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[9px]">
-              {track.scaleType}
-            </span>
-          </div>
-          {track.metrics.map((metric, metricIndex) => (
-            <MetricHeader
-              key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-header`}
-              metric={metric}
-              compact={compact}
-              dense={dense}
-            />
-          ))}
-        </div>
-      </div>
+      <WellPlotTrackHeader
+        track={track}
+        compact={compact}
+        dense={dense}
+        headerHeightPx={headerHeightPx}
+        onHeaderHeightChange={onHeaderHeightChange}
+      />
 
       <div
         ref={scrollViewportRef}
@@ -926,99 +1073,22 @@ function WellPlotTrack({
         style={{ height: plotViewportHeightCss }}
         onScroll={() => onScrollViewport?.(track.id)}
       >
-        <div
-          className="relative min-h-full"
-          style={{ height: plotHeightCss }}
-        >
-          <DepthScale rows={rows} compact={compact} dense={dense} />
-
-          <div className={`absolute inset-y-0 right-0 ${depthOffsetClass}`}>
-            <MajorMinorGrid rows={rows} />
-
-            {track.metrics.map((metric, idx) => (
-              <svg
-                key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${idx}-curve`}
-                viewBox={`0 0 100 ${plotHeightPx}`}
-                preserveAspectRatio="none"
-                className="absolute inset-0 h-full w-full"
-                style={{ zIndex: idx + 2 }}
-              >
-                {buildMetricSegments(metric, rows, plotHeightPx).map(
-                  (segment, segmentIndex) => (
-                    <path
-                      key={`${metric.id}-segment-${segmentIndex}`}
-                      d={segment.d}
-                      stroke={metric.color}
-                      strokeWidth={compact ? '1.35' : dense ? '1.6' : '1.8'}
-                      strokeDasharray={segment.isWrapped ? '5 4' : undefined}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      opacity={segment.isWrapped ? 0.85 : 1}
-                      fill="none"
-                    >
-                      <title>
-                        {segment.isWrapped
-                          ? `Wrapped overflow: original ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}, displayed ${formatMetricValue(segment.displayStart)}-${formatMetricValue(segment.displayEnd)}`
-                          : `${metric.label}: ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}`}
-                      </title>
-                    </path>
-                  ),
-                )}
-              </svg>
-            ))}
-          </div>
-        </div>
+        <WellPlotTrackBody
+          track={track}
+          rows={rows}
+          plotHeightPx={plotHeightPx}
+          plotHeightCss={plotHeightCss}
+          compact={compact}
+          dense={dense}
+        />
       </div>
 
-      <div
-        className={`border-t border-slate-300 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 ${footerHeightClass}`}
-      >
-        <div
-          className={cn(
-            'flex h-full flex-col justify-start',
-            compact
-              ? 'gap-y-1 text-[8px]'
-              : dense
-                ? 'gap-y-1 text-[7px] sm:text-[9px]'
-                : 'gap-y-1.5 text-[9px] sm:text-[10px] lg:text-[11px]',
-            'text-slate-500 dark:text-slate-400',
-          )}
-        >
-          {track.metrics.map((metric, metricIndex) => {
-            const lastValue =
-              [...rows]
-                .reverse()
-                .map((row) => getMetricValueFromRow(metric, row))
-                .find((value) => Number.isFinite(value)) ?? NaN
-
-            return (
-              <div
-                key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${metricIndex}-footer`}
-                className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 leading-tight"
-              >
-                <div
-                  className="truncate font-medium"
-                  style={{ color: metric.color }}
-                  title={metric.label}
-                >
-                  {metric.label}
-                </div>
-                <div className="tabular-nums text-right text-slate-600 dark:text-slate-300">
-                  {Number.isFinite(lastValue)
-                    ? formatMetricValue(lastValue)
-                    : '-'}
-                </div>
-              </div>
-            )
-          })}
-          {hasWrappedData ? (
-            <div className="mt-0.5 flex items-center gap-1.5 text-[7px] font-medium uppercase tracking-[0.04em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
-              <span className="h-px w-5 border-t border-dashed border-current" />
-              <span className="truncate">wrapped overflow</span>
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <WellPlotTrackFooter
+        track={track}
+        rows={rows}
+        compact={compact}
+        dense={dense}
+      />
     </div>
   )
 }
@@ -1218,6 +1288,7 @@ export function WellPlotPanel({
   const [measuredHeaderHeights, setMeasuredHeaderHeights] = useState<
     Record<string, number>
   >({})
+  const sharedPlotScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const plotScrollViewportsRef = useRef(new Map<string, HTMLDivElement>())
   const syncingPlotScrollRef = useRef(false)
   const followLatestPlotRef = useRef(true)
@@ -1318,6 +1389,14 @@ export function WellPlotPanel({
     window.requestAnimationFrame(() => {
       syncingPlotScrollRef.current = false
     })
+  }, [])
+  const handleSharedPlotViewportScroll = React.useCallback(() => {
+    const viewport = sharedPlotScrollViewportRef.current
+    if (!viewport) return
+
+    const distanceToLatest =
+      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+    followLatestPlotRef.current = distanceToLatest <= 96
   }, [])
   const getMeasuredSharedHeaderHeight = React.useCallback(
     (targetTracks: PlotTrack[], compactMode: boolean, denseMode: boolean) => {
@@ -1425,6 +1504,13 @@ export function WellPlotPanel({
     if (!followLatestPlotRef.current) return
 
     const frame = window.requestAnimationFrame(() => {
+      const sharedViewport = sharedPlotScrollViewportRef.current
+      if (sharedViewport && sharedViewport.offsetParent !== null) {
+        sharedViewport.scrollTop =
+          sharedViewport.scrollHeight - sharedViewport.clientHeight
+        return
+      }
+
       plotScrollViewportsRef.current.forEach((viewport) => {
         viewport.scrollTop = viewport.scrollHeight - viewport.clientHeight
       })
@@ -1608,19 +1694,57 @@ export function WellPlotPanel({
               }}
             >
               {visibleTrackWindow.tracks.map((track) => (
-                <WellPlotTrack
+                <WellPlotTrackHeader
                   key={track.id}
                   track={track}
-                  rows={plotDepthRows}
-                  plotHeightPx={scrollablePlotHeightPx}
-                  plotHeightCss={scrollablePlotHeightCss}
-                  plotViewportHeightCss={plotViewportHeightCss}
-                  fullWidth
                   dense={dashboardDense}
                   headerHeightPx={visibleDenseHeaderHeightPx}
                   onHeaderHeightChange={handleHeaderHeightChange}
-                  onScrollViewportMount={registerPlotScrollViewport}
-                  onScrollViewport={handlePlotViewportScroll}
+                />
+              ))}
+            </div>
+            <div
+              ref={sharedPlotScrollViewportRef}
+              className="overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]"
+              style={{ height: plotViewportHeightCss }}
+              onScroll={handleSharedPlotViewportScroll}
+            >
+              <div
+                className="grid divide-x divide-slate-300 dark:divide-slate-700"
+                style={{
+                  minWidth: allTracksMinWidth
+                    ? `${allTracksMinWidth}px`
+                    : undefined,
+                  gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {visibleTrackWindow.tracks.map((track) => (
+                  <WellPlotTrackBody
+                    key={track.id}
+                    track={track}
+                    rows={plotDepthRows}
+                    plotHeightPx={scrollablePlotHeightPx}
+                    plotHeightCss={scrollablePlotHeightCss}
+                    dense={dashboardDense}
+                  />
+                ))}
+              </div>
+            </div>
+            <div
+              className="grid divide-x divide-slate-300 dark:divide-slate-700"
+              style={{
+                minWidth: allTracksMinWidth
+                  ? `${allTracksMinWidth}px`
+                  : undefined,
+                gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {visibleTrackWindow.tracks.map((track) => (
+                <WellPlotTrackFooter
+                  key={track.id}
+                  track={track}
+                  rows={plotDepthRows}
+                  dense={dashboardDense}
                 />
               ))}
             </div>
@@ -1660,18 +1784,48 @@ export function WellPlotPanel({
                 }}
               >
                 {visibleTrackWindow.tracks.map((track) => (
-                  <WellPlotTrack
+                  <WellPlotTrackHeader
+                    key={track.id}
+                    track={track}
+                    headerHeightPx={visibleHeaderHeightPx}
+                    onHeaderHeightChange={handleHeaderHeightChange}
+                  />
+                ))}
+              </div>
+              <div
+                ref={sharedPlotScrollViewportRef}
+                className="overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]"
+                style={{ height: plotViewportHeightCss }}
+                onScroll={handleSharedPlotViewportScroll}
+              >
+                <div
+                  className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                  style={{
+                    gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {visibleTrackWindow.tracks.map((track) => (
+                    <WellPlotTrackBody
+                      key={track.id}
+                      track={track}
+                      rows={plotDepthRows}
+                      plotHeightPx={scrollablePlotHeightPx}
+                      plotHeightCss={scrollablePlotHeightCss}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div
+                className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                style={{
+                  gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {visibleTrackWindow.tracks.map((track) => (
+                  <WellPlotTrackFooter
                     key={track.id}
                     track={track}
                     rows={plotDepthRows}
-                    plotHeightPx={scrollablePlotHeightPx}
-                    plotHeightCss={scrollablePlotHeightCss}
-                    plotViewportHeightCss={plotViewportHeightCss}
-                    fullWidth
-                    headerHeightPx={visibleHeaderHeightPx}
-                    onHeaderHeightChange={handleHeaderHeightChange}
-                    onScrollViewportMount={registerPlotScrollViewport}
-                    onScrollViewport={handlePlotViewportScroll}
                   />
                 ))}
               </div>
