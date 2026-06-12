@@ -118,12 +118,63 @@ function isTimeLikeField(field: string) {
   return ["time", "timestamp", "datetime", "date", "measuredat"].includes(field.trim().toLowerCase().replace(/[\s_-]+/g, ""));
 }
 
+const memoryTargetByColumn = new Map<string, string>([
+  ["apwd", "mwdPressure"],
+  ["apwdmemory", "mwdPressure"],
+  ["apwdmem", "mwdPressure"],
+  ["pwd", "mwdPressure"],
+  ["mwdpressure", "mwdPressure"],
+  ["memorypressure", "mwdPressure"],
+  ["ecd", "ecd2"],
+  ["ecdmem", "ecd2"],
+  ["ecdmemory", "ecd2"],
+  ["ecdcalc", "ecd2"],
+  ["mudweight", "mudWeight"],
+  ["mw", "mudWeight"],
+  ["annularpressure", "annularPressure"],
+  ["borepressure", "borePressure"],
+  ["standpipepressure", "standpipePressure"],
+  ["pumppressure", "standpipePressure"],
+  ["downholerpm", "downholeRpm"],
+  ["shockaxial", "shockAxial"],
+  ["shocklateral", "shockLateral"],
+  ["vibrationaxial", "vibrationAxial"],
+  ["vibrationlateral", "vibrationLateral"],
+]);
+
+function normalizeMemoryFieldName(field: string) {
+  return field.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getBackendMemoryTarget(field: string) {
+  const normalized = normalizeMemoryFieldName(field);
+  return memoryTargetByColumn.get(normalized) ?? null;
+}
+
 function buildDefaultFieldMappings(fields: string[], depthField = "depth") {
   return fields.reduce<Record<string, string>>((mappings, field) => {
     if (field === depthField || isDepthLikeField(field) || isTimeLikeField(field)) return mappings;
-    mappings[field] = field;
+    const target = getBackendMemoryTarget(field);
+    if (target) mappings[field] = target;
     return mappings;
   }, {});
+}
+
+function getValueField(fields: string[], depthField?: string) {
+  return fields.find((field) => {
+    if (field === depthField || isDepthLikeField(field) || isTimeLikeField(field)) return false;
+    return true;
+  });
+}
+
+function buildMemoryImportRows(parsedFile: MemoryImportFile, valueField: string) {
+  return parsedFile.segments.flatMap((segment) =>
+    segment.rows.map((row) => ({
+      depth: row.depth,
+      measuredAt: row.timestamp,
+      [valueField]: row.raw[valueField] ?? row.value,
+    }))
+  );
 }
 
 function getDatasetSourceField(dataset: ImportedMemoryDataset | null) {
@@ -282,10 +333,10 @@ export function MemoryImportWizard() {
     if (selectedStorage || backendMemoryFiles.length > 0 || memoryBatchResult?.imported.length) completed.add("storage");
     if (importFile) completed.add("upload");
     if (selectedSegment) completed.add("scan");
-    if (activeDataset) completed.add("import");
-    if (activeDataset?.status === "correlated" || gapFillRequests.length > 0) completed.add("correlate");
+    if (activeDataset || memoryBatchResult?.imported.length || selectedBackendFileId) completed.add("import");
+    if (activeDataset?.status === "correlated" || gapFillRequests.length > 0 || correlationPreview) completed.add("correlate");
     return completed;
-  }, [activeDataset, backendMemoryFiles.length, gapFillRequests.length, importFile, memoryBatchResult?.imported.length, selectedSegment, selectedStorage]);
+  }, [activeDataset, backendMemoryFiles.length, correlationPreview, gapFillRequests.length, importFile, memoryBatchResult?.imported.length, selectedBackendFileId, selectedSegment, selectedStorage]);
 
   const compareRows = useMemo<Array<{
     sampleId: string;
@@ -441,6 +492,14 @@ export function MemoryImportWizard() {
         return;
       }
 
+      const sessionId = toBackendSessionId(activeMwdSessionId);
+      if (!sessionId) {
+        const message = "Select an active MWD session before importing memory files.";
+        setMemoryFilesError(message);
+        toast.error("Unable to import memory CSV files", { description: message });
+        return;
+      }
+
       const importedNames: string[] = [];
       const failed: Array<{ fileName: string; message: string }> = [];
       let latestImportedId = "";
@@ -450,16 +509,22 @@ export function MemoryImportWizard() {
         try {
           const depthField =
             parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
-            "depth";
+            undefined;
+          const measuredAtField = parsedFile.detectedFields.find((field) => isTimeLikeField(field));
+          const valueField = getValueField(parsedFile.detectedFields, depthField);
+          const fieldMappings = buildDefaultFieldMappings(parsedFile.detectedFields, depthField);
+          const shouldSendNormalizedRows = !depthField && !measuredAtField && valueField && parsedFile.segments.length > 0;
           const imported = await importMemoryFile(token, {
-            sessionId: toBackendSessionId(activeMwdSessionId),
+            sessionId,
             fileName: source.fileName,
             source: "memory_file",
-            content: source.content,
-            delimiter: ",",
+            ...(shouldSendNormalizedRows
+              ? { rows: buildMemoryImportRows(parsedFile, valueField) }
+              : { content: source.content }),
             hasHeader: true,
-            depthField,
-            fieldMappings: buildDefaultFieldMappings(parsedFile.detectedFields, depthField),
+            ...(depthField ? { depthField } : {}),
+            ...(measuredAtField ? { measuredAtField } : {}),
+            ...(Object.keys(fieldMappings).length > 0 ? { fieldMappings } : {}),
           });
           latestImportedId = imported.id;
           importedNames.push(source.fileName);
@@ -476,11 +541,16 @@ export function MemoryImportWizard() {
       await loadBackendMemoryFiles();
 
       if (importedNames.length > 0 && failed.length > 0) {
-        toast.warning(`${importedNames.length} memory CSV imported, ${failed.length} failed.`);
+        toast.warning(`${importedNames.length} memory CSV imported, ${failed.length} failed.`, {
+          description: failed[0] ? `${failed[0].fileName}: ${failed[0].message}` : undefined,
+        });
       } else if (importedNames.length > 0) {
         toast.success(`${importedNames.length} memory CSV file(s) imported and scanned.`);
       } else {
-        toast.error("No memory CSV files were imported.");
+        const firstFailure = failed[0];
+        toast.error("No memory CSV files were imported.", {
+          description: firstFailure ? `${firstFailure.fileName}: ${firstFailure.message}` : "No backend import response was returned.",
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to import memory CSV files.";
@@ -511,9 +581,12 @@ export function MemoryImportWizard() {
   };
 
   const handleApplyCorrelation = () => {
-    toast.warning("Local-only correlation disabled", {
-      description: "Run backend dry-run preview and apply through POST /api/memory-files/:id/correlate.",
-    });
+    if (correlationPreview) {
+      void handleApplyBackendCorrelation();
+      return;
+    }
+
+    void handlePreviewBackendCorrelation();
   };
 
   const buildCorrelationPayload = (dryRun: boolean) => {
@@ -542,7 +615,7 @@ export function MemoryImportWizard() {
         }
       : {
           sessionId,
-          mode: "time" as const,
+          mode: "timestamp" as const,
           dryRun,
           measuredAtOffsetMs,
           maxTimeDifferenceMs,
