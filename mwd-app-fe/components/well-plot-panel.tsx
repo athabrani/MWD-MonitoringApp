@@ -795,26 +795,36 @@ function WellPlotTrack({
   rows,
   plotHeightPx,
   plotHeightCss,
+  plotViewportHeightCss,
   compact = false,
   fullWidth = false,
   dense = false,
   headerHeightPx,
   onHeaderHeightChange,
+  onScrollViewportMount,
+  onScrollViewport,
 }: {
   track: PlotTrack
   rows: DepthRow[]
   plotHeightPx: number
   plotHeightCss: string
+  plotViewportHeightCss: string
   compact?: boolean
   fullWidth?: boolean
   dense?: boolean
   headerHeightPx?: number
   onHeaderHeightChange?: (trackId: string, height: number) => void
+  onScrollViewportMount?: (
+    trackId: string,
+    element: HTMLDivElement | null,
+  ) => void
+  onScrollViewport?: (trackId: string) => void
 }) {
   const resolvedHeaderHeightPx =
     headerHeightPx ?? getTrackHeaderHeightPx(track, compact, dense)
   const headerRef = useRef<HTMLDivElement | null>(null)
   const headerContentRef = useRef<HTMLDivElement | null>(null)
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null)
   const footerHeightClass = compact
     ? 'min-h-[34px]'
     : dense
@@ -866,6 +876,14 @@ function WellPlotTrack({
     return () => observer.disconnect()
   }, [compact, dense, onHeaderHeightChange, track.id, track.metrics])
 
+  useLayoutEffect(() => {
+    if (!onScrollViewportMount) return
+
+    onScrollViewportMount(track.id, scrollViewportRef.current)
+
+    return () => onScrollViewportMount(track.id, null)
+  }, [onScrollViewportMount, track.id])
+
   return (
     <div
       className={
@@ -903,45 +921,52 @@ function WellPlotTrack({
       </div>
 
       <div
-        className="relative overflow-hidden"
-        style={{ height: plotHeightCss }}
+        ref={scrollViewportRef}
+        className="overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]"
+        style={{ height: plotViewportHeightCss }}
+        onScroll={() => onScrollViewport?.(track.id)}
       >
-        <DepthScale rows={rows} compact={compact} dense={dense} />
+        <div
+          className="relative min-h-full"
+          style={{ height: plotHeightCss }}
+        >
+          <DepthScale rows={rows} compact={compact} dense={dense} />
 
-        <div className={`absolute inset-y-0 right-0 ${depthOffsetClass}`}>
-          <MajorMinorGrid rows={rows} />
+          <div className={`absolute inset-y-0 right-0 ${depthOffsetClass}`}>
+            <MajorMinorGrid rows={rows} />
 
-          {track.metrics.map((metric, idx) => (
-            <svg
-              key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${idx}-curve`}
-              viewBox={`0 0 100 ${plotHeightPx}`}
-              preserveAspectRatio="none"
-              className="absolute inset-0 h-full w-full"
-              style={{ zIndex: idx + 2 }}
-            >
-              {buildMetricSegments(metric, rows, plotHeightPx).map(
-                (segment, segmentIndex) => (
-                  <path
-                    key={`${metric.id}-segment-${segmentIndex}`}
-                    d={segment.d}
-                    stroke={metric.color}
-                    strokeWidth={compact ? '1.35' : dense ? '1.6' : '1.8'}
-                    strokeDasharray={segment.isWrapped ? '5 4' : undefined}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity={segment.isWrapped ? 0.85 : 1}
-                    fill="none"
-                  >
-                    <title>
-                      {segment.isWrapped
-                        ? `Wrapped overflow: original ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}, displayed ${formatMetricValue(segment.displayStart)}-${formatMetricValue(segment.displayEnd)}`
-                        : `${metric.label}: ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}`}
-                    </title>
-                  </path>
-                ),
-              )}
-            </svg>
-          ))}
+            {track.metrics.map((metric, idx) => (
+              <svg
+                key={`${track.id}-${metric.id}-${metric.dataSource ?? metric.label}-${idx}-curve`}
+                viewBox={`0 0 100 ${plotHeightPx}`}
+                preserveAspectRatio="none"
+                className="absolute inset-0 h-full w-full"
+                style={{ zIndex: idx + 2 }}
+              >
+                {buildMetricSegments(metric, rows, plotHeightPx).map(
+                  (segment, segmentIndex) => (
+                    <path
+                      key={`${metric.id}-segment-${segmentIndex}`}
+                      d={segment.d}
+                      stroke={metric.color}
+                      strokeWidth={compact ? '1.35' : dense ? '1.6' : '1.8'}
+                      strokeDasharray={segment.isWrapped ? '5 4' : undefined}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={segment.isWrapped ? 0.85 : 1}
+                      fill="none"
+                    >
+                      <title>
+                        {segment.isWrapped
+                          ? `Wrapped overflow: original ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}, displayed ${formatMetricValue(segment.displayStart)}-${formatMetricValue(segment.displayEnd)}`
+                          : `${metric.label}: ${formatMetricValue(segment.originalStart)}-${formatMetricValue(segment.originalEnd)}`}
+                      </title>
+                    </path>
+                  ),
+                )}
+              </svg>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1193,6 +1218,9 @@ export function WellPlotPanel({
   const [measuredHeaderHeights, setMeasuredHeaderHeights] = useState<
     Record<string, number>
   >({})
+  const plotScrollViewportsRef = useRef(new Map<string, HTMLDivElement>())
+  const syncingPlotScrollRef = useRef(false)
+  const followLatestPlotRef = useRef(true)
 
   const compactDashboardMode = compact && !showHeader
   const plotHeightPx = compact
@@ -1209,6 +1237,16 @@ export function WellPlotPanel({
     : dashboardStretch
       ? (dashboardHeightCss ?? 'clamp(980px, calc(100dvh - 120px), 1480px)')
       : 'clamp(720px, calc(100dvh - 180px), 1280px)'
+  const readableRowGapPx = compact ? 42 : dashboardStretch ? 46 : 48
+  const scrollablePlotHeightPx = Math.max(
+    plotHeightPx,
+    Math.ceil(plotDepthRows.length * readableRowGapPx),
+  )
+  const scrollablePlotHeightCss =
+    scrollablePlotHeightPx > plotHeightPx
+      ? `${scrollablePlotHeightPx}px`
+      : plotHeightCss
+  const plotViewportHeightCss = plotHeightCss
 
   const activeTrack = useMemo(
     () => tracks.find((track) => track.id === activePlotId) ?? tracks[0],
@@ -1250,6 +1288,37 @@ export function WellPlotPanel({
     },
     [],
   )
+  const registerPlotScrollViewport = React.useCallback(
+    (trackId: string, element: HTMLDivElement | null) => {
+      if (element) {
+        plotScrollViewportsRef.current.set(trackId, element)
+        return
+      }
+
+      plotScrollViewportsRef.current.delete(trackId)
+    },
+    [],
+  )
+  const handlePlotViewportScroll = React.useCallback((trackId: string) => {
+    if (syncingPlotScrollRef.current) return
+
+    const source = plotScrollViewportsRef.current.get(trackId)
+    if (!source) return
+
+    const distanceToLatest =
+      source.scrollHeight - source.clientHeight - source.scrollTop
+    followLatestPlotRef.current = distanceToLatest <= 96
+    syncingPlotScrollRef.current = true
+
+    plotScrollViewportsRef.current.forEach((viewport, viewportTrackId) => {
+      if (viewportTrackId === trackId) return
+      viewport.scrollTop = source.scrollTop
+    })
+
+    window.requestAnimationFrame(() => {
+      syncingPlotScrollRef.current = false
+    })
+  }, [])
   const getMeasuredSharedHeaderHeight = React.useCallback(
     (targetTracks: PlotTrack[], compactMode: boolean, denseMode: boolean) => {
       const estimatedHeight = getSharedTrackHeaderHeightPx(
@@ -1351,6 +1420,24 @@ export function WellPlotPanel({
       cancelled = true
     }
   }, [multiTrackLimit, trackWindowStart, tracks])
+
+  useLayoutEffect(() => {
+    if (!followLatestPlotRef.current) return
+
+    const frame = window.requestAnimationFrame(() => {
+      plotScrollViewportsRef.current.forEach((viewport) => {
+        viewport.scrollTop = viewport.scrollHeight - viewport.clientHeight
+      })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [
+    activePlotId,
+    plotDepthRows.length,
+    scrollablePlotHeightPx,
+    trackWindowStart,
+    visibleTrackWindow.startIndex,
+  ])
 
   if (!tracks.length || !activeTrack) {
     return (
@@ -1491,12 +1578,15 @@ export function WellPlotPanel({
           <WellPlotTrack
             track={activeTrack}
             rows={plotDepthRows}
-            plotHeightPx={plotHeightPx}
-            plotHeightCss={plotHeightCss}
+            plotHeightPx={scrollablePlotHeightPx}
+            plotHeightCss={scrollablePlotHeightCss}
+            plotViewportHeightCss={plotViewportHeightCss}
             compact
             fullWidth
             headerHeightPx={compactActiveHeaderHeightPx}
             onHeaderHeightChange={handleHeaderHeightChange}
+            onScrollViewportMount={registerPlotScrollViewport}
+            onScrollViewport={handlePlotViewportScroll}
           />
         </Card>
       ) : showAllTracks ? (
@@ -1522,12 +1612,15 @@ export function WellPlotPanel({
                   key={track.id}
                   track={track}
                   rows={plotDepthRows}
-                  plotHeightPx={plotHeightPx}
-                  plotHeightCss={plotHeightCss}
+                  plotHeightPx={scrollablePlotHeightPx}
+                  plotHeightCss={scrollablePlotHeightCss}
+                  plotViewportHeightCss={plotViewportHeightCss}
                   fullWidth
                   dense={dashboardDense}
                   headerHeightPx={visibleDenseHeaderHeightPx}
                   onHeaderHeightChange={handleHeaderHeightChange}
+                  onScrollViewportMount={registerPlotScrollViewport}
+                  onScrollViewport={handlePlotViewportScroll}
                 />
               ))}
             </div>
@@ -1540,11 +1633,14 @@ export function WellPlotPanel({
               <WellPlotTrack
                 track={activeTrack}
                 rows={plotDepthRows}
-                plotHeightPx={plotHeightPx}
-                plotHeightCss={plotHeightCss}
+                plotHeightPx={scrollablePlotHeightPx}
+                plotHeightCss={scrollablePlotHeightCss}
+                plotViewportHeightCss={plotViewportHeightCss}
                 fullWidth
                 headerHeightPx={activeHeaderHeightPx}
                 onHeaderHeightChange={handleHeaderHeightChange}
+                onScrollViewportMount={registerPlotScrollViewport}
+                onScrollViewport={handlePlotViewportScroll}
               />
             </Card>
           </div>
@@ -1568,11 +1664,14 @@ export function WellPlotPanel({
                     key={track.id}
                     track={track}
                     rows={plotDepthRows}
-                    plotHeightPx={plotHeightPx}
-                    plotHeightCss={plotHeightCss}
+                    plotHeightPx={scrollablePlotHeightPx}
+                    plotHeightCss={scrollablePlotHeightCss}
+                    plotViewportHeightCss={plotViewportHeightCss}
                     fullWidth
                     headerHeightPx={visibleHeaderHeightPx}
                     onHeaderHeightChange={handleHeaderHeightChange}
+                    onScrollViewportMount={registerPlotScrollViewport}
+                    onScrollViewport={handlePlotViewportScroll}
                   />
                 ))}
               </div>
