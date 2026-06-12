@@ -9,8 +9,6 @@ export default function WellPlotPage() {
       showAllTracks
       maxVisibleTracks={4}
       responsiveTrackWindow
-      useSurveySource
-      surveyStationType="actual"
     />
   );
 }

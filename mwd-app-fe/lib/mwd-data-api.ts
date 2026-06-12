@@ -257,11 +257,22 @@ export function getLatestMwdDataRecord(records: MwdDataRecord[]) {
 
 export function mwdDataRecordsToChartData(records: MwdDataRecord[]): ChartDataPoint[] {
   return records
-    .map((record) => ({
-      timestamp: record.timestamp,
-      depth: record.depth,
-      ...record.metrics,
-    }))
+    .map((record) => {
+      const depth =
+        record.depth ??
+        record.metrics.depthMd ??
+        record.metrics.depth ??
+        record.metrics.holeDepth ??
+        record.metrics.bitDepth ??
+        record.metrics.md ??
+        record.metrics["0110"];
+
+      return {
+        timestamp: record.timestamp,
+        depth,
+        ...record.metrics,
+      };
+    })
     .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 }
 

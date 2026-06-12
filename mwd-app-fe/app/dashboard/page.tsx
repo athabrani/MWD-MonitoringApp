@@ -632,6 +632,35 @@ export const DashboardPage: React.FC = () => {
       css: 'clamp(520px, 72dvh, 820px)',
     };
   }, [dashboardViewport, viewportWidth]);
+  const wideDashboardPlotHeight = useMemo(() => {
+    const rowCount = chartData.length;
+
+    if (rowCount >= 240) {
+      return {
+        px: 1360,
+        css: 'clamp(1200px, calc(100dvh - 96px), 1500px)',
+      };
+    }
+
+    if (rowCount >= 100) {
+      return {
+        px: 1240,
+        css: 'clamp(1100px, calc(100dvh - 112px), 1400px)',
+      };
+    }
+
+    if (denseTabletDesktopLayout) {
+      return {
+        px: 1100,
+        css: 'clamp(960px, calc(100dvh - 132px), 1180px)',
+      };
+    }
+
+    return {
+      px: 1160,
+      css: 'clamp(1000px, calc(100dvh - 124px), 1240px)',
+    };
+  }, [chartData.length, denseTabletDesktopLayout]);
 
   return (
     <div className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
@@ -1079,6 +1108,8 @@ export const DashboardPage: React.FC = () => {
                 showHeader={false}
                 showAllTracks
                 dashboardStretch
+                dashboardHeightPx={wideDashboardPlotHeight.px}
+                dashboardHeightCss={wideDashboardPlotHeight.css}
                 allTracksMinWidth={denseTabletDesktopLayout ? 680 : 860}
                 maxVisibleTracks={denseTabletDesktopLayout ? 3 : 6}
               />
