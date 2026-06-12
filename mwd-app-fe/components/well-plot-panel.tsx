@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useApp } from '@/context/AppContext'
-import { useAuth } from '@/context/AuthContext'
 import {
   getValidTrackValueRange,
   getRenderableTracksFromPlotConfig,
@@ -21,10 +20,8 @@ import {
   TrackValueRange,
   WrappedTrackValue,
 } from '@/lib/plot-track-config'
-import { getSurveys } from '@/lib/surveys-api'
 import { cn } from '@/lib/utils'
 import { ChartDataPoint } from '@/types'
-import type { SurveyRecord } from '@/types/monitoring'
 import { TrackScaleType } from '@/types/plotting'
 import type { PlotConfiguration } from '@/types/plotting'
 
@@ -220,16 +217,39 @@ function getMetricValueFromRow(metric: MetricConfig, row: DepthRow) {
   return undefined
 }
 
-function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
-  const depthValue = point.depth
-  const depth =
-    typeof depthValue === 'number'
-      ? depthValue
-      : typeof depthValue === 'string'
-        ? Number(depthValue)
-        : NaN
+function readNumericValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    const numericValue =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string'
+          ? Number(value)
+          : NaN
 
-  if (!Number.isFinite(depth)) return null
+    if (Number.isFinite(numericValue)) return numericValue
+  }
+
+  return undefined
+}
+
+function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
+  const depth = readNumericValue(point, [
+    'depth',
+    'depthMd',
+    'depth_md',
+    'measuredDepth',
+    'measured_depth',
+    'md',
+    'holeDepth',
+    'hole_depth',
+    'bitDepth',
+    'bit_depth',
+    '0110',
+  ])
+
+  if (depth === undefined || !Number.isFinite(depth)) return null
+  const roundedDepth = Math.round(depth * 100) / 100
 
   const timestamp =
     point.timestamp instanceof Date
@@ -255,69 +275,11 @@ function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
   }
 
   return {
-    depth: Math.round(depth * 100) / 100,
+    depth: roundedDepth,
     time:
       timestamp && !Number.isNaN(timestamp.getTime())
         ? timestamp.toLocaleTimeString()
         : '-',
-    metrics,
-  }
-}
-
-function surveyRecordToDepthRow(record: SurveyRecord): DepthRow | null {
-  if (!Number.isFinite(record.md)) return null
-
-  const metrics: Record<string, number> = {
-    md: record.md,
-    depthMd: record.md,
-    measuredDepth: record.md,
-    inc: record.inc,
-    inclination: record.inc,
-    azi: record.azm,
-    azimuth: record.azm,
-    tvd: record.tvd,
-    ns: record.ns,
-    northing: record.ns,
-    ew: record.ew,
-    easting: record.ew,
-    vs: record.vs,
-    verticalSection: record.vs,
-    dls: record.dls,
-    doglegSeverity: record.dls,
-  }
-
-  if (record.buildRate !== undefined) {
-    metrics.buildRate = record.buildRate
-  }
-
-  if (record.turnRate !== undefined) {
-    metrics.turnRate = record.turnRate
-  }
-
-  if (record.closureDistance !== undefined) {
-    metrics.closureDistance = record.closureDistance
-  }
-
-  if (record.closureAzimuth !== undefined) {
-    metrics.closureAzimuth = record.closureAzimuth
-  }
-
-  for (const [key, value] of Object.entries(metrics)) {
-    if (!Number.isFinite(value)) {
-      delete metrics[key]
-      continue
-    }
-
-    metrics[normalizeMetricLookupKey(key)] = value
-  }
-
-  const timestamp = new Date(record.timestamp)
-
-  return {
-    depth: Math.round(record.md * 100) / 100,
-    time: !Number.isNaN(timestamp.getTime())
-      ? timestamp.toLocaleTimeString()
-      : '-',
     metrics,
   }
 }
@@ -756,7 +718,7 @@ function DepthScale({
 
   return (
     <div
-      className={`absolute inset-y-0 left-0 border-r border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-900/80 ${widthClass}`}
+      className={`absolute inset-y-0 left-0 border-r border-slate-200/80 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/70 ${widthClass}`}
     >
       <div
         className={`absolute inset-0 flex flex-col justify-between py-3 ${compact ? 'px-1' : 'px-1.5 sm:px-2'}`}
@@ -800,7 +762,7 @@ function MajorMinorGrid({ rows }: { rows: DepthRow[] }) {
   return (
     <>
       <div
-        className="absolute inset-0 [--grid-major:rgba(71,85,105,0.25)] [--grid-minor:rgba(100,116,139,0.12)] dark:[--grid-major:rgba(148,163,184,0.18)] dark:[--grid-minor:rgba(148,163,184,0.08)]"
+        className="absolute inset-0 bg-slate-50/45 [--grid-major:rgba(71,85,105,0.14)] [--grid-minor:rgba(100,116,139,0.07)] dark:bg-slate-950 dark:[--grid-major:rgba(148,163,184,0.12)] dark:[--grid-minor:rgba(148,163,184,0.05)]"
         style={{
           backgroundImage: `
             linear-gradient(to bottom, var(--grid-major) 1px, transparent 1px),
@@ -815,15 +777,15 @@ function MajorMinorGrid({ rows }: { rows: DepthRow[] }) {
           return (
             <div
               key={index}
-              className="absolute left-0 right-0 border-t border-slate-300/40 dark:border-slate-700/40"
+              className="absolute left-0 right-0 border-t border-slate-300/20 dark:border-slate-700/25"
               style={{ top: `${top}%` }}
             />
           )
         })}
       </div>
-      <div className="absolute inset-y-0 left-1/4 w-px bg-slate-300/70 dark:bg-slate-700/60" />
-      <div className="absolute inset-y-0 left-2/4 w-px bg-slate-400/80 dark:bg-slate-600/80" />
-      <div className="absolute inset-y-0 left-3/4 w-px bg-slate-300/70 dark:bg-slate-700/60" />
+      <div className="absolute inset-y-0 left-1/4 w-px bg-slate-300/35 dark:bg-slate-700/35" />
+      <div className="absolute inset-y-0 left-2/4 w-px bg-slate-400/45 dark:bg-slate-600/45" />
+      <div className="absolute inset-y-0 left-3/4 w-px bg-slate-300/35 dark:bg-slate-700/35" />
     </>
   )
 }
@@ -1168,6 +1130,8 @@ export function WellPlotPanel({
   dashboardStretch = false,
   compactDashboardHeightPx,
   compactDashboardHeightCss,
+  dashboardHeightPx,
+  dashboardHeightCss,
   allTracksMinWidth,
   maxVisibleTracks,
   responsiveTrackWindow = false,
@@ -1175,8 +1139,6 @@ export function WellPlotPanel({
   chartDataOverride,
   mwdDataLoading = false,
   mwdDataError,
-  useSurveySource = false,
-  surveyStationType = 'actual',
 }: {
   compact?: boolean
   showHeader?: boolean
@@ -1184,6 +1146,8 @@ export function WellPlotPanel({
   dashboardStretch?: boolean
   compactDashboardHeightPx?: number
   compactDashboardHeightCss?: string
+  dashboardHeightPx?: number
+  dashboardHeightCss?: string
   allTracksMinWidth?: number
   maxVisibleTracks?: number
   responsiveTrackWindow?: boolean
@@ -1191,16 +1155,10 @@ export function WellPlotPanel({
   chartDataOverride?: ChartDataPoint[]
   mwdDataLoading?: boolean
   mwdDataError?: string
-  useSurveySource?: boolean
-  surveyStationType?: 'actual' | 'plan'
 }) {
-  const { token } = useAuth()
-  const { activePlotConfig, activeMwdSession, activeMwdSessionId, chartData } =
+  const { activePlotConfig, activeMwdSession, chartData } =
     useApp()
   const panelRef = useRef<HTMLDivElement>(null)
-  const [surveyRecords, setSurveyRecords] = useState<SurveyRecord[]>([])
-  const [surveyLoading, setSurveyLoading] = useState(false)
-  const [surveyError, setSurveyError] = useState('')
   const selectedPlotConfig =
     plotConfig !== undefined ? plotConfig : activePlotConfig
   const selectedChartData = chartDataOverride ?? chartData
@@ -1221,18 +1179,10 @@ export function WellPlotPanel({
       .filter((row): row is DepthRow => Boolean(row))
       .sort((left, right) => left.depth - right.depth)
   }, [selectedChartData])
-  const surveyDepthRows = useMemo<DepthRow[]>(() => {
-    return surveyRecords
-      .map(surveyRecordToDepthRow)
-      .filter((row): row is DepthRow => Boolean(row))
-      .sort((left, right) => left.depth - right.depth)
-  }, [surveyRecords])
-  const plotDepthRows = useSurveySource ? surveyDepthRows : backendDepthRows
-  const plotDataLoading = useSurveySource ? surveyLoading : mwdDataLoading
-  const plotDataError = useSurveySource ? surveyError : mwdDataError
-  const emptyPlotDataMessage = useSurveySource
-    ? `Belum ada survey ${surveyStationType} untuk session ini.`
-    : 'Belum ada data MWD untuk session ini.'
+  const plotDepthRows = backendDepthRows
+  const plotDataLoading = mwdDataLoading
+  const plotDataError = mwdDataError
+  const emptyPlotDataMessage = 'Belum ada data MWD untuk session ini.'
   const activeGeneral = selectedPlotConfig?.general
   const activeDepthCorrection = activeGeneral?.depthCorrection ?? 'MD'
   const activeDepthScale =
@@ -1250,14 +1200,14 @@ export function WellPlotPanel({
       ? (compactDashboardHeightPx ?? 760)
       : 640
     : dashboardStretch
-      ? 1500
+      ? (dashboardHeightPx ?? 1500)
       : 1320
   const plotHeightCss = compact
     ? compactDashboardMode
       ? (compactDashboardHeightCss ?? 'clamp(520px, 72dvh, 820px)')
       : 'clamp(420px, 60dvh, 640px)'
     : dashboardStretch
-      ? 'clamp(980px, calc(100dvh - 120px), 1480px)'
+      ? (dashboardHeightCss ?? 'clamp(980px, calc(100dvh - 120px), 1480px)')
       : 'clamp(720px, calc(100dvh - 180px), 1280px)'
 
   const activeTrack = useMemo(
@@ -1355,53 +1305,6 @@ export function WellPlotPanel({
 
     return () => observer.disconnect()
   }, [responsiveTrackWindow])
-
-  useEffect(() => {
-    if (!useSurveySource) return
-
-    if (!token || !activeMwdSessionId) {
-      let cancelled = false
-      queueMicrotask(() => {
-        if (cancelled) return
-        setSurveyRecords([])
-        setSurveyError('')
-      })
-      return () => {
-        cancelled = true
-      }
-    }
-
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      setSurveyLoading(true)
-      setSurveyError('')
-    })
-
-    getSurveys(token, {
-      sessionId: activeMwdSessionId,
-      stationType: surveyStationType,
-    })
-      .then((records) => {
-        if (!cancelled) setSurveyRecords(records)
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setSurveyRecords([])
-        setSurveyError(
-          error instanceof Error
-            ? error.message
-            : 'Gagal memuat survey untuk Well Plot.',
-        )
-      })
-      .finally(() => {
-        if (!cancelled) setSurveyLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeMwdSessionId, surveyStationType, token, useSurveySource])
 
   useEffect(() => {
     let cancelled = false
