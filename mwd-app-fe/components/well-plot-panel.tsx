@@ -634,7 +634,7 @@ function MetricHeader({
             : 'grid grid-cols-[28px_1fr_40px] items-start gap-1 text-[9px] leading-tight sm:grid-cols-[32px_1fr_48px] sm:text-[11px] lg:grid-cols-[36px_1fr_54px] lg:text-[11px]'
       }
     >
-      <span className="tabular-nums text-slate-500 dark:text-slate-400">
+      <span className="tabular-nums text-slate-400">
         {metric.min ?? 0}
       </span>
       <span
@@ -644,7 +644,7 @@ function MetricHeader({
       >
         {metric.label}
       </span>
-      <span className="tabular-nums text-right text-slate-500 dark:text-slate-400">
+      <span className="tabular-nums text-right text-slate-400">
         {metric.max ?? '-'}
       </span>
     </div>
@@ -718,7 +718,7 @@ function DepthScale({
 
   return (
     <div
-      className={`absolute inset-y-0 left-0 border-r border-slate-200/80 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/70 ${widthClass}`}
+      className={`absolute inset-y-0 left-0 border-r border-slate-700 bg-slate-900/95 ${widthClass}`}
     >
       <div
         className={`absolute inset-0 flex flex-col justify-between py-3 ${compact ? 'px-1' : 'px-1.5 sm:px-2'}`}
@@ -728,10 +728,10 @@ function DepthScale({
             <div
               className={
                 compact
-                  ? 'text-[9px] font-semibold tabular-nums text-slate-700 dark:text-slate-200'
+                  ? 'text-[9px] font-semibold tabular-nums text-slate-100'
                   : dense
-                    ? 'text-[8px] font-semibold tabular-nums text-slate-700 sm:text-[9px] dark:text-slate-200'
-                    : 'text-[10px] font-semibold tabular-nums text-slate-700 sm:text-[11px] lg:text-[12px] dark:text-slate-200'
+                    ? 'text-[8px] font-semibold tabular-nums text-slate-100 sm:text-[9px]'
+                    : 'text-[10px] font-semibold tabular-nums text-slate-100 sm:text-[11px] lg:text-[12px]'
               }
             >
               {row.depth}
@@ -739,10 +739,10 @@ function DepthScale({
             <div
               className={
                 compact
-                  ? 'text-[8px] tabular-nums text-slate-500 dark:text-slate-400'
+                  ? 'text-[8px] tabular-nums text-slate-400'
                   : dense
-                    ? 'text-[7px] tabular-nums text-slate-500 sm:text-[9px] dark:text-slate-400'
-                    : 'text-[9px] tabular-nums text-slate-500 sm:text-[10px] lg:text-[11px] dark:text-slate-400'
+                    ? 'text-[7px] tabular-nums text-slate-400 sm:text-[9px]'
+                    : 'text-[9px] tabular-nums text-slate-400 sm:text-[10px] lg:text-[11px]'
               }
             >
               {row.time}
@@ -762,7 +762,7 @@ function MajorMinorGrid({ rows }: { rows: DepthRow[] }) {
   return (
     <>
       <div
-        className="absolute inset-0 bg-slate-50/45 [--grid-major:rgba(71,85,105,0.14)] [--grid-minor:rgba(100,116,139,0.07)] dark:bg-slate-950 dark:[--grid-major:rgba(148,163,184,0.12)] dark:[--grid-minor:rgba(148,163,184,0.05)]"
+        className="absolute inset-0 bg-slate-950 [--grid-major:rgba(148,163,184,0.12)] [--grid-minor:rgba(148,163,184,0.05)]"
         style={{
           backgroundImage: `
             linear-gradient(to bottom, var(--grid-major) 1px, transparent 1px),
@@ -777,15 +777,15 @@ function MajorMinorGrid({ rows }: { rows: DepthRow[] }) {
           return (
             <div
               key={index}
-              className="absolute left-0 right-0 border-t border-slate-300/20 dark:border-slate-700/25"
+              className="absolute left-0 right-0 border-t border-slate-700/25"
               style={{ top: `${top}%` }}
             />
           )
         })}
       </div>
-      <div className="absolute inset-y-0 left-1/4 w-px bg-slate-300/35 dark:bg-slate-700/35" />
-      <div className="absolute inset-y-0 left-2/4 w-px bg-slate-400/45 dark:bg-slate-600/45" />
-      <div className="absolute inset-y-0 left-3/4 w-px bg-slate-300/35 dark:bg-slate-700/35" />
+      <div className="absolute inset-y-0 left-1/4 w-px bg-slate-700/35" />
+      <div className="absolute inset-y-0 left-2/4 w-px bg-slate-600/45" />
+      <div className="absolute inset-y-0 left-3/4 w-px bg-slate-700/35" />
     </>
   )
 }
@@ -848,18 +848,18 @@ function WellPlotTrackHeader({
   return (
     <div
       ref={headerRef}
-      className={`border-b border-slate-300 bg-slate-100 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 dark:bg-slate-900`}
+      className={`border-b border-slate-700 bg-slate-900 ${dense ? 'px-1 py-1' : 'px-2 py-2'}`}
       style={{ height: `${resolvedHeaderHeightPx}px` }}
     >
       <div
         ref={headerContentRef}
         className="flex flex-col justify-start space-y-1"
       >
-        <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-600 dark:text-slate-300 sm:text-[10px]">
+        <div className="flex min-w-0 items-center justify-between gap-2 text-[8px] font-semibold uppercase leading-none text-slate-200 sm:text-[10px]">
           <span className="truncate" title={track.title}>
             {track.title}
           </span>
-          <span className="shrink-0 text-[7px] font-medium text-slate-500 dark:text-slate-400 sm:text-[9px]">
+          <span className="shrink-0 text-[7px] font-medium text-slate-400 sm:text-[9px]">
             {track.scaleType}
           </span>
         </div>
@@ -962,7 +962,7 @@ function WellPlotTrackFooter({
 
   return (
     <div
-      className={`border-t border-slate-300 ${dense ? 'px-1 py-1' : 'px-2 py-2'} dark:border-slate-700 ${footerHeightClass}`}
+      className={`border-t border-slate-700 bg-slate-900 ${dense ? 'px-1 py-1' : 'px-2 py-2'} ${footerHeightClass}`}
     >
       <div
         className={cn(
@@ -972,7 +972,7 @@ function WellPlotTrackFooter({
             : dense
               ? 'gap-y-1 text-[7px] sm:text-[9px]'
               : 'gap-y-1.5 text-[9px] sm:text-[10px] lg:text-[11px]',
-          'text-slate-500 dark:text-slate-400',
+          'text-slate-400',
         )}
       >
         {track.metrics.map((metric, metricIndex) => {
@@ -994,14 +994,14 @@ function WellPlotTrackFooter({
               >
                 {metric.label}
               </div>
-              <div className="tabular-nums text-right text-slate-600 dark:text-slate-300">
+              <div className="tabular-nums text-right text-slate-200">
                 {Number.isFinite(lastValue) ? formatMetricValue(lastValue) : '-'}
               </div>
             </div>
           )
         })}
         {hasWrappedData ? (
-          <div className="mt-0.5 flex items-center gap-1.5 text-[7px] font-medium uppercase tracking-[0.04em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
+          <div className="mt-0.5 flex items-center gap-1.5 text-[7px] font-medium uppercase tracking-[0.04em] text-slate-400 sm:text-[8px]">
             <span className="h-px w-5 border-t border-dashed border-current" />
             <span className="truncate">wrapped overflow</span>
           </div>
@@ -1055,8 +1055,8 @@ function WellPlotTrack({
     <div
       className={
         fullWidth
-          ? 'w-full bg-white dark:bg-slate-950'
-          : 'w-full border-r border-slate-300 bg-white last:border-r-0 dark:border-slate-700 dark:bg-slate-950'
+          ? 'w-full bg-slate-950'
+          : 'w-full border-r border-slate-700 bg-slate-950 last:border-r-0'
       }
     >
       <WellPlotTrackHeader
@@ -1685,7 +1685,7 @@ export function WellPlotPanel({
           />
           <Card className="overflow-hidden p-0">
             <div
-              className="grid divide-x divide-slate-300 dark:divide-slate-700"
+              className="grid divide-x divide-slate-700"
               style={{
                 minWidth: allTracksMinWidth
                   ? `${allTracksMinWidth}px`
@@ -1710,7 +1710,7 @@ export function WellPlotPanel({
               onScroll={handleSharedPlotViewportScroll}
             >
               <div
-                className="grid divide-x divide-slate-300 dark:divide-slate-700"
+                className="grid divide-x divide-slate-700"
                 style={{
                   minWidth: allTracksMinWidth
                     ? `${allTracksMinWidth}px`
@@ -1731,7 +1731,7 @@ export function WellPlotPanel({
               </div>
             </div>
             <div
-              className="grid divide-x divide-slate-300 dark:divide-slate-700"
+              className="grid divide-x divide-slate-700"
               style={{
                 minWidth: allTracksMinWidth
                   ? `${allTracksMinWidth}px`
@@ -1778,7 +1778,7 @@ export function WellPlotPanel({
             />
             <Card className="overflow-hidden p-0">
               <div
-                className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                className="grid divide-y divide-slate-700 sm:grid-cols-1 lg:divide-x lg:divide-y-0"
                 style={{
                   gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
                 }}
@@ -1799,7 +1799,7 @@ export function WellPlotPanel({
                 onScroll={handleSharedPlotViewportScroll}
               >
                 <div
-                  className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                  className="grid divide-y divide-slate-700 sm:grid-cols-1 lg:divide-x lg:divide-y-0"
                   style={{
                     gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
                   }}
@@ -1816,7 +1816,7 @@ export function WellPlotPanel({
                 </div>
               </div>
               <div
-                className="grid divide-y divide-slate-300 sm:grid-cols-1 lg:divide-x lg:divide-y-0 dark:divide-slate-700"
+                className="grid divide-y divide-slate-700 sm:grid-cols-1 lg:divide-x lg:divide-y-0"
                 style={{
                   gridTemplateColumns: `repeat(${visibleTrackWindow.tracks.length}, minmax(0, 1fr))`,
                 }}

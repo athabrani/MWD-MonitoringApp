@@ -1,10 +1,7 @@
 "use client";
 
 import { type ChangeEvent } from "react";
-import { ArrowRight, Database, FileUp, GitCompare, Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import { AppPage } from "@/components/layouts/app-layout";
-import { PlaceholderNote } from "@/components/layouts/workspace-section";
+import { FileUp, FolderOpen, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,7 +33,6 @@ export interface LogDataChannelSummary {
 
 export function LogDataMemoryImportPanel({
   selectedChannel,
-  channels,
   importBatch,
   importFileName,
   importError,
@@ -45,11 +41,10 @@ export function LogDataMemoryImportPanel({
   importProgress,
   importResult,
   onImportSelection,
+  onFolderImport,
   onCommitImport,
-  onNavigate,
 }: {
   selectedChannel: LogDataChannelSummary | null;
-  channels: LogDataChannelSummary[];
   importBatch: LogDataImportBatch | null;
   importFileName: string;
   importError: string;
@@ -64,8 +59,8 @@ export function LogDataMemoryImportPanel({
   };
   importResult: { importedValues: number; failedValues: number; postedRequests: number; totalRequests: number; fileErrors: Array<{ fileName: string; row: number; reason: string }> } | null;
   onImportSelection: (files: File[]) => void;
+  onFolderImport?: () => void;
   onCommitImport: () => void;
-  onNavigate?: (page: AppPage) => void;
 }) {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
@@ -73,31 +68,9 @@ export function LogDataMemoryImportPanel({
     onImportSelection(files);
   };
 
-  const openMemoryWorkflow = () => {
-    if (onNavigate) {
-      onNavigate("data-management-memory-import");
-      return;
-    }
-
-    toast.message("Open /data-management/memory-import to use backend memory import.");
-  };
-
   return (
     <div className="space-y-4">
-      <Card className="rounded-2xl border-dashed p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Import and Memory Workflows</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              CSV import writes through the backend MWD/WITS pipeline, then Log Data reloads WITS values for the active session.
-            </p>
-          </div>
-          <Badge variant="secondary">{selectedChannel ? `${selectedChannel.witsId} selected` : "No WITS ID selected"}</Badge>
-        </div>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card className="rounded-2xl p-4">
+      <Card className="rounded-2xl p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               <div className="rounded-xl border bg-muted p-2">
@@ -119,15 +92,29 @@ export function LogDataMemoryImportPanel({
           <div className="mt-4 space-y-3">
             <div className="space-y-2">
               <Label htmlFor="log-data-import-review-file">CSV/LAS source</Label>
-              <Input
-                id="log-data-import-review-file"
-                type="file"
-                accept=".csv,.las,text/csv"
-                multiple
-                onChange={handleFileChange}
-              />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="log-data-import-review-file"
+                  type="file"
+                  accept=".csv,.zip,.las,text/csv,application/zip"
+                  multiple
+                  onChange={handleFileChange}
+                />
+                {onFolderImport ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={onFolderImport}
+                    disabled={importScanning || importCommitting}
+                  >
+                    <FolderOpen className="mr-2 size-4" />
+                    Select folder
+                  </Button>
+                ) : null}
+              </div>
               <p className="text-xs text-muted-foreground">
-                Selected WITS context: {selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}. CSV rows are imported through POST /api/mwd-data. LAS files are reported as skipped until a LAS log parser endpoint exists.
+                Selected WITS context: {selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}. CSV and ZIP folder dumps are imported through POST /api/mwd-data. LAS files remain visible as future support and are reported as skipped until a LAS parser endpoint exists.
               </p>
             </div>
 
@@ -166,9 +153,12 @@ export function LogDataMemoryImportPanel({
             {importBatch ? (
               <div className="rounded-xl border p-3">
                 <div className="grid gap-2 sm:grid-cols-3">
+                  <SummaryTile label="Input files" value={String(importBatch.sourceBatch.inputFileCount)} />
+                  <SummaryTile label="ZIP files" value={String(importBatch.sourceBatch.zipFileCount)} />
+                  <SummaryTile label="Valid CSV" value={String(importBatch.sourceBatch.validCsvCount)} />
                   <SummaryTile label="Mapped files" value={String(importBatch.mappedFiles.length)} />
                   <SummaryTile label="Importable values" value={String(importBatch.totalImportableValues)} />
-                  <SummaryTile label="Unmapped files" value={String(importBatch.unmappedFiles.length)} />
+                  <SummaryTile label="Skipped/unmapped" value={String(importBatch.unmappedFiles.length + importBatch.sourceBatch.skippedSources.length)} />
                 </div>
                 <ScrollArea className="mt-3 h-[180px]">
                   <Table>
@@ -197,6 +187,31 @@ export function LogDataMemoryImportPanel({
                     </TableBody>
                   </Table>
                 </ScrollArea>
+                {(importBatch.unmappedFiles.length > 0 || importBatch.sourceBatch.skippedSources.length > 0 || importBatch.sourceBatch.duplicateFileNames.length > 0) ? (
+                  <div className="mt-3 rounded-lg border bg-muted/20 p-3 text-xs">
+                    {importBatch.sourceBatch.duplicateFileNames.length > 0 ? (
+                      <div className="mb-2 text-amber-700 dark:text-amber-300">
+                        Duplicate names: {importBatch.sourceBatch.duplicateFileNames.join(", ")}
+                      </div>
+                    ) : null}
+                    <ScrollArea className="max-h-[140px]">
+                      <div className="space-y-1">
+                        {importBatch.unmappedFiles.map((file) => (
+                          <div key={`unmapped-${file.source.id}`} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+                            <span className="truncate font-medium">{file.source.sourcePath}</span>
+                            <span className="text-muted-foreground">{file.reason}</span>
+                          </div>
+                        ))}
+                        {importBatch.sourceBatch.skippedSources.map((source, index) => (
+                          <div key={`skipped-${source.sourcePath}-${index}`} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+                            <span className="truncate font-medium">{source.sourcePath}</span>
+                            <span className="text-muted-foreground">{source.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -215,58 +230,6 @@ export function LogDataMemoryImportPanel({
               {importCommitting ? "Importing..." : "Import mapped WITS values"}
             </Button>
           </div>
-        </Card>
-
-        <Card className="rounded-2xl p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl border bg-muted p-2">
-                <GitCompare className="size-5" />
-              </div>
-              <div>
-                <h3 className="font-semibold">Memory Import and Correlation</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Use the dedicated memory workflow for backend memory files, point review, dry-run correlation, and apply correlation.
-                </p>
-              </div>
-            </div>
-            <Badge variant="secondary">Backend workflow</Badge>
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <SummaryTile label="Backend file list" value="GET /api/memory-files" />
-            <SummaryTile label="Import file" value="POST /api/memory-files/import" />
-            <SummaryTile label="Points review" value="GET /api/memory-files/:id/points" />
-            <SummaryTile label="Correlation" value="POST /api/memory-files/:id/correlate" />
-          </div>
-
-          <div className="mt-4 rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-            {channels.length} configured WITS ID{channels.length === 1 ? "" : "s"} available from Log Data context. Current channel:{" "}
-            <span className="font-medium text-foreground">{selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}</span>.
-          </div>
-
-          <Button className="mt-4 w-full justify-center" onClick={openMemoryWorkflow}>
-            Open Memory Import
-            <ArrowRight className="ml-2 size-4" />
-          </Button>
-        </Card>
-      </div>
-
-      <Card className="rounded-2xl p-4">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl border bg-muted p-2">
-            <Database className="size-5" />
-          </div>
-          <div>
-            <h3 className="font-semibold">Runtime Data Boundary</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Log Data runtime rows remain sourced from backend MWD/WITS endpoints. CSV import, move, copy, delete, hide, unhide, and rescale tools use backend write/preview/apply endpoints.
-            </p>
-          </div>
-        </div>
-        <PlaceholderNote>
-          CSV import posts mapped WITS values through `POST /api/mwd-data`, which writes backend WITS data values and then refreshes the Log Data view.
-        </PlaceholderNote>
       </Card>
     </div>
   );

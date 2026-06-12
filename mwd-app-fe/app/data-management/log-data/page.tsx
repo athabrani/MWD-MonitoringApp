@@ -12,7 +12,6 @@ import {
   Filter,
   GitCompare,
   History,
-  Loader2,
   MoveHorizontal,
   RefreshCw,
   Scale,
@@ -1317,6 +1316,17 @@ export default function LogDataPage({
 
   const content = (
     <div className="space-y-4 sm:space-y-6">
+      <input
+        ref={folderImportInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-hidden="true"
+        onChange={(event) => {
+          void handleLogDataImportSelection(Array.from(event.currentTarget.files ?? []), selectedChannel?.witsId);
+          event.currentTarget.value = "";
+        }}
+      />
       {logDataViewMode === "list" ? (
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
@@ -1758,7 +1768,6 @@ export default function LogDataPage({
               <TabsContent value="import" className="space-y-4">
                 <LogDataMemoryImportPanel
                   selectedChannel={selectedChannel}
-                  channels={allChannels}
                   importBatch={logImportBatch}
                   importFileName={importFileName}
                   importError={logImportError}
@@ -1767,8 +1776,8 @@ export default function LogDataPage({
                   importProgress={logImportProgress}
                   importResult={logImportCommitResult}
                   onImportSelection={(files) => void handleLogDataImportSelection(files, selectedChannel?.witsId)}
+                  onFolderImport={openFolderImportPicker}
                   onCommitImport={() => void handleCommitLogDataImport()}
-                  onNavigate={onNavigate}
                 />
               </TabsContent>
 
@@ -2381,46 +2390,30 @@ export default function LogDataPage({
         {activeActionDialog === "import" ? (
           <DialogContent className="max-h-[calc(100dvh-3rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
             <DialogHeader>
-              <DialogTitle>Import data from CSV or LAS file</DialogTitle>
+              <DialogTitle>Import data from CSV / ZIP dump</DialogTitle>
               <DialogDescription>
-                CSV/LAS import requires a backend endpoint before operational data can be loaded into MWD/WITS storage.
+                Import single CSV, multiple CSV files, selected folders, or ZIP folder dumps into the active Log Data WITS-value pipeline.
               </DialogDescription>
             </DialogHeader>
             <ScrollArea className="min-h-0 pr-3">
-            <div className="space-y-4 pb-1">
-              <div className="rounded-xl border border-dashed p-4">
-                <Label htmlFor="log-data-import-file">Source file</Label>
-                <Input
-                  id="log-data-import-file"
-                  type="file"
-                  accept=".csv,.las,.txt"
-                  className="mt-2"
-                  onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  File selection is review-only. Selected channel: {selectedChannel?.witsId ?? "none"}.
-                </p>
-              </div>
-              {importFileName ? (
-                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                  Selected source(s): <span className="font-medium">{importFileName}</span>
-                </div>
-              ) : null}
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Endpoint backend untuk import CSV/LAS belum tersedia. Frontend tidak membuat fallback local import.
-              </div>
-            </div>
+              <LogDataMemoryImportPanel
+                selectedChannel={selectedChannel}
+                importBatch={logImportBatch}
+                importFileName={importFileName}
+                importError={logImportError}
+                importScanning={logImportScanning}
+                importCommitting={logImportCommitting}
+                importProgress={logImportProgress}
+                importResult={logImportCommitResult}
+                onImportSelection={(files) => void handleLogDataImportSelection(files, selectedChannel?.witsId)}
+                onFolderImport={openFolderImportPicker}
+                onCommitImport={() => void handleCommitLogDataImport()}
+              />
             </ScrollArea>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="outline" disabled={logImportCommitting}>Close</Button>
               </DialogClose>
-              <Button
-                disabled
-                title="CSV/LAS import endpoint is not available yet."
-              >
-                Import endpoint unavailable
-              </Button>
             </DialogFooter>
           </DialogContent>
         ) : null}
