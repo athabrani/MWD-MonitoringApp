@@ -66,7 +66,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
-import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
+import { deleteMwdData, filterMwdDataForSession, getMwdData, importMwdDataCsv, MwdDataRecord } from "@/lib/mwd-data-api";
 import {
   applyCopyMwdDepth,
   applyMoveMwdDepth,
@@ -333,7 +333,9 @@ export default function LogDataPage({
   const [originalExampleValue, setOriginalExampleValue] = useState(80);
   const [desiredExampleValue, setDesiredExampleValue] = useState(95);
   const [rescalePercentage, setRescalePercentage] = useState(10);
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [importFileName, setImportFileName] = useState("");
+  const [importCsvLoading, setImportCsvLoading] = useState(false);
   const [exportFileType, setExportFileType] = useState("LAS");
   const [exportScope, setExportScope] = useState("selected");
   const [exportIncludeHidden, setExportIncludeHidden] = useState(false);
@@ -1022,6 +1024,51 @@ export default function LogDataPage({
       toast.error("Unable to apply rescale", { description: message });
     } finally {
       setActiveEditAction(null);
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!token) {
+      toast.error("Sign in before importing CSV data.");
+      return;
+    }
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before importing CSV data.");
+      return;
+    }
+    if (!importFile) {
+      toast.error("Choose a CSV file first.");
+      return;
+    }
+    if (!importFile.name.toLowerCase().endsWith(".csv")) {
+      toast.error("Only CSV import is connected to the backend right now.");
+      return;
+    }
+
+    setImportCsvLoading(true);
+    setEditToolError("");
+
+    try {
+      const csvText = await importFile.text();
+      const result = await importMwdDataCsv(token, csvText, activeMwdSessionId);
+      toast.success("CSV imported.", {
+        description: `${result.count ?? 0} MWD rows and ${result.loggedWitsValueCount ?? 0} WITS values recorded.`,
+      });
+      setActiveActionDialog(null);
+      setImportFile(null);
+      setImportFileName("");
+      await Promise.all([
+        loadBackendLogData(),
+        loadEditOperations(),
+        refreshMwdData(),
+        refreshWitsDataValues(),
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import CSV data.";
+      setEditToolError(message);
+      toast.error("Unable to import CSV data", { description: message });
+    } finally {
+      setImportCsvLoading(false);
     }
   };
 
@@ -2078,23 +2125,27 @@ export default function LogDataPage({
         {activeActionDialog === "import" ? (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Import data from CSV or LAS file</DialogTitle>
+              <DialogTitle>Import WITS values from CSV</DialogTitle>
               <DialogDescription>
-                CSV/LAS import requires a backend endpoint before operational data can be loaded into MWD/WITS storage.
+                Upload a CSV file to create MWD rows and WITS value history through the backend import endpoint.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="rounded-xl border border-dashed p-4">
-                <Label htmlFor="log-data-import-file">Source file</Label>
+                <Label htmlFor="log-data-import-file">CSV source file</Label>
                 <Input
                   id="log-data-import-file"
                   type="file"
-                  accept=".csv,.las,.txt"
+                  accept=".csv,text/csv"
                   className="mt-2"
-                  onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setImportFile(file);
+                    setImportFileName(file?.name ?? "");
+                  }}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
-                  File selection is review-only. Selected channel: {selectedChannel?.witsId ?? "none"}.
+                  Active session: {activeMwdSessionId ?? "none"}. Supported CSV columns: sessionId, measuredAt, depthMd, witsId, value, or wide WITS columns like 0715 and 0824.
                 </p>
               </div>
               {importFileName ? (
@@ -2102,19 +2153,20 @@ export default function LogDataPage({
                   Selected file: <span className="font-medium">{importFileName}</span>
                 </div>
               ) : null}
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Endpoint backend untuk import CSV/LAS belum tersedia. Frontend tidak membuat fallback local import.
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Import calls POST /api/mwd-data/import-csv, then refreshes MWD data, WITS values, and edit history.
               </div>
             </div>
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="outline">Close</Button>
+                <Button variant="outline" disabled={importCsvLoading}>Close</Button>
               </DialogClose>
               <Button
-                disabled
-                title="CSV/LAS import endpoint is not available yet."
+                onClick={() => void handleImportCsv()}
+                disabled={!token || !activeMwdSessionId || !importFile || importCsvLoading}
+                title={!activeMwdSessionId ? "Select an active MWD session first." : undefined}
               >
-                Import endpoint unavailable
+                {importCsvLoading ? "Importing..." : "Import CSV"}
               </Button>
             </DialogFooter>
           </DialogContent>

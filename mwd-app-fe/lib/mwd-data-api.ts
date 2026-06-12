@@ -24,6 +24,15 @@ export type MwdDataRecord = {
 
 export type MwdDataInput = Record<string, unknown>;
 
+export type ImportMwdDataCsvResult = {
+  message?: string;
+  count?: number;
+  loggedWitsValueCount?: number;
+  alarmCount?: number;
+  outputQueuedCount?: number;
+  data?: unknown[];
+};
+
 export type GetMwdDataOptions = {
   sessionId?: string | number;
   limit?: number;
@@ -370,6 +379,23 @@ export async function postRawMwdData(token: string, input: MwdDataInput): Promis
     method: "POST",
     token,
     body: JSON.stringify(input),
+  });
+}
+
+export async function importMwdDataCsv(
+  token: string,
+  csvText: string,
+  sessionId?: string | number
+): Promise<ImportMwdDataCsvResult> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(String(sessionId))}` : "";
+
+  return apiRequest<ImportMwdDataCsvResult>(`/api/mwd-data/import-csv${query}`, {
+    method: "POST",
+    token,
+    headers: {
+      "Content-Type": "text/csv",
+    },
+    body: csvText,
   });
 }
 
