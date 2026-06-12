@@ -189,6 +189,17 @@ export default function SurveyDataPage({
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const canManageSurveys = user?.role === "engineer" || user?.role === "admin";
 
+  const applySurveyListState = useCallback((surveys: SurveyRecord[], preferredSurveyId?: string) => {
+    setSurveyRecords(surveys);
+    setSelectedSurveyId((current) => {
+      if (preferredSurveyId && surveys.some((survey) => survey.id === preferredSurveyId)) {
+        return preferredSurveyId;
+      }
+      if (current && surveys.some((survey) => survey.id === current)) return current;
+      return surveys[0]?.id ?? "";
+    });
+  }, []);
+
   const loadSurveys = useCallback(async (preferredSurveyId?: string) => {
     if (!token) {
       setSurveysError("");
@@ -212,14 +223,7 @@ export default function SurveyDataPage({
         sessionId: activeMwdSessionId,
         stationType: "actual",
       });
-      setSurveyRecords(surveys);
-      setSelectedSurveyId((current) => {
-        if (preferredSurveyId && surveys.some((survey) => survey.id === preferredSurveyId)) {
-          return preferredSurveyId;
-        }
-        if (current && surveys.some((survey) => survey.id === current)) return current;
-        return surveys[0]?.id ?? "";
-      });
+      applySurveyListState(surveys, preferredSurveyId);
       return surveys;
     } catch (error) {
       logSecurityError("Unable to load surveys.", error);
@@ -230,7 +234,7 @@ export default function SurveyDataPage({
     } finally {
       setSurveysLoading(false);
     }
-  }, [activeMwdSessionId, token]);
+  }, [activeMwdSessionId, applySurveyListState, token]);
 
   useEffect(() => {
     void loadSurveys();
@@ -494,9 +498,24 @@ export default function SurveyDataPage({
     setSurveysError("");
 
     try {
-      await createSurveysFromMwdData(token, payload);
-      toast.success("Survey generated from MWD data.");
-      await loadSurveys();
+      const generatedSurveys = await createSurveysFromMwdData(token, payload);
+      const preferredSurveyId = generatedSurveys[0]?.id;
+      const refreshedSurveys = await loadSurveys(preferredSurveyId);
+
+      if (refreshedSurveys.length === 0 && generatedSurveys.length > 0) {
+        applySurveyListState(generatedSurveys, preferredSurveyId);
+      }
+
+      const visibleSurveyCount = refreshedSurveys.length || generatedSurveys.length;
+      if (visibleSurveyCount === 0) {
+        const message =
+          "Generate from MWD Data completed, but no actual survey rows were returned for the active session.";
+        setSurveysError(message);
+        toast.warning("No survey rows generated", { description: message });
+        return;
+      }
+
+      toast.success(`${visibleSurveyCount} survey row(s) generated and visible in Survey List.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to generate survey from MWD data.";
       setSurveysError(message);

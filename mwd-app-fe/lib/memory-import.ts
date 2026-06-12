@@ -90,6 +90,16 @@ function firstMatchingHeader(headers: string[], candidates: string[]): string | 
   return headers.find((header) => candidates.includes(normalizeHeader(header))) ?? null;
 }
 
+function looksLikeDepthHeader(header: string): boolean {
+  const normalized = normalizeHeader(header);
+  return ["depth", "md", "measureddepth", "holedepth", "bitdepth"].some((candidate) => normalized.includes(candidate));
+}
+
+function looksLikeTimeHeader(header: string): boolean {
+  const normalized = normalizeHeader(header);
+  return ["time", "timestamp", "datetime", "date", "measuredat"].some((candidate) => normalized.includes(candidate));
+}
+
 function numericValue(value: string | undefined): number | null {
   if (!value) return null;
   const parsed = Number(value.replace(/[^\d.-]/g, ""));
@@ -166,8 +176,8 @@ export function parseMemoryCsv(fileName: string, text: string): MemoryImportFile
   }
 
   const headers = parseCsvLine(lines[0]);
-  const timeHeader = firstMatchingHeader(headers, ["time", "timestamp", "datetime", "date"]);
-  const depthHeader = firstMatchingHeader(headers, ["depth", "md", "measureddepth", "holedepth"]);
+  const timeHeader = firstMatchingHeader(headers, ["time", "timestamp", "datetime", "date", "measuredat"]) ?? headers.find(looksLikeTimeHeader) ?? null;
+  const depthHeader = firstMatchingHeader(headers, ["depth", "md", "measureddepth", "holedepth", "bitdepth"]) ?? headers.find(looksLikeDepthHeader) ?? null;
   const valueHeader =
     headers.find((header) => {
       const normalized = normalizeHeader(header);
@@ -183,12 +193,12 @@ export function parseMemoryCsv(fileName: string, text: string): MemoryImportFile
     const depth = numericValue(depthHeader ? raw[depthHeader] : undefined);
     const value = numericValue(valueHeader ? raw[valueHeader] : undefined);
 
-    if (depth === null || value === null) return [];
+    if (value === null) return [];
 
     return [
       {
         timestamp: dateValue(timeHeader ? raw[timeHeader] : undefined, rowIndex),
-        depth,
+        depth: depth ?? rowIndex + 1,
         value,
         raw,
       },

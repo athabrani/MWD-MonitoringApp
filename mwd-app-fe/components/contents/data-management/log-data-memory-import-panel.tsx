@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
-import { ArrowRight, Database, FileUp, GitCompare, ServerOff } from "lucide-react";
+import { type ChangeEvent } from "react";
+import { ArrowRight, Database, FileUp, GitCompare, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppPage } from "@/components/layouts/app-layout";
 import { PlaceholderNote } from "@/components/layouts/workspace-section";
@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { LogDataImportBatch } from "@/lib/log-data-import";
 
 export interface LogDataChannelSummary {
   witsId: string;
@@ -34,23 +37,40 @@ export interface LogDataChannelSummary {
 export function LogDataMemoryImportPanel({
   selectedChannel,
   channels,
+  importBatch,
+  importFileName,
+  importError,
+  importScanning,
+  importCommitting,
+  importProgress,
+  importResult,
+  onImportSelection,
+  onCommitImport,
   onNavigate,
 }: {
   selectedChannel: LogDataChannelSummary | null;
   channels: LogDataChannelSummary[];
+  importBatch: LogDataImportBatch | null;
+  importFileName: string;
+  importError: string;
+  importScanning: boolean;
+  importCommitting: boolean;
+  importProgress: {
+    phase: "idle" | "preparing" | "importing" | "retrying" | "refreshing" | "complete";
+    message: string;
+    currentRequest: number;
+    totalRequests: number;
+    importedValues: number;
+  };
+  importResult: { importedValues: number; failedValues: number; postedRequests: number; totalRequests: number; fileErrors: Array<{ fileName: string; row: number; reason: string }> } | null;
+  onImportSelection: (files: File[]) => void;
+  onCommitImport: () => void;
   onNavigate?: (page: AppPage) => void;
 }) {
-  const [selectedFileName, setSelectedFileName] = useState("");
-
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const fileName = event.target.files?.[0]?.name ?? "";
-    setSelectedFileName(fileName);
-
-    if (fileName) {
-      toast.message("CSV/LAS import endpoint belum tersedia.", {
-        description: "File hanya dipilih untuk review UI; tidak ada data yang ditulis ke runtime.",
-      });
-    }
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    onImportSelection(files);
   };
 
   const openMemoryWorkflow = () => {
@@ -69,7 +89,7 @@ export function LogDataMemoryImportPanel({
           <div>
             <h2 className="text-lg font-semibold">Import and Memory Workflows</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Log Data does not create runtime rows from local files. Import actions either require a backend endpoint or route to the backend memory-file workflow.
+              CSV import writes through the backend MWD/WITS pipeline, then Log Data reloads WITS values for the active session.
             </p>
           </div>
           <Badge variant="secondary">{selectedChannel ? `${selectedChannel.witsId} selected` : "No WITS ID selected"}</Badge>
@@ -86,45 +106,113 @@ export function LogDataMemoryImportPanel({
               <div>
                 <h3 className="font-semibold">CSV/LAS Log Import</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Intended flow for importing external log files into backend MWD/WITS storage.
+                  CSV is active now for WITS value import. LAS remains visible here as future log import support and does not block CSV.
                 </p>
               </div>
             </div>
-            <Badge variant="outline">Blocked by backend</Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">CSV active</Badge>
+              <Badge variant="outline">LAS future</Badge>
+            </div>
           </div>
 
           <div className="mt-4 space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="log-data-import-review-file">Source file review</Label>
+              <Label htmlFor="log-data-import-review-file">CSV/LAS source</Label>
               <Input
                 id="log-data-import-review-file"
                 type="file"
-                accept=".csv,.las,.txt"
+                accept=".csv,.las,text/csv"
+                multiple
                 onChange={handleFileChange}
               />
               <p className="text-xs text-muted-foreground">
-                Selecting a file does not parse, upload, or mutate operational data.
+                Selected WITS context: {selectedChannel ? `${selectedChannel.witsId} - ${selectedChannel.label}` : "none"}. CSV rows are imported through POST /api/mwd-data. LAS files are reported as skipped until a LAS log parser endpoint exists.
               </p>
             </div>
 
-            {selectedFileName ? (
+            {importFileName ? (
               <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                Selected file: <span className="font-medium">{selectedFileName}</span>
+                Selected source(s): <span className="font-medium">{importFileName}</span>
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              CSV/LAS import requires a backend import endpoint. Until then, this page must show unavailable state instead of creating local data.
-            </div>
+            {importError ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {importError}
+              </div>
+            ) : null}
+
+            {importScanning ? (
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Scanning CSV source and matching rows to WITS storage...
+              </div>
+            ) : null}
+
+            {importCommitting || importProgress.phase !== "idle" ? (
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                  {importCommitting ? <Loader2 className="size-4 animate-spin" /> : null}
+                  <span>{importProgress.message || "Preparing import..."}</span>
+                </div>
+                {importProgress.totalRequests > 0 ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Request {importProgress.currentRequest} of {importProgress.totalRequests}; imported {importProgress.importedValues} value(s).
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {importBatch ? (
+              <div className="rounded-xl border p-3">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <SummaryTile label="Mapped files" value={String(importBatch.mappedFiles.length)} />
+                  <SummaryTile label="Importable values" value={String(importBatch.totalImportableValues)} />
+                  <SummaryTile label="Unmapped files" value={String(importBatch.unmappedFiles.length)} />
+                </div>
+                <ScrollArea className="mt-3 h-[180px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>File</TableHead>
+                        <TableHead>Target</TableHead>
+                        <TableHead>Rows</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {importBatch.mappedFiles.map((file) => (
+                        <TableRow key={file.source.id}>
+                          <TableCell className="max-w-[220px] truncate">{file.source.fileName}</TableCell>
+                          <TableCell className="font-mono">{file.target.witsId}</TableCell>
+                          <TableCell>{file.values.length}</TableCell>
+                        </TableRow>
+                      ))}
+                      {importBatch.mappedFiles.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={3} className="py-6 text-center text-sm text-muted-foreground">
+                            No rows are mapped safely yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
+            ) : null}
+
+            {importResult ? (
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
+                Imported {importResult.importedValues} value(s); failed {importResult.failedValues} value(s). Backend POST requests: {importResult.postedRequests}/{importResult.totalRequests}.
+              </div>
+            ) : null}
 
             <Button
-              variant="outline"
-              disabled
+              onClick={onCommitImport}
+              disabled={!importBatch || importBatch.totalImportableValues === 0 || importScanning || importCommitting || !selectedChannel}
               className="w-full justify-center"
-              title="CSV/LAS import endpoint is not available yet."
             >
-              <ServerOff className="mr-2 size-4" />
-              Import endpoint unavailable
+              <FileUp className="mr-2 size-4" />
+              {importCommitting ? "Importing..." : "Import mapped WITS values"}
             </Button>
           </div>
         </Card>
@@ -172,12 +260,12 @@ export function LogDataMemoryImportPanel({
           <div>
             <h3 className="font-semibold">Runtime Data Boundary</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Log Data runtime rows remain sourced from backend MWD/WITS endpoints. Move, copy, delete, hide, unhide, and rescale tools continue to use backend preview/apply endpoints.
+              Log Data runtime rows remain sourced from backend MWD/WITS endpoints. CSV import, move, copy, delete, hide, unhide, and rescale tools use backend write/preview/apply endpoints.
             </p>
           </div>
         </div>
         <PlaceholderNote>
-          No local CSV/LAS or memory import writes to `records` in this Log Data panel. Use backend endpoints or unavailable state only.
+          CSV import posts mapped WITS values through `POST /api/mwd-data`, which writes backend WITS data values and then refreshes the Log Data view.
         </PlaceholderNote>
       </Card>
     </div>
