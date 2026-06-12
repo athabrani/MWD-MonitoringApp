@@ -68,12 +68,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClientError } from "@/lib/api-client";
-import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord, postRawMwdDataWithRetry } from "@/lib/mwd-data-api";
 import {
   buildLogDataImportBatch,
   buildLogDataImportRequests,
-  type LogDataImportBatch,
+  LogDataImportBatch,
 } from "@/lib/log-data-import";
+import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataInput, MwdDataRecord, postRawMwdData } from "@/lib/mwd-data-api";
 import {
   applyCopyMwdDepth,
   applyMoveMwdDepth,
@@ -109,6 +109,34 @@ function formatRescaleMode(mode: RescaleMode) {
 
 function waitForImportPacing(ms: number) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function postRawMwdDataWithRetry(
+  token: string,
+  input: MwdDataInput,
+  options: {
+    maxAttempts: number;
+    onRetry?: (retry: { attempt: number; maxAttempts: number; delayMs: number }) => void;
+  },
+) {
+  let attempt = 0;
+
+  while (true) {
+    attempt += 1;
+
+    try {
+      await postRawMwdData(token, input);
+      return;
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.status !== 429 || attempt >= options.maxAttempts) {
+        throw error;
+      }
+
+      const delayMs = error.retryAfterMs ?? Math.min(1_000 * attempt, 5_000);
+      options.onRetry?.({ attempt, maxAttempts: options.maxAttempts, delayMs });
+      await waitForImportPacing(delayMs);
+    }
+  }
 }
 
 const LOG_IMPORT_POST_PACING_MS = 250;
@@ -2353,47 +2381,24 @@ export default function LogDataPage({
         {activeActionDialog === "import" ? (
           <DialogContent className="max-h-[calc(100dvh-3rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
             <DialogHeader>
-              <DialogTitle>Import data from CSV</DialogTitle>
+              <DialogTitle>Import data from CSV or LAS file</DialogTitle>
               <DialogDescription>
-                Import single CSV, multiple CSV files, browser folder selection, or ZIP folder dumps into WITS value storage for the active Log Data session.
+                CSV/LAS import requires a backend endpoint before operational data can be loaded into MWD/WITS storage.
               </DialogDescription>
             </DialogHeader>
             <ScrollArea className="min-h-0 pr-3">
             <div className="space-y-4 pb-1">
               <div className="rounded-xl border border-dashed p-4">
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="min-w-[240px] flex-1">
-                    <Label htmlFor="log-data-import-file">CSV/LAS or ZIP sources</Label>
-                    <Input
-                      id="log-data-import-file"
-                      type="file"
-                      accept=".csv,.las,.zip,text/csv,application/zip"
-                      multiple
-                      className="mt-2"
-                      onChange={(event) => {
-                        const files = Array.from(event.currentTarget.files ?? []);
-                        event.currentTarget.value = "";
-                        void handleLogDataImportSelection(files);
-                      }}
-                    />
-                  </div>
-                  <input
-                    ref={folderImportInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      const files = Array.from(event.currentTarget.files ?? []);
-                      event.currentTarget.value = "";
-                      void handleLogDataImportSelection(files);
-                    }}
-                  />
-                  <Button type="button" variant="outline" onClick={openFolderImportPicker}>
-                    Select Folder
-                  </Button>
-                </div>
+                <Label htmlFor="log-data-import-file">Source file</Label>
+                <Input
+                  id="log-data-import-file"
+                  type="file"
+                  accept=".csv,.las,.txt"
+                  className="mt-2"
+                  onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
+                />
                 <p className="mt-2 text-xs text-muted-foreground">
-                  CSV import is active now. LAS stays visible as future support and is reported as skipped until a LAS log parser endpoint exists. ZIP is the stable folder-dump path.
+                  File selection is review-only. Selected channel: {selectedChannel?.witsId ?? "none"}.
                 </p>
               </div>
               {importFileName ? (
@@ -2401,139 +2406,20 @@ export default function LogDataPage({
                   Selected source(s): <span className="font-medium">{importFileName}</span>
                 </div>
               ) : null}
-              {logImportError ? (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                  {logImportError}
-                </div>
-              ) : null}
-              {logImportScanning ? (
-                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                  Scanning CSV/ZIP sources and matching them to configured WITS IDs...
-                </div>
-              ) : null}
-              {logImportCommitting || logImportProgress.phase !== "idle" ? (
-                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2 font-medium">
-                    {logImportCommitting ? <Loader2 className="size-4 animate-spin" /> : null}
-                    <span>{logImportProgress.message || "Preparing import..."}</span>
-                  </div>
-                  {logImportProgress.totalRequests > 0 ? (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Request {logImportProgress.currentRequest} of {logImportProgress.totalRequests}; imported {logImportProgress.importedValues} of {logImportBatch?.totalImportableValues ?? 0} value(s).
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {logImportBatch ? (
-                <>
-                  <div className="grid gap-2 sm:grid-cols-4">
-                    <Card className="rounded-xl p-3">
-                      <div className="text-xs text-muted-foreground">Discovered</div>
-                      <div className="text-xl font-semibold">{logImportBatch.sourceBatch.discoveredFileCount}</div>
-                    </Card>
-                    <Card className="rounded-xl p-3">
-                      <div className="text-xs text-muted-foreground">Valid CSV</div>
-                      <div className="text-xl font-semibold">{logImportBatch.sourceBatch.validCsvCount}</div>
-                    </Card>
-                    <Card className="rounded-xl p-3">
-                      <div className="text-xs text-muted-foreground">Mapped files</div>
-                      <div className="text-xl font-semibold">{logImportBatch.mappedFiles.length}</div>
-                    </Card>
-                    <Card className="rounded-xl p-3">
-                      <div className="text-xs text-muted-foreground">Importable values</div>
-                      <div className="text-xl font-semibold">{logImportBatch.totalImportableValues}</div>
-                    </Card>
-                  </div>
-
-                  <Card className="rounded-xl p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="font-semibold">Mapped CSV files</h3>
-                        <p className="text-sm text-muted-foreground">
-                          These files have a conservative WITS target match and will be posted through /api/mwd-data.
-                        </p>
-                      </div>
-                      <Badge variant="secondary">{logImportBatch.totalInvalidRows} invalid row(s)</Badge>
-                    </div>
-                    <div className="mt-3 overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>File</TableHead>
-                            <TableHead>Target</TableHead>
-                            <TableHead>Value column</TableHead>
-                            <TableHead>Rows</TableHead>
-                            <TableHead>Reason</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {logImportBatch.mappedFiles.map((file) => (
-                            <TableRow key={file.source.id}>
-                              <TableCell className="max-w-[260px] truncate">{file.source.sourcePath}</TableCell>
-                              <TableCell className="font-mono">
-                                {file.target.witsId}
-                                <span className="ml-2 font-sans text-xs text-muted-foreground">{file.target.label}</span>
-                              </TableCell>
-                              <TableCell>{file.valueColumn}</TableCell>
-                              <TableCell>{file.values.length}</TableCell>
-                              <TableCell className="max-w-[280px] text-xs text-muted-foreground">{file.target.reason}</TableCell>
-                            </TableRow>
-                          ))}
-                          {logImportBatch.mappedFiles.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
-                                No CSV files could be mapped safely to configured WITS IDs.
-                              </TableCell>
-                            </TableRow>
-                          ) : null}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </Card>
-
-                  {logImportBatch.unmappedFiles.length > 0 || logImportBatch.sourceBatch.skippedSources.length > 0 ? (
-                    <Card className="rounded-xl p-4">
-                      <h3 className="font-semibold">Unmapped / skipped files</h3>
-                      <div className="mt-3 grid gap-2">
-                        {logImportBatch.unmappedFiles.slice(0, 8).map((file) => (
-                          <div key={file.source.id} className="rounded-lg border px-3 py-2 text-sm">
-                            <div className="font-medium">{file.source.sourcePath}</div>
-                            <div className="text-xs text-muted-foreground">{file.reason}</div>
-                          </div>
-                        ))}
-                        {logImportBatch.sourceBatch.skippedSources.slice(0, 8).map((file) => (
-                          <div key={`${file.sourcePath}-${file.reason}`} className="rounded-lg border px-3 py-2 text-sm">
-                            <div className="font-medium">{file.sourcePath}</div>
-                            <div className="text-xs text-muted-foreground">{file.reason}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </Card>
-                  ) : null}
-
-                  {logImportCommitResult ? (
-                    <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                      Imported {logImportCommitResult.importedValues} value(s); failed {logImportCommitResult.failedValues} value(s). Backend POST requests: {logImportCommitResult.postedRequests}/{logImportCommitResult.totalRequests}.
-                      {logImportCommitResult.fileErrors.length > 0 ? (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          First failure: {logImportCommitResult.fileErrors[0].fileName} row {logImportCommitResult.fileErrors[0].row} - {logImportCommitResult.fileErrors[0].reason}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Endpoint backend untuk import CSV/LAS belum tersedia. Frontend tidak membuat fallback local import.
+              </div>
             </div>
             </ScrollArea>
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="outline">Close</Button>
+                <Button variant="outline" disabled={logImportCommitting}>Close</Button>
               </DialogClose>
               <Button
-                onClick={() => void handleCommitLogDataImport()}
-                disabled={!logImportBatch || logImportBatch.totalImportableValues === 0 || logImportCommitting || logImportScanning}
+                disabled
+                title="CSV/LAS import endpoint is not available yet."
               >
-                {logImportCommitting ? "Importing..." : "Import mapped WITS values"}
+                Import endpoint unavailable
               </Button>
             </DialogFooter>
           </DialogContent>
