@@ -18,3 +18,9 @@ mwd-app-fe/.next
 mwd-app-fe/.env
 mwd-app-fe/.env.local
 mwd-app-fe/.env.*.local
+
+.env.*
+!.env.example
+tests/results/
+playwright-report/
+test-results/

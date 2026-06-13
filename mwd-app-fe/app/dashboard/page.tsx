@@ -19,6 +19,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { BellOff, Check, AlertTriangle, TrendingUp, ShieldAlert, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -58,6 +65,7 @@ export const DashboardPage: React.FC = () => {
     mwdSessions,
     activeMwdSession,
     activeMwdSessionId,
+    setActiveMwdSessionId,
     mwdSessionsLoading,
     mwdSessionsError,
     refreshMwdSessions,
@@ -327,6 +335,7 @@ export const DashboardPage: React.FC = () => {
     typeof latestDashboardDepth === 'number' ? `${formatDepth(latestDashboardDepth)} ${depthUnit}` : '-';
   const dashboardTargetDepthLabel =
     typeof dashboardTargetDepth === 'number' ? `${formatDepth(dashboardTargetDepth)} ${depthUnit}` : '-';
+  const latestMwdMeasuredAt = latestMwdDataRecord?.timestamp.toISOString();
 
   useEffect(() => {
     const normalizedDtsStatus = (depthTrackingState?.status ?? depthTrackingState?.mode ?? '').toLowerCase();
@@ -663,7 +672,23 @@ export const DashboardPage: React.FC = () => {
   }, [chartData.length, denseTabletDesktopLayout]);
 
   return (
-    <div className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
+    <div data-testid="dashboard-page" className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
+      <div className="sr-only" aria-label="Dashboard MWD data rows">
+        <span data-testid="connection-status">
+          {networkStatus === 'offline' ? 'Disconnected' : realtimeStatusLabel}
+        </span>
+        {chartData.map((record, index) => (
+          <span
+            key={`${record.sessionId ?? activeMwdSessionId}-${record.timestamp.toISOString()}-${record.depth ?? index}`}
+            data-testid="dashboard-data-row"
+            data-session-id={record.sessionId ? String(record.sessionId) : undefined}
+            data-depth={typeof record.depth === 'number' ? String(record.depth) : undefined}
+            data-timestamp={record.timestamp.toISOString()}
+          >
+            {record.depth}
+          </span>
+        ))}
+      </div>
       <div>
         <div className="mb-3 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -674,6 +699,26 @@ export const DashboardPage: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-1.5 sm:gap-2 lg:justify-end">
+                <Select
+                  value={activeMwdSessionId}
+                  onValueChange={setActiveMwdSessionId}
+                  disabled={mwdSessionsLoading || mwdSessions.length === 0}
+                >
+                  <SelectTrigger
+                    data-testid="active-session-select"
+                    className="h-7 w-[190px] text-[10px] sm:h-8 sm:w-[240px] sm:text-xs"
+                    aria-label="Active MWD session"
+                  >
+                    <SelectValue placeholder="Select session" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {mwdSessions.map((session) => (
+                      <SelectItem key={session.id} value={session.id}>
+                        {session.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   type="button"
                   variant="default"
@@ -748,7 +793,7 @@ export const DashboardPage: React.FC = () => {
             <div className="col-span-2 flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-1.5 sm:col-span-1 sm:min-h-9 sm:gap-x-2 sm:px-3 sm:py-2">
               <TrendingUp className="size-3 text-muted-foreground sm:size-3.5" />
               <span className="text-[10px] font-medium uppercase text-muted-foreground sm:text-xs">Depth</span>
-              <span className="break-words text-xs font-semibold leading-none sm:text-sm">
+              <span data-testid="chart-latest-value" className="break-words text-xs font-semibold leading-none sm:text-sm">
                 {dashboardDepthLabel}
               </span>
               <span className="text-[10px] text-muted-foreground sm:text-xs">
@@ -953,13 +998,21 @@ export const DashboardPage: React.FC = () => {
       ) : null}
 
       {hasNoMwdData && (
-        <Alert>
+        <Alert data-testid="empty-state">
           <AlertTriangle className="size-4" />
           <AlertDescription>
             Belum ada data MWD untuk session ini.
           </AlertDescription>
         </Alert>
       )}
+      <div className="sr-only">
+        <span data-testid="active-session-label">
+          {activeMwdSession?.name ?? activeMwdSession?.sessionCode ?? activeMwdSessionId}
+        </span>
+        {latestMwdMeasuredAt ? (
+          <span data-testid="last-received-at">{latestMwdMeasuredAt}</span>
+        ) : null}
+      </div>
 
       <div
         className={cn(
@@ -1138,7 +1191,7 @@ export const DashboardPage: React.FC = () => {
             Range: {timeWindow === 'all' ? 'All' : timeWindow}
           </Badge>
         </div>
-        <div className="grid min-w-0 items-stretch gap-4 2xl:grid-cols-2">
+        <div data-testid="dashboard-chart" className="grid min-w-0 items-stretch gap-4 2xl:grid-cols-2">
           <RealTimeChart
             data={chartData}
             title="Pressure & Hydraulics"

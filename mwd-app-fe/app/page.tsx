@@ -89,7 +89,7 @@ const AppContent: React.FC = () => {
   const fallbackPage = getDefaultAccessiblePage(user?.role, rolePageAccess) as AppPage;
 
   const renderAccessDenied = () => (
-    <Alert className="border-amber-500/40 bg-amber-500/10">
+    <Alert data-testid="access-denied" className="border-amber-500/40 bg-amber-500/10">
       <AlertTitle>Access denied</AlertTitle>
       <AlertDescription className="mt-2 space-y-3">
         <p>

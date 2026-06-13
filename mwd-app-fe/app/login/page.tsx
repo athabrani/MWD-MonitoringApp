@@ -155,7 +155,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                     {error && (
-                    <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 backdrop-blur-sm">
+                    <div
+                      data-testid="login-error"
+                      className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 backdrop-blur-sm"
+                    >
                         <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
                         <p className="text-sm leading-6 text-red-300">{error}</p>
                     </div>
@@ -167,6 +170,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     </Label>
                     <Input
                         id="username"
+                        data-testid="login-identifier"
                         type="text"
                         placeholder="Enter username or email"
                         value={username}
@@ -184,6 +188,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     <div className="relative">
                       <Input
                         id="password"
+                        data-testid="login-password"
                         type={showPassword ? "text" : "password"}
                         placeholder="Enter password"
                         value={password}
@@ -227,6 +232,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
                     <Button
                     type="submit"
+                    data-testid="login-submit"
                     className="w-full h-11 text-base"
                     disabled={loading}
                     >

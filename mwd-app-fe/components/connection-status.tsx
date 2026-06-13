@@ -83,7 +83,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   if (compact) {
     return (
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Badge variant="outline" className={cn("gap-1.5", getStatusColor())}>
+        <Badge
+          variant="outline"
+          data-testid="connection-status"
+          className={cn("gap-1.5", getStatusColor())}
+        >
           {getStatusIcon()}
           <span className="capitalize">{status}</span>
         </Badge>
@@ -137,7 +141,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   return (
     <div className="flex items-center gap-4 bg-card border rounded-lg p-3">
       <div className="flex items-center gap-2">
-        <Badge variant="outline" className={cn("gap-1.5", getStatusColor())}>
+        <Badge
+          variant="outline"
+          data-testid="connection-status"
+          className={cn("gap-1.5", getStatusColor())}
+        >
           {getStatusIcon()}
           <span className="capitalize">{status}</span>
         </Badge>

@@ -318,6 +318,21 @@ function getWideNavigationLabel(page: AppPage) {
   }
 }
 
+function getNavigationTestId(page: AppPage) {
+  switch (page) {
+    case "dashboard":
+      return "nav-dashboard";
+    case "history":
+      return "nav-historical";
+    case "trajectory-well-plot":
+      return "nav-well-plot";
+    case "admin":
+      return "nav-admin";
+    default:
+      return undefined;
+  }
+}
+
 function getWideNavigationItemsForGroup(
   groupKey: ReturnType<typeof getNavigationDisplayGroupForPage>,
   currentPage: AppPage,
@@ -419,6 +434,7 @@ function TopNavigation({
               <button
                 key={item.id}
                 type="button"
+                data-testid={getNavigationTestId(item.id)}
                 onClick={() => {
                   if (isActive) {
                     onActiveClick();
@@ -489,6 +505,7 @@ function SecondaryNavigation({
                 <button
                   key={item.id}
                   type="button"
+                  data-testid={getNavigationTestId(item.id)}
                   onClick={() => {
                     if (isActive) {
                       onActiveClick();
@@ -559,10 +576,11 @@ function WideDesktopNavigation({
               if (!targetPage) return null;
 
               return (
-                <button
-                  key={group.key}
-                  type="button"
-                  onClick={() => {
+                  <button
+                    key={group.key}
+                    type="button"
+                    data-testid={getNavigationTestId(targetPage)}
+                    onClick={() => {
                     if (isActive) {
                       onActiveClick();
                       return;
@@ -602,6 +620,7 @@ function WideDesktopNavigation({
                   <button
                     key={item.id}
                     type="button"
+                    data-testid={getNavigationTestId(item.id)}
                     onClick={() => {
                       if (isActive) {
                         onActiveClick();
@@ -2078,7 +2097,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={logout} className="text-red-500">
+                <DropdownMenuItem data-testid="logout-button" onClick={logout} className="text-red-500">
                   <LogOut className="mr-2 size-4" />
                   Logout
                 </DropdownMenuItem>

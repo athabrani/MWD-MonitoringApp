@@ -1527,7 +1527,7 @@ export function WellPlotPanel({
 
   if (!tracks.length || !activeTrack) {
     return (
-      <div className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}>
+      <div data-testid="well-plot-page" className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}>
         {showHeader ? (
           <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
             <div>
@@ -1562,7 +1562,7 @@ export function WellPlotPanel({
 
   if (plotDataLoading || !plotDepthRows.length || plotDataError) {
     return (
-      <div className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}>
+      <div data-testid="well-plot-page" className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}>
         {showHeader ? (
           <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
             <div>
@@ -1599,8 +1599,20 @@ export function WellPlotPanel({
   return (
     <div
       ref={panelRef}
+      data-testid="well-plot-page"
       className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}
     >
+      <div className="sr-only" aria-label="Well plot depth order">
+        {plotDepthRows.map((row) => (
+          <span
+            key={`${row.depth}-${row.time}`}
+            data-testid="well-plot-point"
+            data-depth={String(row.depth)}
+          >
+            {row.depth}
+          </span>
+        ))}
+      </div>
       {showHeader ? (
         <div className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
           <div>

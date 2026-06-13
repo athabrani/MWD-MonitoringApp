@@ -474,11 +474,11 @@ function buildEmptyKpiData(): KPIData {
 }
 
 function resolveActiveMwdSessionId(currentSessionId: string, sessions: MwdSessionListItem[]) {
-  if (currentSessionId && sessions.some((session) => session.id === currentSessionId)) {
+  if (currentSessionId && sessions.some((session) => String(session.id) === String(currentSessionId))) {
     return currentSessionId;
   }
 
-  return sessions[0]?.id ?? '';
+  return sessions[0]?.id ? String(sessions[0].id) : '';
 }
 
 function normalizeStatusValue(value?: string | null) {
@@ -638,7 +638,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const activeMwdSession = useMemo(
-    () => mwdSessions.find((session) => session.id === activeMwdSessionId) ?? null,
+    () => mwdSessions.find((session) => String(session.id) === String(activeMwdSessionId)) ?? null,
     [activeMwdSessionId, mwdSessions]
   );
   const operationalThresholds = useMemo(

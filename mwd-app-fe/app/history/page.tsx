@@ -679,7 +679,7 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="min-w-0 space-y-4 sm:space-y-6">
+    <div data-testid="historical-page" className="min-w-0 space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Historical Data</h1>
@@ -716,7 +716,7 @@ export const HistoryPage: React.FC = () => {
               onValueChange={setActiveMwdSessionId}
               disabled={mwdSessionsLoading || mwdSessions.length === 0}
             >
-              <SelectTrigger>
+              <SelectTrigger data-testid="active-session-select">
                 <SelectValue
                   placeholder={mwdSessionsLoading ? 'Loading sessions...' : 'Select MWD session'}
                 />
@@ -770,6 +770,7 @@ export const HistoryPage: React.FC = () => {
               </Label>
               <Input
                 id="history-start"
+                data-testid="historical-time-from"
                 type="datetime-local"
                 className="h-9"
                 value={startDateTime}
@@ -782,6 +783,7 @@ export const HistoryPage: React.FC = () => {
               </Label>
               <Input
                 id="history-end"
+                data-testid="historical-time-to"
                 type="datetime-local"
                 className="h-9"
                 value={endDateTime}
@@ -796,6 +798,7 @@ export const HistoryPage: React.FC = () => {
               </Label>
               <Input
                 id="history-depth-min"
+                data-testid="historical-depth-min"
                 type="number"
                 inputMode="decimal"
                 className="h-9"
@@ -810,6 +813,7 @@ export const HistoryPage: React.FC = () => {
               </Label>
               <Input
                 id="history-depth-max"
+                data-testid="historical-depth-max"
                 type="number"
                 inputMode="decimal"
                 className="h-9"
@@ -837,13 +841,21 @@ export const HistoryPage: React.FC = () => {
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-4">
-          <Button type="button" size="sm" className="h-9 text-xs sm:text-sm" onClick={() => void loadHistoricalData()} disabled={historicalLoading || !activeMwdSessionId}>
+          <Button
+            type="button"
+            size="sm"
+            data-testid="historical-apply-filter"
+            className="h-9 text-xs sm:text-sm"
+            onClick={() => void loadHistoricalData()}
+            disabled={historicalLoading || !activeMwdSessionId}
+          >
             Apply Filters
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
+            data-testid="historical-reset-filter"
             className="h-9 text-xs sm:text-sm"
             onClick={() => {
               setStartDateTime('');
@@ -978,6 +990,7 @@ export const HistoryPage: React.FC = () => {
             <Button
               type="button"
               variant="outline"
+              data-testid="historical-export-csv"
               onClick={() => void exportCsv()}
               disabled={!canExport || historicalExporting !== '' || filteredRecords.length === 0}
             >
@@ -1032,7 +1045,13 @@ export const HistoryPage: React.FC = () => {
             ) : null}
             {!historicalLoading
               ? pagedRecords.map((record) => (
-                  <TableRow key={record.id}>
+                  <TableRow
+                    key={record.id}
+                    data-testid="historical-row"
+                    data-timestamp={record.timestamp.toISOString()}
+                    data-depth={typeof record.depth === 'number' ? String(record.depth) : undefined}
+                    data-session-id={record.sessionId ? String(record.sessionId) : activeMwdSessionId}
+                  >
                     <TableCell className="whitespace-nowrap">{formatDateTime(record.timestamp)}</TableCell>
                     <TableCell>{formatNumber(record.depth)}</TableCell>
                     <TableCell>

@@ -262,6 +262,7 @@ export function mwdDataRecordsToChartData(records: MwdDataRecord[]): ChartDataPo
 
       return {
         timestamp: record.timestamp,
+        sessionId: record.sessionId,
         depth,
         ...record.metrics,
       };

@@ -12,6 +12,7 @@ import {
 } from "./depth-tracking.service.js";
 import { syncTimestampAndDepth } from "../utils/timestamp-depth-sync.js";
 import { recordConfiguredWitsValues } from "./wits-data.service.js";
+import { broadcastMWDData } from "./websocket.service.js";
 
 type GatewayPayload = Record<string, unknown>;
 
@@ -381,6 +382,13 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
         error instanceof Error ? error.message : "Unknown depth tracking error";
       console.warn(`[Gateway Ingest] Depth tracking update failed: ${message}`);
     }
+  }
+
+  for (const item of items) {
+    broadcastMWDData({
+      source: "gateway-http",
+      ...item,
+    });
   }
 
   return items;

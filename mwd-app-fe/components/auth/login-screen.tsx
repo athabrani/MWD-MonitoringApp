@@ -78,7 +78,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
               {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-start gap-3">
+                <div
+                  data-testid="login-error"
+                  className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-start gap-3"
+                >
                   <AlertCircle className="size-5 text-red-500 mt-0.5 shrink-0" />
                   <p className="text-sm text-red-500 leading-relaxed">{error}</p>
                 </div>
@@ -88,6 +91,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <Label htmlFor="username">Username or Email</Label>
                 <Input
                   id="username"
+                  data-testid="login-identifier"
                   type="text"
                   placeholder="Enter your username"
                   value={username}
@@ -111,6 +115,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 </div>
                 <Input
                   id="password"
+                  data-testid="login-password"
                   type="password"
                   placeholder="Enter your password"
                   value={password}
@@ -137,6 +142,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
               <Button 
                 type="submit" 
+                data-testid="login-submit"
                 className="w-full h-11 text-base" 
                 disabled={loading}
               >

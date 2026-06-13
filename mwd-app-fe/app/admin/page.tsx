@@ -390,7 +390,7 @@ export const AdminPage: React.FC = () => {
 
   if (!user || user.role !== "admin") {
     return (
-      <Card className="p-6">
+      <Card data-testid="access-denied" className="p-6">
         <h1 className="text-xl font-semibold">Admin access required</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           This panel is only available for backend users with the admin role.
@@ -611,7 +611,7 @@ export const AdminPage: React.FC = () => {
   const draftAllowedPages = new Set(draftPageAccess);
 
   return (
-    <div className="min-w-0 space-y-4 sm:space-y-6">
+    <div data-testid="admin-page" className="min-w-0 space-y-4 sm:space-y-6">
       <div className="min-w-0">
         <h1 className="mb-2 text-2xl font-bold sm:text-3xl">Admin Panel</h1>
         <p className="break-words text-sm text-muted-foreground sm:text-base">
@@ -655,7 +655,7 @@ export const AdminPage: React.FC = () => {
 
       <Tabs defaultValue="users">
         <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1 sm:w-fit">
-          <TabsTrigger value="users">
+          <TabsTrigger value="users" data-testid="nav-user-management">
             <Users className="mr-2 size-4" />
             Users
           </TabsTrigger>
@@ -673,7 +673,7 @@ export const AdminPage: React.FC = () => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users" className="mt-4 sm:mt-6">
+        <TabsContent value="users" data-testid="user-management-page" className="mt-4 sm:mt-6">
           <Card className="p-3 sm:p-6">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
               <div className="min-w-0">

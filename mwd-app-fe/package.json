@@ -8,7 +8,13 @@
     "build": "next build",
     "start": "next start",
     "start:port-3001": "next start -p 3001",
-    "lint": "eslint"
+    "lint": "eslint",
+
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report ../tests/results/functional/playwright-report",
+    "test:e2e:summary": "node scripts/summarize-playwright.mjs"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.11",
@@ -49,8 +55,8 @@
     "next-themes": "^0.4.6",
     "postcss": "^8.5.6",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1",
     "react-day-picker": "^9.13.1",
+    "react-dom": "^19.2.1",
     "react-hook-form": "^7.61.1",
     "react-resizable-panels": "^2.1.9",
     "react-router-dom": "^7.13.1",
@@ -62,6 +68,7 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^20.19.33",
     "@types/react": "^19.2.14",
@@ -71,4 +78,5 @@
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"
   }
+  
 }
