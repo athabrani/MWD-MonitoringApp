@@ -158,6 +158,9 @@ export default function SurveyDataPage({
   const [surveyInput, setSurveyInput] = useState<SurveyInputSummary>(emptySurveyInput);
   const [manualStationType, setManualStationType] = useState<"actual" | "plan">("actual");
   const [surveyRecords, setSurveyRecords] = useState<SurveyRecord[]>([]);
+  const [planSurveyRecords, setPlanSurveyRecords] = useState<SurveyRecord[]>([]);
+  const [planSurveysLoading, setPlanSurveysLoading] = useState(false);
+  const [planSurveysError, setPlanSurveysError] = useState("");
   const [surveysLoading, setSurveysLoading] = useState(false);
   const [surveysSaving, setSurveysSaving] = useState(false);
   const [surveysDeletingId, setSurveysDeletingId] = useState("");
@@ -236,9 +239,38 @@ export default function SurveyDataPage({
     }
   }, [activeMwdSessionId, applySurveyListState, token]);
 
+  const loadPlanSurveys = useCallback(async () => {
+    if (!token || !activeMwdSessionId) {
+      setPlanSurveyRecords([]);
+      setPlanSurveysError("");
+      return [];
+    }
+
+    setPlanSurveysLoading(true);
+    setPlanSurveysError("");
+
+    try {
+      const surveys = await getSurveys(token, {
+        sessionId: activeMwdSessionId,
+        stationType: "plan",
+      });
+      setPlanSurveyRecords(surveys);
+      return surveys;
+    } catch (error) {
+      logSecurityError("Unable to load plan surveys.", error);
+      const message = "Gagal memuat wellplan survey dari backend.";
+      setPlanSurveyRecords([]);
+      setPlanSurveysError(message);
+      return [];
+    } finally {
+      setPlanSurveysLoading(false);
+    }
+  }, [activeMwdSessionId, token]);
+
   useEffect(() => {
     void loadSurveys();
-  }, [loadSurveys]);
+    void loadPlanSurveys();
+  }, [loadPlanSurveys, loadSurveys]);
 
   useEffect(() => {
     surveyFolderImportInputRef.current?.setAttribute("webkitdirectory", "");
@@ -315,7 +347,11 @@ export default function SurveyDataPage({
         token,
         surveyRecordToPayload(nextRecord, activeMwdSessionId, manualStationType)
       );
-      await loadSurveys(savedRecord.id);
+      if (manualStationType === "plan") {
+        await loadPlanSurveys();
+      } else {
+        await loadSurveys(savedRecord.id);
+      }
       toast.success("Survey data saved.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create survey.";
@@ -387,6 +423,7 @@ export default function SurveyDataPage({
 
       await deleteSurvey(token, record.id);
       await loadSurveys();
+      await loadPlanSurveys();
       toast.success("Survey berhasil dihapus");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to delete survey.";
@@ -759,6 +796,46 @@ export default function SurveyDataPage({
           {surveysError}
         </Card>
       ) : null}
+
+      <Card className="rounded-2xl p-3 sm:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Wellplan Survey Source</h2>
+            <p className="text-xs text-muted-foreground sm:text-sm">
+              Plan surveys are loaded from the same backend source used by the Well Plan Surveys Editor.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+            <Badge variant="outline">{planSurveyRecords.length} plan rows</Badge>
+            {planSurveysLoading ? <Badge variant="outline">Loading plan</Badge> : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void loadPlanSurveys()}
+              disabled={planSurveysLoading || !token || !activeMwdSessionId}
+            >
+              Refresh Plan
+            </Button>
+          </div>
+        </div>
+        {planSurveysError ? (
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {planSurveysError}
+          </div>
+        ) : null}
+        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+          <SummaryMetric label="Plan rows" value={String(planSurveyRecords.length)} />
+          <SummaryMetric
+            label="First plan MD"
+            value={planSurveyRecords.length > 0 ? planSurveyRecords[0].md.toFixed(2) : "-"}
+          />
+          <SummaryMetric
+            label="Last plan MD"
+            value={planSurveyRecords.length > 0 ? planSurveyRecords[planSurveyRecords.length - 1].md.toFixed(2) : "-"}
+          />
+          <SummaryMetric label="Active session" value={activeMwdSessionId || "-"} />
+        </div>
+      </Card>
 
       {surveyImportBatch ? (
         <Card className="space-y-3 rounded-2xl p-3 sm:p-4">

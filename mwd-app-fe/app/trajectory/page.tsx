@@ -271,14 +271,6 @@ export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ onNavigate }) =>
 
       {!activeMwdSessionId ? (
         <Card className="p-6 text-sm text-muted-foreground">Pilih job/session sebelum membuka trajectory.</Card>
-      ) : error && !hasTrajectory ? (
-        <Card className="space-y-3 border-destructive/40 p-6">
-          <div className="font-semibold text-destructive">Gagal memuat data trajectory.</div>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button variant="outline" onClick={() => void loadTrajectory()}>Retry</Button>
-        </Card>
-      ) : loading ? (
-        <Card className="p-6 text-sm text-muted-foreground">Loading trajectory survey...</Card>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
@@ -289,70 +281,82 @@ export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ onNavigate }) =>
           </div>
 
           {!hasTrajectory ? (
-            <Card className="space-y-3 border-dashed p-6">
-              <div className="font-semibold">No trajectory survey data for this session.</div>
-              <p className="text-sm text-muted-foreground">
-                Neither planned nor actual survey stations were returned by GET /api/surveys for this active session.
-              </p>
-            </Card>
-          ) : (
-            <>
-              {(!hasActualTrajectory || !hasPlannedTrajectory || error) ? (
-                <Card className="flex flex-col gap-3 border-amber-500/30 bg-amber-500/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-1">
-                    {!hasActualTrajectory ? <p>Actual trajectory is not available for this session.</p> : null}
-                    {!hasPlannedTrajectory ? <p>Planned trajectory is not available for this session.</p> : null}
-                    {error ? <p className="text-destructive">{error}</p> : null}
-                  </div>
-                  {!hasActualTrajectory && canGenerateActual ? (
-                    <Button size="sm" onClick={() => void handleGenerateActual()} disabled={generatingActual}>
-                      {generatingActual ? "Generating..." : "Generate Actual From MWD"}
-                    </Button>
-                  ) : null}
-                </Card>
+            <Card className="flex flex-col gap-3 border-dashed p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="font-medium">No trajectory survey data for this session.</div>
+                <p className="mt-1 text-muted-foreground">
+                  The analysis layout stays ready; actual and planned series will appear here when surveys are available.
+                </p>
+              </div>
+              {canGenerateActual ? (
+                <Button size="sm" onClick={() => void handleGenerateActual()} disabled={generatingActual}>
+                  {generatingActual ? "Generating..." : "Generate Actual From MWD"}
+                </Button>
               ) : null}
+            </Card>
+          ) : null}
 
+          {(loading || error || (!hasActualTrajectory && hasTrajectory) || (!hasPlannedTrajectory && hasTrajectory)) ? (
+            <Card className="flex flex-col gap-3 border-amber-500/30 bg-amber-500/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                {loading ? <p>Loading trajectory survey...</p> : null}
+                {!hasActualTrajectory && hasTrajectory ? <p>Actual trajectory is not available for this session.</p> : null}
+                {!hasPlannedTrajectory && hasTrajectory ? <p>Planned trajectory is not available for this session.</p> : null}
+                {error ? <p className="text-destructive">{error}</p> : null}
+              </div>
+              {error ? (
+                <Button size="sm" variant="outline" onClick={() => void loadTrajectory()} disabled={loading}>
+                  Retry
+                </Button>
+              ) : !hasActualTrajectory && hasTrajectory && canGenerateActual ? (
+                <Button size="sm" onClick={() => void handleGenerateActual()} disabled={generatingActual}>
+                  {generatingActual ? "Generating..." : "Generate Actual From MWD"}
+                </Button>
+              ) : null}
+            </Card>
+          ) : null}
+
+          <Card className="p-4 sm:p-5">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-semibold">Depth Position</h3>
+                <p className="text-sm text-muted-foreground">Slide through the active trajectory series.</p>
+              </div>
+              <Badge variant="secondary" className="w-fit text-sm">{formatValue(currentReference?.md)} m MD</Badge>
+            </div>
+            <Slider value={[depthSlider]} onValueChange={(value) => setDepthSlider(value[0] ?? 100)} max={100} step={1} disabled={!hasTrajectory} />
+            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+              <span>Start</span>
+              <span>{depthSlider}%</span>
+              <span>Last: {formatValue(referenceSeries.at(-1)?.md, 0)} m</span>
+            </div>
+          </Card>
+
+          <Tabs value={view} onValueChange={(value) => setView(value as "vertical" | "plan")}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
+              <TabsTrigger value="plan">Plan View</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="vertical" className="mt-4 sm:mt-5">
+              <div className="grid gap-3 sm:gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+                <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={560} />
+                <Card className="p-2.5 sm:p-5">
+                  <h3 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">Trajectory Summary</h3>
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <MetricTile label="First actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual[0]?.md)} m` : "-"} />
+                    <MetricTile label="Last actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual.at(-1)?.md)} m` : "-"} />
+                    <MetricTile label="First plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned[0]?.md)} m` : "-"} />
+                    <MetricTile label="Last plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned.at(-1)?.md)} m` : "-"} />
+                    <MetricTile label="Delta TVD" value={deltaTVD === null ? "-" : `${formatValue(deltaTVD, 2)} m`} />
+                    <MetricTile label="Current Inc / Azi" value={`${formatValue(currentReference?.inclination)} deg / ${formatValue(currentReference?.azimuth)} deg`} />
+                  </div>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="plan" className="mt-5">
               <Card className="p-4 sm:p-5">
-                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="font-semibold">Depth Position</h3>
-                    <p className="text-sm text-muted-foreground">Slide through the active trajectory series.</p>
-                  </div>
-                  <Badge variant="secondary" className="w-fit text-sm">{formatValue(currentReference?.md)} m MD</Badge>
-                </div>
-                <Slider value={[depthSlider]} onValueChange={(value) => setDepthSlider(value[0] ?? 100)} max={100} step={1} />
-                <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                  <span>Start</span>
-                  <span>{depthSlider}%</span>
-                  <span>Last: {formatValue(referenceSeries.at(-1)?.md, 0)} m</span>
-                </div>
-              </Card>
-
-              <Tabs value={view} onValueChange={(value) => setView(value as "vertical" | "plan")}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="vertical">Vertical Section</TabsTrigger>
-                  <TabsTrigger value="plan">Plan View</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="vertical" className="mt-4 sm:mt-5">
-                  <div className="grid gap-3 sm:gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-                    <VerticalTrajectory data={trajectoryData} currentDepthPercent={depthSlider} height={560} />
-                    <Card className="p-2.5 sm:p-5">
-                      <h3 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">Trajectory Summary</h3>
-                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                        <MetricTile label="First actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual[0]?.md)} m` : "-"} />
-                        <MetricTile label="Last actual MD" value={hasActualTrajectory ? `${formatValue(trajectoryData.actual.at(-1)?.md)} m` : "-"} />
-                        <MetricTile label="First plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned[0]?.md)} m` : "-"} />
-                        <MetricTile label="Last plan MD" value={hasPlannedTrajectory ? `${formatValue(trajectoryData.planned.at(-1)?.md)} m` : "-"} />
-                        <MetricTile label="Delta TVD" value={deltaTVD === null ? "-" : `${formatValue(deltaTVD, 2)} m`} />
-                        <MetricTile label="Current Inc / Azi" value={`${formatValue(currentReference?.inclination)} deg / ${formatValue(currentReference?.azimuth)} deg`} />
-                      </div>
-                    </Card>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="plan" className="mt-5">
-                  <Card className="p-4 sm:p-5">
                     <div className="mb-4">
                       <h3 className="font-semibold">Plan View</h3>
                       <p className="text-sm text-muted-foreground">Northing vs Easting, rendered from survey trajectory coordinates.</p>
@@ -380,8 +384,6 @@ export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ onNavigate }) =>
                   </Card>
                 </TabsContent>
               </Tabs>
-            </>
-          )}
         </>
       )}
     </div>

@@ -62,6 +62,47 @@ export function LogDataMemoryImportPanel({
   onFolderImport?: () => void;
   onCommitImport: () => void;
 }) {
+  const activeImportPhase =
+    importScanning ||
+    importCommitting ||
+    importProgress.phase === "preparing" ||
+    importProgress.phase === "importing" ||
+    importProgress.phase === "retrying" ||
+    importProgress.phase === "refreshing";
+  const progressPercent =
+    importProgress.totalRequests > 0
+      ? Math.min(
+          100,
+          Math.max(
+            4,
+            Math.round(
+              (importProgress.currentRequest / importProgress.totalRequests) *
+                100,
+            ),
+          ),
+        )
+      : activeImportPhase
+        ? 12
+        : 0;
+  const progressLabel = importScanning
+    ? "Scanning"
+    : importProgress.phase === "retrying"
+      ? "Retrying"
+      : importProgress.phase === "refreshing"
+        ? "Refreshing"
+        : importCommitting || importProgress.phase === "importing"
+          ? "Importing"
+          : importProgress.phase === "complete"
+            ? "Completed"
+            : "Ready";
+  const resultVariant = importResult
+    ? importResult.failedValues > 0
+      ? importResult.importedValues > 0
+        ? "partial"
+        : "failed"
+      : "success"
+    : null;
+
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
@@ -79,17 +120,58 @@ export function LogDataMemoryImportPanel({
               <div>
                 <h3 className="font-semibold">CSV/LAS Log Import</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  CSV is active now for WITS value import. LAS remains visible here as future log import support and does not block CSV.
+                  Choose CSV files, a ZIP dump, or a folder, then import mapped WITS values into the active session.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">CSV active</Badge>
-              <Badge variant="outline">LAS future</Badge>
+              <Badge variant="secondary">CSV/LAS</Badge>
+              {activeImportPhase ? <Badge>Import running</Badge> : null}
             </div>
           </div>
 
           <div className="mt-4 space-y-3">
+            {activeImportPhase ? (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="rounded-full bg-primary/10 p-2 text-primary">
+                      <Loader2 className="size-5 animate-spin" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold">
+                        {importScanning
+                          ? "Scanning selected import sources..."
+                          : importProgress.message || "Importing data..."}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Keep this page open while the backend writes WITS values.
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant="secondary" className="w-fit">
+                    {progressLabel}
+                  </Badge>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {importProgress.totalRequests > 0
+                      ? `Request ${importProgress.currentRequest} of ${importProgress.totalRequests}`
+                      : "Preparing import queue"}
+                  </span>
+                  <span>
+                    Imported {importProgress.importedValues} value(s)
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <Label htmlFor="log-data-import-review-file">CSV/LAS source</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -99,6 +181,7 @@ export function LogDataMemoryImportPanel({
                   accept=".csv,.zip,.las,text/csv,application/zip"
                   multiple
                   onChange={handleFileChange}
+                  disabled={activeImportPhase}
                 />
                 {onFolderImport ? (
                   <Button
@@ -106,7 +189,7 @@ export function LogDataMemoryImportPanel({
                     variant="outline"
                     className="shrink-0"
                     onClick={onFolderImport}
-                    disabled={importScanning || importCommitting}
+                    disabled={activeImportPhase}
                   >
                     <FolderOpen className="mr-2 size-4" />
                     Select folder
@@ -216,18 +299,39 @@ export function LogDataMemoryImportPanel({
             ) : null}
 
             {importResult ? (
-              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                Imported {importResult.importedValues} value(s); failed {importResult.failedValues} value(s). Backend POST requests: {importResult.postedRequests}/{importResult.totalRequests}.
+              <div
+                className={
+                  resultVariant === "success"
+                    ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm"
+                    : resultVariant === "partial"
+                      ? "rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+                      : "rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+                }
+              >
+                <div className="font-medium">
+                  {resultVariant === "success"
+                    ? "Import completed"
+                    : resultVariant === "partial"
+                      ? "Import partially completed"
+                      : "Import failed"}
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  Imported {importResult.importedValues} value(s); failed {importResult.failedValues} value(s). Backend POST requests: {importResult.postedRequests}/{importResult.totalRequests}.
+                </div>
               </div>
             ) : null}
 
             <Button
               onClick={onCommitImport}
-              disabled={!importBatch || importBatch.totalImportableValues === 0 || importScanning || importCommitting || !selectedChannel}
+              disabled={!importBatch || importBatch.totalImportableValues === 0 || activeImportPhase || !selectedChannel}
               className="w-full justify-center"
             >
-              <FileUp className="mr-2 size-4" />
-              {importCommitting ? "Importing..." : "Import mapped WITS values"}
+              {activeImportPhase ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <FileUp className="mr-2 size-4" />
+              )}
+              {activeImportPhase ? "Import in progress..." : "Import mapped WITS values"}
             </Button>
           </div>
       </Card>
