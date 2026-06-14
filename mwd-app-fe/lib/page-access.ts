@@ -107,7 +107,7 @@ export const navigationDisplayGroups: NavigationDisplayGroup[] = [
   {
     key: "system-utilities",
     label: "System Utilities",
-    pages: ["system-utilities", "export", "admin", "help"],
+    pages: ["system-utilities", "history", "export", "admin", "help"],
   },
 ];
 

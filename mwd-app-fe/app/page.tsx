@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useApp } from "@/context/AppContext";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -34,6 +35,7 @@ import WellplanSurveysPage from "./configuration/wellplan-surveys/page";
 import {
   canAccessPage,
   getDefaultAccessiblePage,
+  getPageAccessKeyForPath,
   getPageAccessLabel,
   readRolePageAccess,
   RolePageAccessMap,
@@ -41,6 +43,7 @@ import {
 } from "@/lib/page-access";
 
 const AppContent: React.FC = () => {
+  const pathname = usePathname();
   const { isAuthenticated, isLoading, user } = useAuth();
   const {
     showInstallPrompt,
@@ -52,11 +55,35 @@ const AppContent: React.FC = () => {
 
   const [currentPage, setCurrentPage] = useState<AppPage>("dashboard");
   const [rolePageAccess, setRolePageAccess] = useState<RolePageAccessMap>(() => readRolePageAccess());
-  const mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pathname) {
+      return;
+    }
+    const pageFromPath = getPageAccessKeyForPath(pathname) as AppPage | null;
+    if (pageFromPath) {
+      setCurrentPage(pageFromPath);
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleShellNavigation = (event: Event) => {
+      const page = (event as CustomEvent<{ page?: AppPage }>).detail?.page;
+      if (page) {
+        setCurrentPage(page);
+      }
+    };
+
+    window.addEventListener("mwd:navigate-page", handleShellNavigation);
+    return () => {
+      window.removeEventListener("mwd:navigate-page", handleShellNavigation);
+    };
+  }, []);
 
   // Apply dark mode
   useEffect(() => {

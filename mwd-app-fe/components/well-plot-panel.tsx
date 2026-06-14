@@ -217,6 +217,13 @@ function getMetricValueFromRow(metric: MetricConfig, row: DepthRow) {
   return undefined
 }
 
+function formatUtcTime(value: Date) {
+  return value.toLocaleTimeString('en-US', {
+    timeZone: 'UTC',
+    hour12: false,
+  })
+}
+
 function readNumericValue(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = record[key]
@@ -278,7 +285,7 @@ function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
     depth: roundedDepth,
     time:
       timestamp && !Number.isNaN(timestamp.getTime())
-        ? timestamp.toLocaleTimeString()
+        ? formatUtcTime(timestamp)
         : '-',
     metrics,
   }
@@ -1285,6 +1292,7 @@ export function WellPlotPanel({
   const [activePlotId, setActivePlotId] = useState<string>(tracks[0]?.id ?? '')
   const [trackWindowStart, setTrackWindowStart] = useState(0)
   const [panelWidth, setPanelWidth] = useState<number | null>(null)
+  const [hydrated, setHydrated] = useState(false)
   const [measuredHeaderHeights, setMeasuredHeaderHeights] = useState<
     Record<string, number>
   >({})
@@ -1292,6 +1300,10 @@ export function WellPlotPanel({
   const plotScrollViewportsRef = useRef(new Map<string, HTMLDivElement>())
   const syncingPlotScrollRef = useRef(false)
   const followLatestPlotRef = useRef(true)
+
+  useEffect(() => {
+    setHydrated(true)
+  }, [])
 
   const compactDashboardMode = compact && !showHeader
   const plotHeightPx = compact
@@ -1593,6 +1605,16 @@ export function WellPlotPanel({
             : plotDataError || emptyPlotDataMessage}
         </Card>
       </div>
+    )
+  }
+
+  if (!hydrated) {
+    return (
+      <div
+        ref={panelRef}
+        data-testid="well-plot-page"
+        className={compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'}
+      />
     )
   }
 

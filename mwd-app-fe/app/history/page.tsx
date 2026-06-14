@@ -361,6 +361,7 @@ export const HistoryPage: React.FC = () => {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [selectedRecord, setSelectedRecord] = useState<HistoricalRecord | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const canExport = user?.role === 'admin' || user?.role === 'engineer';
 
   const enrichedRecords = useMemo(
@@ -539,6 +540,10 @@ export const HistoryPage: React.FC = () => {
   ]);
 
   useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
     if (!token || !activeMwdSessionId) return;
     void loadHistoricalData();
     // Load automatically only when the active backend session changes.
@@ -677,6 +682,10 @@ export const HistoryPage: React.FC = () => {
       setHistoricalExporting('');
     }
   };
+
+  if (!hydrated) {
+    return <div data-testid="historical-page" className="min-w-0 space-y-4 sm:space-y-6" />;
+  }
 
   return (
     <div data-testid="historical-page" className="min-w-0 space-y-4 sm:space-y-6">

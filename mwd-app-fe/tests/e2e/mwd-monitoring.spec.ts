@@ -144,6 +144,26 @@ function byTestId(page: Page, testId: string) {
   return page.getByTestId(testId);
 }
 
+function firstByTestId(page: Page, testId: string) {
+  return page.getByTestId(testId).first();
+}
+
+function dashboardConnectionStatus(page: Page) {
+  return firstByTestId(page, SELECTORS.dashboardPage).getByTestId(
+    SELECTORS.connectionStatus,
+  );
+}
+
+async function navigateShellPage(page: Page, pageKey: string): Promise<void> {
+  await page.evaluate((targetPage) => {
+    window.dispatchEvent(
+      new CustomEvent("mwd:navigate-page", {
+        detail: { page: targetPage },
+      }),
+    );
+  }, pageKey);
+}
+
 function normalizeSessionId(value: string | undefined): string {
   const id = value?.trim() ?? "";
 
@@ -534,8 +554,8 @@ async function loginAndSelectActive(page: Page): Promise<void> {
 }
 
 async function openHistorical(page: Page): Promise<void> {
-  await page.goto(HISTORICAL_PATH);
-  await expect(byTestId(page, SELECTORS.historicalPage)).toBeVisible({
+  await navigateShellPage(page, "history");
+  await expect(firstByTestId(page, SELECTORS.historicalPage)).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -546,9 +566,9 @@ async function openWellPlot(page: Page): Promise<void> {
     window.sessionStorage.setItem("mwd_active_session_id", sessionId);
   }, runtimeConfig.sessions.active.id);
 
-  await page.goto(WELL_PLOT_PATH);
+  await navigateShellPage(page, "trajectory-well-plot");
 
-  await expect(byTestId(page, SELECTORS.wellPlotPage)).toBeVisible({
+  await expect(firstByTestId(page, SELECTORS.wellPlotPage)).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -970,7 +990,8 @@ async function ensureWellPlotPoints(
   }
 
   await page.reload();
-  await expect(byTestId(page, SELECTORS.wellPlotPage)).toBeVisible({
+  await navigateShellPage(page, "trajectory-well-plot");
+  await expect(firstByTestId(page, SELECTORS.wellPlotPage)).toBeVisible({
     timeout: 15_000,
   });
 
@@ -1385,9 +1406,11 @@ test.describe("MWD Monitoring System - Functional Testing", () => {
 
   test("FT-11 Admin dapat membuka user management", async ({ page }) => {
     await authenticate(page, "admin");
-    await page.goto(ADMIN_PATH);
+    await page.goto(DASHBOARD_PATH);
+    await expect(firstByTestId(page, SELECTORS.dashboardPage)).toBeVisible();
+    await navigateShellPage(page, "admin");
 
-    await expect(byTestId(page, SELECTORS.adminPage)).toBeVisible();
+    await expect(firstByTestId(page, SELECTORS.adminPage)).toBeVisible();
     await byTestId(page, SELECTORS.navUserManagement).click();
     await expect(
       byTestId(page, SELECTORS.userManagementPage),
@@ -1403,9 +1426,9 @@ test.describe("MWD Monitoring System - Functional Testing", () => {
     await expect(byTestId(page, SELECTORS.dashboardPage)).toBeVisible();
     await expect(byTestId(page, SELECTORS.navAdmin)).toHaveCount(0);
 
-    await page.goto(ADMIN_PATH);
+    await navigateShellPage(page, "admin");
 
-    await expect(byTestId(page, SELECTORS.accessDenied)).toBeVisible();
+    await expect(firstByTestId(page, SELECTORS.accessDenied)).toBeVisible();
     await expect(
       byTestId(page, SELECTORS.userManagementPage),
     ).toHaveCount(0);
@@ -1417,14 +1440,14 @@ test.describe("MWD Monitoring System - Functional Testing", () => {
   }) => {
     await loginAndSelectActive(page);
 
-    await expect(byTestId(page, SELECTORS.connectionStatus)).toContainText(
+    await expect(dashboardConnectionStatus(page)).toContainText(
       /connected|degraded/i,
       { timeout: 30_000 },
     );
 
     await context.setOffline(true);
 
-    await expect(byTestId(page, SELECTORS.connectionStatus)).toContainText(
+    await expect(dashboardConnectionStatus(page)).toContainText(
       /offline|disconnected/i,
       { timeout: 30_000 },
     );
@@ -1440,13 +1463,13 @@ test.describe("MWD Monitoring System - Functional Testing", () => {
     const latestValue = byTestId(page, SELECTORS.chartLatestValue);
 
     await context.setOffline(true);
-    await expect(byTestId(page, SELECTORS.connectionStatus)).toContainText(
+    await expect(dashboardConnectionStatus(page)).toContainText(
       /offline|disconnected/i,
       { timeout: 30_000 },
     );
 
     await context.setOffline(false);
-    await expect(byTestId(page, SELECTORS.connectionStatus)).toContainText(
+    await expect(dashboardConnectionStatus(page)).toContainText(
       /connected|degraded/i,
       { timeout: 30_000 },
     );

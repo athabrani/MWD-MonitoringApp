@@ -33,10 +33,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
-  const [initialSession] = useState(() => bootstrapStoredSession());
-  const [token, setToken] = useState<string | null>(() => initialSession.token);
-  const [user, setUser] = useState<User | null>(() => initialSession.user);
-  const [isLoading, setIsLoading] = useState(() => Boolean(initialSession.token));
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const clearAuthSession = () => {
     setUser(null);
@@ -50,6 +49,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     resetAuthSessionInvalidNotification();
     clearAuthSession();
   };
+
+  useEffect(() => {
+    const initialSession = bootstrapStoredSession();
+    if (!initialSession.token) {
+      return;
+    }
+
+    setToken(initialSession.token);
+    setUser(initialSession.user);
+    setIsLoading(true);
+  }, []);
 
   useEffect(
     () =>

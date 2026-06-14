@@ -257,6 +257,7 @@ const normalizeGatewayPayloads = (rawPayload: unknown) => {
 };
 
 export const ingestGatewayPayloads = async (rawPayload: unknown) => {
+  const backendReceivedTimestamp = Date.now();
   const payloads = normalizeGatewayPayloads(rawPayload);
   const depthTrackingInputs: ReturnType<
     typeof buildDepthTrackingInputFromMwdSource
@@ -351,16 +352,27 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
       const input: {
         sessionId: number;
         measuredAt: Date;
+        gatewaySequence?: string;
       } & MWDMeasurementInput = {
         sessionId,
         measuredAt: syncedMeasuredAt,
       };
+
+      const gatewaySequence = parseOptionalText(
+        payload.gatewaySequence ?? payload.sequence ?? payload.seq,
+      );
+
+      if (gatewaySequence) {
+        input.gatewaySequence = gatewaySequence;
+      }
 
       applyMeasurementFields(input, measurementResult.parsedFields);
 
       const createdItem = await mwdDataService.createMWDData(input, tx);
       items.push({
         ...createdItem,
+        gatewaySequence,
+        backendReceivedTimestamp,
         syncInfo,
         witsInfo: {
           configuredCount: witsInfo.configuredCount,

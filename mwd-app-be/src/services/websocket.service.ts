@@ -63,11 +63,17 @@ const broadcast = (event: string, payload: WebSocketPayload) => {
     timestamp: new Date().toISOString(),
   });
 
+  let targetCount = 0;
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
+      targetCount += 1;
       client.send(message);
     }
   });
+
+  if (event === "mwd-data" || event === "connection-status") {
+    console.log(`[Native WS] Broadcast ${event}. Target clients: ${targetCount}`);
+  }
 };
 
 export const initializeWebSocket = (
@@ -119,6 +125,7 @@ export const initializeWebSocket = (
           const sessionId =
             parsedMessage?.sessionId ?? parsedMessage?.payload?.sessionId ?? null;
           websocketEventEmitter.emit(event, ws, { ...payload, sessionId });
+          console.log(`[Native WS] Session ${event} received. Has session: ${Boolean(sessionId)}`);
           sendToClient(ws, event === "subscribe" ? "subscribed" : "unsubscribed", {
             sessionId,
           });

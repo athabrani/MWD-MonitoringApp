@@ -1950,6 +1950,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     setActiveSection(getParentSection(currentPage));
   }, [currentPage]);
 
+  if (!mounted) {
+    return (
+      <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col">
+        <main className="min-w-0 flex-1">{children}</main>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col">
       <header

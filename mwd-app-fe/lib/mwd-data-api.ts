@@ -15,6 +15,9 @@ type BackendMwdDataResponse = {
 export type MwdDataRecord = {
   id?: string;
   sessionId?: string;
+  gatewaySequence?: string;
+  backendReceivedTimestamp?: number;
+  clientReceivedTimestamp?: number;
   timestamp: Date;
   depth?: number;
   status?: string;
@@ -59,6 +62,13 @@ const depthKeys = ["depth", "depthMd", "depth_md", "md", "measuredDepth", "measu
 const sessionKeys = ["sessionId", "session_id", "mwdSessionId", "mwd_session_id"];
 const idKeys = ["id", "_id", "dataId", "mwdDataId"];
 const statusKeys = ["status", "state"];
+const metadataKeys = [
+  "gatewaySequence",
+  "sequence",
+  "seq",
+  "backendReceivedTimestamp",
+  "clientReceivedTimestamp",
+];
 
 const metricAliases: Record<string, string> = {
   rateofpenetration: "rop",
@@ -206,7 +216,7 @@ function normalizeMetricKey(key: string) {
 }
 
 function isReservedKey(key: string) {
-  return [...timestampKeys, ...depthKeys, ...sessionKeys, ...idKeys, ...statusKeys].includes(key);
+  return [...timestampKeys, ...depthKeys, ...sessionKeys, ...idKeys, ...statusKeys, ...metadataKeys].includes(key);
 }
 
 export function normalizeMwdDataRecord(record: BackendMwdDataRecord): MwdDataRecord | null {
@@ -233,6 +243,9 @@ export function normalizeMwdDataRecord(record: BackendMwdDataRecord): MwdDataRec
   return {
     id: readString(record, idKeys),
     sessionId: readString(record, sessionKeys),
+    gatewaySequence: readString(record, ["gatewaySequence", "sequence", "seq"]),
+    backendReceivedTimestamp: readNumber(record, ["backendReceivedTimestamp"]),
+    clientReceivedTimestamp: readNumber(record, ["clientReceivedTimestamp"]),
     timestamp,
     depth: readNumber(record, depthKeys),
     status: readString(record, statusKeys),

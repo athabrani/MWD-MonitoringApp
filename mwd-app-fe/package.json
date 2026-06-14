@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "dev:port-3001": "next dev -p 3001",
+    "dev:port-3002": "next dev -p 3002",
     "build": "next build",
     "start": "next start",
     "start:port-3001": "next start -p 3001",
+    "start:port-3002": "next start -p 3002",
     "lint": "eslint",
 
     "test:e2e": "playwright test",

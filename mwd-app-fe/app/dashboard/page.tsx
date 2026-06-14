@@ -103,6 +103,7 @@ export const DashboardPage: React.FC = () => {
   const [keyParameterPage, setKeyParameterPage] = useState(0);
   const [dashboardViewport, setDashboardViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
   const [depthTrackingState, setDepthTrackingState] = useState<DepthTrackingState | null>(null);
   const [depthTrackingLoading, setDepthTrackingLoading] = useState(false);
   const [depthTrackingError, setDepthTrackingError] = useState('');
@@ -111,6 +112,10 @@ export const DashboardPage: React.FC = () => {
     () => new Map(settings.thresholds.map((threshold) => [threshold.parameter, threshold])),
     [settings.thresholds]
   );
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
   const dashboardPlotTracks = useMemo(
     () => getRenderableTracksFromPlotConfig(activePlotConfig),
     [activePlotConfig]
@@ -126,7 +131,10 @@ export const DashboardPage: React.FC = () => {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
 
-    return parsed.toLocaleString();
+    return parsed.toLocaleString('en-US', {
+      timeZone: 'UTC',
+      hour12: false,
+    });
   };
   const formatTrackingNumber = (value?: number, suffix = '') =>
     typeof value === 'number' ? `${value.toFixed(2)}${suffix}` : '-';
@@ -671,6 +679,16 @@ export const DashboardPage: React.FC = () => {
     };
   }, [chartData.length, denseTabletDesktopLayout]);
 
+  if (!hydrated) {
+    return (
+      <div data-testid="dashboard-page" className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
+        <div className="sr-only" aria-label="Dashboard MWD data rows">
+          <span data-testid="connection-status">connecting</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="dashboard-page" className={cn("min-w-0", isCompact ? 'space-y-3' : 'space-y-4')}>
       <div className="sr-only" aria-label="Dashboard MWD data rows">
@@ -793,7 +811,23 @@ export const DashboardPage: React.FC = () => {
             <div className="col-span-2 flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-1.5 sm:col-span-1 sm:min-h-9 sm:gap-x-2 sm:px-3 sm:py-2">
               <TrendingUp className="size-3 text-muted-foreground sm:size-3.5" />
               <span className="text-[10px] font-medium uppercase text-muted-foreground sm:text-xs">Depth</span>
-              <span data-testid="chart-latest-value" className="break-words text-xs font-semibold leading-none sm:text-sm">
+              <span
+                data-testid="chart-latest-value"
+                data-gateway-sequence={latestMwdDataRecord?.gatewaySequence}
+                data-source-timestamp={latestMwdDataRecord?.timestamp.toISOString()}
+                data-backend-received-timestamp={
+                  latestMwdDataRecord?.backendReceivedTimestamp !== undefined
+                    ? String(latestMwdDataRecord.backendReceivedTimestamp)
+                    : undefined
+                }
+                data-client-received-timestamp={
+                  latestMwdDataRecord?.clientReceivedTimestamp !== undefined
+                    ? String(latestMwdDataRecord.clientReceivedTimestamp)
+                    : undefined
+                }
+                data-session-id={latestMwdDataRecord?.sessionId}
+                className="break-words text-xs font-semibold leading-none sm:text-sm"
+              >
                 {dashboardDepthLabel}
               </span>
               <span className="text-[10px] text-muted-foreground sm:text-xs">

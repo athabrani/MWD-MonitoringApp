@@ -31,9 +31,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   showReconnectAction = true,
 }) => {
   const { status, latency, latencySource, packetLoss, lastReceived, dataSource, reconnecting } = connectionState;
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const interval = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);
@@ -64,6 +65,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   };
 
   const timeSinceLastData =
+    now !== null &&
     lastReceived instanceof Date && !Number.isNaN(lastReceived.getTime())
       ? Math.floor((now - lastReceived.getTime()) / 1000)
       : null;

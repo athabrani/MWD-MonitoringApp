@@ -22,6 +22,7 @@ const mwdDataSelect = {
   hiddenAt: true,
   hiddenById: true,
   editNote: true,
+  gatewaySequence: true,
   createdAt: true,
   session: {
     select: {
@@ -50,6 +51,7 @@ const mwdDataSelect = {
 type MWDDataInput = {
   sessionId: number;
   measuredAt: Date;
+  gatewaySequence?: string;
 } & MWDMeasurementInput;
 
 type MWDDataUpdateInput = {

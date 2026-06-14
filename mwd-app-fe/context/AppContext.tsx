@@ -60,6 +60,9 @@ import { getEspWsStatus, type EspWsStatus } from '@/lib/esp-ws-api';
 import { getSystemHealth, type BackendSystemHealth } from '@/lib/system-health-api';
 import { getGatewayRawPackets, type GatewayRawPacket } from '@/lib/gateway-raw-packets-api';
 import {
+  closeRealtimeWebSocketForE2E,
+  forceRealtimeReconnectForE2E,
+  getRealtimeDiagnosticsForE2E,
   getRealtimeClient,
   type RealtimeConnectionState,
   type RealtimeEvent,
@@ -562,10 +565,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [wells] = useState<Well[]>([]);
   const [activeWell, setActiveWell] = useState<Well | null>(null);
   const [mwdSessions, setMwdSessions] = useState<MwdSessionListItem[]>([]);
-  const [activeMwdSessionId, setActiveMwdSessionId] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) ?? '';
-  });
+  const [activeMwdSessionId, setActiveMwdSessionId] = useState('');
   const [mwdSessionsLoading, setMwdSessionsLoading] = useState(false);
   const [mwdSessionsError, setMwdSessionsError] = useState('');
   const [kpiData, setKpiData] = useState<KPIData>(() => buildEmptyKpiData());
@@ -591,30 +591,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [plotConfigurations, setPlotConfigurations] = useState<PlotConfiguration[]>([]);
-  const [activePlotConfigId, setActivePlotConfigId] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(ACTIVE_PLOT_CONFIG_STORAGE_KEY) ?? '';
-  });
+  const [activePlotConfigId, setActivePlotConfigId] = useState('');
   const [plotTemplatesLoading, setPlotTemplatesLoading] = useState(false);
   const [plotTemplatesError, setPlotTemplatesError] = useState('');
 
-  const [settings, setSettings] = useState<UserSettings>(() => {
-    if (typeof window === 'undefined') return defaultSettings;
+  const [settings, setSettings] = useState<UserSettings>(defaultSettings);
+
+  useEffect(() => {
+    const storedSessionId = window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) ?? '';
+    const storedPlotConfigId = window.localStorage.getItem(ACTIVE_PLOT_CONFIG_STORAGE_KEY) ?? '';
     const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!stored) return defaultSettings;
+    if (storedSessionId) setActiveMwdSessionId(storedSessionId);
+    if (storedPlotConfigId) setActivePlotConfigId(storedPlotConfigId);
+    if (!stored) return;
 
     try {
       const parsed = JSON.parse(stored) as UserSettings;
-      return {
+      setSettings({
         ...defaultSettings,
         ...parsed,
         display: { ...defaultSettings.display, ...parsed.display },
         thresholds: mergeDashboardThresholds(parsed.thresholds ?? []),
-      };
+      });
     } catch {
-      return defaultSettings;
+      setSettings(defaultSettings);
     }
-  });
+  }, []);
 
   const activePlotConfig = useMemo(
     () => {
@@ -786,8 +788,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (error) {
       logBackendError('Unable to load MWD sessions.', error);
-      setMwdSessions([]);
-      setActiveMwdSessionId('');
+      if (!isExpectedBackendConnectivityError(error)) {
+        setMwdSessions([]);
+        setActiveMwdSessionId('');
+      }
       setMwdSessionsError(getMwdSessionsErrorMessage(error));
     } finally {
       setMwdSessionsLoading(false);
@@ -1480,7 +1484,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, applyLatestMwdRecord, token]);
 
   const applyRealtimeMwdData = useCallback((data: Record<string, unknown>) => {
-    const record = normalizeMwdDataRecord(data);
+    const clientReceivedTimestamp = Date.now();
+    const record = normalizeMwdDataRecord({
+      ...data,
+      clientReceivedTimestamp,
+    });
     if (!record) return;
 
     if (record.sessionId && activeMwdSessionId && String(record.sessionId) !== String(activeMwdSessionId)) {
@@ -1976,6 +1984,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeMwdSessionId &&
         !isBackendImportActive()
       ) {
+        client.subscribeSession(activeMwdSessionId);
         void refreshMwdData();
         void refreshWitsAlarms();
         void refreshConnectionStatus();
@@ -2033,6 +2042,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 60000);
 
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== 'true' || typeof window === 'undefined') {
+      return;
+    }
+
+    const e2eWindow = window as typeof window & {
+      __MWD_E2E__?: {
+        closeWebSocket?: () => void;
+        forceReconnect?: () => void;
+        getRealtimeDiagnostics?: () => ReturnType<typeof getRealtimeDiagnosticsForE2E>;
+      };
+    };
+
+    e2eWindow.__MWD_E2E__ = {
+      ...(e2eWindow.__MWD_E2E__ ?? {}),
+      closeWebSocket: closeRealtimeWebSocketForE2E,
+      forceReconnect: forceRealtimeReconnectForE2E,
+      getRealtimeDiagnostics: getRealtimeDiagnosticsForE2E,
+    };
+
+    return () => {
+      if (e2eWindow.__MWD_E2E__?.closeWebSocket === closeRealtimeWebSocketForE2E) {
+        delete e2eWindow.__MWD_E2E__.closeWebSocket;
+      }
+      if (e2eWindow.__MWD_E2E__?.forceReconnect === forceRealtimeReconnectForE2E) {
+        delete e2eWindow.__MWD_E2E__.forceReconnect;
+      }
+      if (e2eWindow.__MWD_E2E__?.getRealtimeDiagnostics === getRealtimeDiagnosticsForE2E) {
+        delete e2eWindow.__MWD_E2E__.getRealtimeDiagnostics;
+      }
+    };
   }, []);
 
   const reconnect = useCallback(() => {

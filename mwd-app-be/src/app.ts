@@ -44,6 +44,13 @@ const app = express();
 
 validateSecurityEnvironment();
 
+const envPositiveInt = (name: string, fallback: number) => {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const isDecimalLike = (value: unknown): value is { toString: () => string } => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -203,7 +210,7 @@ app.use(
   rateLimit({
     keyPrefix: "auth-login",
     windowMs: 15 * 60 * 1000,
-    max: 10,
+    max: envPositiveInt("AUTH_LOGIN_RATE_LIMIT_MAX", 10),
     message: "Too many login attempts. Please try again later.",
   }),
 );
@@ -212,7 +219,7 @@ app.use(
   rateLimit({
     keyPrefix: "gateway",
     windowMs: 60 * 1000,
-    max: 120,
+    max: envPositiveInt("GATEWAY_RATE_LIMIT_MAX", 120),
     message: "Too many gateway requests. Please slow down.",
   }),
 );
@@ -221,7 +228,7 @@ app.use(
   rateLimit({
     keyPrefix: "api",
     windowMs: 60 * 1000,
-    max: 600,
+    max: envPositiveInt("API_RATE_LIMIT_MAX", 600),
   }),
 );
 app.use("/api", csrfProtection);
