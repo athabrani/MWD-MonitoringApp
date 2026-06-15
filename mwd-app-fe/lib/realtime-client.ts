@@ -61,7 +61,7 @@ const silentlyIgnoredEventTypes = new Set([
   "unsubscribed",
 ]);
 
-function getWsUrl() {
+function getWsUrl(token?: string) {
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL?.trim() ?? "";
 
   if (!wsUrl || typeof window === "undefined") {
@@ -87,9 +87,25 @@ function getWsUrl() {
       parsed.hostname = frontendHost;
     }
 
+    if (token?.trim()) {
+      parsed.searchParams.set("token", token.trim());
+    }
+
     return parsed.toString();
   } catch {
     return wsUrl;
+  }
+}
+
+function redactWsUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.searchParams.has("token")) {
+      parsed.searchParams.set("token", "REDACTED");
+    }
+    return parsed.toString();
+  } catch {
+    return value.replace(/([?&]token=)[^&]+/i, "$1REDACTED");
   }
 }
 
@@ -143,6 +159,7 @@ class RealtimeClient {
   private reconnectAttempt = 0;
   private manualDisconnect = false;
   private subscribedSessionId = "";
+  private authToken = "";
   private diagnostics: RealtimeDiagnosticEvent[] = [];
   private status: RealtimeClientStatus = { status: "idle" };
   private listeners: RealtimeClientListenerMap = {
@@ -165,7 +182,7 @@ class RealtimeClient {
   connect(options: { force?: boolean } = {}) {
     if (typeof window === "undefined") return;
 
-    const url = getWsUrl();
+    const url = getWsUrl(this.authToken);
     if (!url) {
       this.setStatus("error", "Missing NEXT_PUBLIC_WS_URL.");
       return;
@@ -186,7 +203,7 @@ class RealtimeClient {
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
       this.pushDiagnostic("connect-skipped-existing-socket", {
         readyState: this.socket.readyState,
-        url,
+        url: redactWsUrl(url),
       });
       return;
     }
@@ -201,7 +218,7 @@ class RealtimeClient {
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
     this.pushDiagnostic("connect-start", {
       attempt: this.reconnectAttempt,
-      url,
+      url: redactWsUrl(url),
       sessionId: this.subscribedSessionId || undefined,
     });
 
@@ -297,6 +314,38 @@ class RealtimeClient {
 
     this.socket = null;
     this.setStatus("idle");
+  }
+
+  setAuthToken(token: string | null | undefined) {
+    const nextToken = token?.trim() ?? "";
+    if (this.authToken === nextToken) return;
+
+    this.authToken = nextToken;
+    this.pushDiagnostic("auth-token-updated", {
+      readyState: this.socket?.readyState ?? null,
+      sessionId: this.subscribedSessionId || undefined,
+    });
+
+    if (!this.authToken) {
+      this.disconnect();
+      return;
+    }
+
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.forceReconnect();
+    }
+  }
+
+  private forceReconnect() {
+    this.manualDisconnect = false;
+    this.clearReconnectTimer();
+
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      this.socket.close();
+    }
+
+    this.socket = null;
+    this.connect({ force: true });
   }
 
   closeSocketForE2E() {

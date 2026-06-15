@@ -1959,6 +1959,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const client = getRealtimeClient();
+    client.setAuthToken(token);
     const unsubscribeStatus = client.on('status', ({ status, error }) => {
       setRealtimeStatus(status);
       setRealtimeError(error ?? '');
