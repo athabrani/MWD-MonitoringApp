@@ -301,11 +301,13 @@ model MWDData {
   hiddenById                  Int?
   editNote                    String?
   hole_depth                  Decimal?   @db.Decimal(12, 4)
+  gatewaySequence             String?    @db.VarChar(100)
   session                     MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
   @@index([measuredAt])
   @@index([isHidden])
+  @@index([gatewaySequence])
   @@map("MWD_Data")
 }
 

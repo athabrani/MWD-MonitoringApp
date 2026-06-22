@@ -2,15 +2,23 @@ import type { CorsOptions } from "cors";
 
 const DEFAULT_CORS_ORIGINS = [
   "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
   "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://127.0.0.1:3002",
   "http://100.110.181.15:3000",
 ];
 
 export const getAllowedCorsOrigins = () => {
   const configured = process.env.CORS_ORIGIN?.trim();
-  const origins = configured
+  const configuredOrigins = configured
     ? configured.split(",").map((origin) => origin.trim()).filter(Boolean)
-    : DEFAULT_CORS_ORIGINS;
+    : [];
+  const origins =
+    process.env.NODE_ENV === "production"
+      ? configuredOrigins
+      : [...DEFAULT_CORS_ORIGINS, ...configuredOrigins];
 
   return Array.from(new Set(origins));
 };

@@ -29,6 +29,20 @@ type RealtimeClientListenerMap = {
   [K in keyof RealtimeClientListeners]: Set<RealtimeClientListeners[K]>;
 };
 
+type RealtimeDiagnosticEvent = {
+  timestamp: string;
+  event: string;
+  status?: RealtimeConnectionState;
+  readyState?: number | null;
+  attempt?: number;
+  delayMs?: number;
+  url?: string;
+  sessionId?: string;
+  code?: number;
+  reason?: string;
+  error?: string;
+};
+
 const knownEventTypes = new Set<RealtimeEventType>([
   "mwd-data",
   "esp-gateway-status",
@@ -47,7 +61,7 @@ const silentlyIgnoredEventTypes = new Set([
   "unsubscribed",
 ]);
 
-function getWsUrl() {
+function getWsUrl(token?: string) {
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL?.trim() ?? "";
 
   if (!wsUrl || typeof window === "undefined") {
@@ -73,9 +87,25 @@ function getWsUrl() {
       parsed.hostname = frontendHost;
     }
 
+    if (token?.trim()) {
+      parsed.searchParams.set("token", token.trim());
+    }
+
     return parsed.toString();
   } catch {
     return wsUrl;
+  }
+}
+
+function redactWsUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.searchParams.has("token")) {
+      parsed.searchParams.set("token", "REDACTED");
+    }
+    return parsed.toString();
+  } catch {
+    return value.replace(/([?&]token=)[^&]+/i, "$1REDACTED");
   }
 }
 
@@ -122,12 +152,33 @@ function normalizeRealtimeMessage(raw: string): RealtimeEvent | null {
   };
 }
 
+function readSilentRealtimeMessage(raw: string) {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+
+    const type = readEventType(parsed);
+    if (!type || !silentlyIgnoredEventTypes.has(type.toLowerCase())) return null;
+
+    const payload = parsed.data ?? parsed.payload;
+    return {
+      type: type.toLowerCase(),
+      data: isRecord(payload) ? payload : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
 class RealtimeClient {
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
+  private connectTimeout: number | null = null;
   private reconnectAttempt = 0;
   private manualDisconnect = false;
   private subscribedSessionId = "";
+  private authToken = "";
+  private diagnostics: RealtimeDiagnosticEvent[] = [];
   private status: RealtimeClientStatus = { status: "idle" };
   private listeners: RealtimeClientListenerMap = {
     event: new Set(),
@@ -146,22 +197,48 @@ class RealtimeClient {
     };
   }
 
-  connect() {
+  connect(options: { force?: boolean } = {}) {
     if (typeof window === "undefined") return;
 
-    const url = getWsUrl();
+    const url = getWsUrl(this.authToken);
     if (!url) {
       this.setStatus("error", "Missing NEXT_PUBLIC_WS_URL.");
       return;
     }
 
+    const socketState = this.socket?.readyState;
+    if (
+      options.force &&
+      this.socket &&
+      socketState !== WebSocket.CLOSED &&
+      socketState !== WebSocket.CLOSING
+    ) {
+      this.pushDiagnostic("force-close-existing-socket", { readyState: socketState ?? null });
+      this.socket.close();
+      this.socket = null;
+    }
+
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
+      this.pushDiagnostic("connect-skipped-existing-socket", {
+        readyState: this.socket.readyState,
+        url: redactWsUrl(url),
+      });
       return;
+    }
+
+    if (this.socket?.readyState === WebSocket.CLOSED || this.socket?.readyState === WebSocket.CLOSING) {
+      this.pushDiagnostic("cleared-closed-socket", { readyState: this.socket.readyState });
+      this.socket = null;
     }
 
     this.clearReconnectTimer();
     this.manualDisconnect = false;
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
+    this.pushDiagnostic("connect-start", {
+      attempt: this.reconnectAttempt,
+      url: redactWsUrl(url),
+      sessionId: this.subscribedSessionId || undefined,
+    });
 
     let socket: WebSocket;
     try {
@@ -169,22 +246,54 @@ class RealtimeClient {
       this.socket = socket;
     } catch (error) {
       this.setStatus("error", error instanceof Error ? error.message : "Unable to create WebSocket.");
+      this.pushDiagnostic("connect-create-error", {
+        error: error instanceof Error ? error.message : "Unable to create WebSocket.",
+      });
       this.scheduleReconnect();
       return;
     }
 
+    this.connectTimeout = window.setTimeout(() => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+
+      this.pushDiagnostic("connect-timeout", {
+        readyState: socket.readyState,
+        attempt: this.reconnectAttempt,
+      });
+      this.socket = null;
+      socket.close();
+      this.setStatus("disconnected");
+      this.scheduleReconnect();
+    }, 8000);
+
     socket.addEventListener("open", () => {
       if (this.socket !== socket) return;
+      this.clearConnectTimeout();
       this.reconnectAttempt = 0;
       this.setStatus("connected");
-      if (this.subscribedSessionId) {
-        this.sendSubscribe(this.subscribedSessionId);
-      }
+      this.pushDiagnostic("onopen", {
+        readyState: socket.readyState,
+        sessionId: this.subscribedSessionId || undefined,
+      });
     });
 
     socket.addEventListener("message", (message) => {
       if (this.socket !== socket) return;
       if (typeof message.data !== "string") return;
+
+      const silentEvent = readSilentRealtimeMessage(message.data);
+      if (silentEvent?.type === "connected" && this.subscribedSessionId) {
+        this.sendSubscribe(this.subscribedSessionId);
+      }
+      if (silentEvent?.type === "subscribed") {
+        this.pushDiagnostic("subscription-ack", {
+          sessionId:
+            typeof silentEvent.data.sessionId === "string" || typeof silentEvent.data.sessionId === "number"
+              ? String(silentEvent.data.sessionId)
+              : this.subscribedSessionId || undefined,
+          readyState: socket.readyState,
+        });
+      }
 
       const event = normalizeRealtimeMessage(message.data);
       if (!event) return;
@@ -192,9 +301,15 @@ class RealtimeClient {
       this.listeners.event.forEach((listener) => listener(event));
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       if (this.socket !== socket) return;
+      this.clearConnectTimeout();
       this.socket = null;
+      this.pushDiagnostic("onclose", {
+        code: event.code,
+        reason: event.reason,
+        attempt: this.reconnectAttempt,
+      });
       if (this.manualDisconnect) {
         this.setStatus("idle");
         return;
@@ -206,6 +321,10 @@ class RealtimeClient {
 
     socket.addEventListener("error", () => {
       if (this.socket !== socket) return;
+      this.pushDiagnostic("onerror", {
+        readyState: socket.readyState,
+        attempt: this.reconnectAttempt,
+      });
       this.setStatus("error", "Realtime WebSocket error.");
     });
   }
@@ -213,8 +332,10 @@ class RealtimeClient {
   disconnect() {
     this.manualDisconnect = true;
     this.clearReconnectTimer();
+    this.clearConnectTimeout();
     this.reconnectAttempt = 0;
     this.subscribedSessionId = "";
+    this.pushDiagnostic("manual-disconnect");
 
     if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
       this.socket.close();
@@ -224,11 +345,58 @@ class RealtimeClient {
     this.setStatus("idle");
   }
 
+  setAuthToken(token: string | null | undefined) {
+    const nextToken = token?.trim() ?? "";
+    if (this.authToken === nextToken) return;
+
+    this.authToken = nextToken;
+    this.pushDiagnostic("auth-token-updated", {
+      readyState: this.socket?.readyState ?? null,
+      sessionId: this.subscribedSessionId || undefined,
+    });
+
+    if (!this.authToken) {
+      this.disconnect();
+      return;
+    }
+
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.forceReconnect();
+    }
+  }
+
+  private forceReconnect() {
+    this.manualDisconnect = false;
+    this.clearReconnectTimer();
+
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      this.socket.close();
+    }
+
+    this.socket = null;
+    this.connect({ force: true });
+  }
+
+  closeSocketForE2E() {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== "true") return;
+    this.manualDisconnect = false;
+    this.pushDiagnostic("e2e-close-socket", {
+      readyState: this.socket?.readyState ?? null,
+    });
+
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      this.socket.close();
+    }
+  }
+
   subscribeSession(sessionId: string | number) {
     const nextSessionId = String(sessionId);
     if (!nextSessionId) return;
 
     if (this.subscribedSessionId === nextSessionId) {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.sendSubscribe(nextSessionId);
+      }
       return;
     }
 
@@ -243,6 +411,28 @@ class RealtimeClient {
     }
   }
 
+  forceReconnectForE2E() {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== "true") return;
+    this.manualDisconnect = false;
+    this.clearReconnectTimer();
+    this.pushDiagnostic("e2e-force-reconnect", {
+      readyState: this.socket?.readyState ?? null,
+      sessionId: this.subscribedSessionId || undefined,
+    });
+
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      this.socket.close();
+    }
+
+    this.socket = null;
+    this.connect({ force: true });
+  }
+
+  getDiagnosticsForE2E() {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== "true") return [];
+    return [...this.diagnostics];
+  }
+
   clearSessionSubscription() {
     if (!this.subscribedSessionId) return;
 
@@ -255,6 +445,10 @@ class RealtimeClient {
   }
 
   private sendSubscribe(sessionId: string) {
+    this.pushDiagnostic("subscription-sent", {
+      sessionId,
+      readyState: this.socket?.readyState ?? null,
+    });
     this.send({
       type: "subscribe",
       sessionId,
@@ -276,12 +470,22 @@ class RealtimeClient {
   private scheduleReconnect() {
     if (this.manualDisconnect) return;
 
-    this.clearReconnectTimer();
+    if (this.reconnectTimer) return;
     this.reconnectAttempt += 1;
     this.setStatus("reconnecting");
 
-    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.reconnectAttempt, 5));
+    const delay = Math.min(5000, 1000 * 2 ** Math.min(this.reconnectAttempt - 1, 2));
+    this.pushDiagnostic("reconnect-timer-created", {
+      attempt: this.reconnectAttempt,
+      delayMs: delay,
+      sessionId: this.subscribedSessionId || undefined,
+    });
     this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.pushDiagnostic("reconnect-timer-fired", {
+        attempt: this.reconnectAttempt,
+        sessionId: this.subscribedSessionId || undefined,
+      });
       this.connect();
     }, delay);
   }
@@ -293,9 +497,36 @@ class RealtimeClient {
     this.reconnectTimer = null;
   }
 
+  private clearConnectTimeout() {
+    if (!this.connectTimeout) return;
+
+    window.clearTimeout(this.connectTimeout);
+    this.connectTimeout = null;
+  }
+
   private setStatus(status: RealtimeConnectionState, error?: string) {
     this.status = { status, error };
+    this.pushDiagnostic("status", {
+      status,
+      error,
+      readyState: this.socket?.readyState ?? null,
+      sessionId: this.subscribedSessionId || undefined,
+    });
     this.listeners.status.forEach((listener) => listener(this.status));
+  }
+
+  private pushDiagnostic(event: string, details: Omit<RealtimeDiagnosticEvent, "timestamp" | "event"> = {}) {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== "true") return;
+
+    this.diagnostics.push({
+      timestamp: new Date().toISOString(),
+      event,
+      ...details,
+    });
+
+    if (this.diagnostics.length > 200) {
+      this.diagnostics.splice(0, this.diagnostics.length - 200);
+    }
   }
 }
 
@@ -307,4 +538,16 @@ export function getRealtimeClient() {
   }
 
   return realtimeClient;
+}
+
+export function closeRealtimeWebSocketForE2E() {
+  getRealtimeClient().closeSocketForE2E();
+}
+
+export function forceRealtimeReconnectForE2E() {
+  getRealtimeClient().forceReconnectForE2E();
+}
+
+export function getRealtimeDiagnosticsForE2E() {
+  return getRealtimeClient().getDiagnosticsForE2E();
 }

@@ -102,9 +102,20 @@ export function clearStoredSession() {
 export function writeStoredSession(user: User, token: string, rememberMe: boolean) {
   if (!isBrowser()) return;
 
+  const activeSessionId = readStoredValue(ACTIVE_SESSION_STORAGE_KEY);
+  const activePlotConfigId = readStoredValue(ACTIVE_PLOT_CONFIG_STORAGE_KEY);
+
   clearStoredSession();
   const storage = rememberMe ? window.localStorage : window.sessionStorage;
   safeSet(storage, TOKEN_STORAGE_KEY, token);
+
+  if (activeSessionId) {
+    safeSet(window.localStorage, ACTIVE_SESSION_STORAGE_KEY, activeSessionId);
+  }
+
+  if (activePlotConfigId) {
+    safeSet(window.localStorage, ACTIVE_PLOT_CONFIG_STORAGE_KEY, activePlotConfigId);
+  }
 }
 
 export function bootstrapStoredSession() {
