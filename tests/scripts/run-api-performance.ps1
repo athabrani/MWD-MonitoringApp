@@ -313,33 +313,44 @@ Write-Host "Measured to      : $($env:MEASURED_TO)"
 Write-Host "Results directory: $resultsDirectory"
 
 # ------------------------------------------------------------
-# Login satu kali
+# Token preflight
 # ------------------------------------------------------------
 
-Write-Section "PREFLIGHT LOGIN"
+Write-Section "PREFLIGHT TOKEN"
 
-$loginResponse = Invoke-PreflightLogin `
-    -BaseUrl $baseUrl `
-    -Username $username `
-    -Password $password
+$token = $env:TEST_TOKEN
 
-$token = Get-AccessToken -LoginResponse $loginResponse
+if (-not [string]::IsNullOrWhiteSpace($token)) {
+    $token = $token.Trim()
+    Write-Host "Menggunakan pre-issued TEST_TOKEN." -ForegroundColor Green
+    Write-Host "Token tidak ditampilkan untuk mencegah kebocoran kredensial."
+}
+else {
+    Write-Host "TEST_TOKEN tidak tersedia; menjalankan login preflight satu kali."
 
-if ([string]::IsNullOrWhiteSpace($token)) {
-    Write-Host "Login response:" -ForegroundColor Yellow
-    $loginResponse | ConvertTo-Json -Depth 10
+    $loginResponse = Invoke-PreflightLogin `
+        -BaseUrl $baseUrl `
+        -Username $username `
+        -Password $password
 
-    throw @"
+    $token = Get-AccessToken -LoginResponse $loginResponse
+
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        Write-Host "Login response:" -ForegroundColor Yellow
+        $loginResponse | ConvertTo-Json -Depth 10
+
+        throw @"
 Login berhasil tetapi token tidak ditemukan.
 
 Periksa bentuk response login di atas, kemudian tambahkan lokasi
 token ke fungsi Get-AccessToken.
 "@
-}
+    }
 
-Write-Host "Login berhasil." -ForegroundColor Green
-Write-Host "Token ditemukan. Panjang token: $($token.Length)"
-Write-Host "Token tidak ditampilkan untuk mencegah kebocoran kredensial."
+    Write-Host "Login berhasil." -ForegroundColor Green
+    Write-Host "Token ditemukan. Panjang token: $($token.Length)"
+    Write-Host "Token tidak ditampilkan untuk mencegah kebocoran kredensial."
+}
 
 # Token diberikan ke proses k6 melalui environment.
 $env:TEST_TOKEN = $token

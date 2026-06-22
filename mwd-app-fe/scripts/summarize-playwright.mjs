@@ -67,6 +67,7 @@ const executionTimeMs = testResults.reduce(
 const summary = {
   ...emptySummary,
   total,
+  totalTestCases: total,
   passed,
   failed,
   skipped,

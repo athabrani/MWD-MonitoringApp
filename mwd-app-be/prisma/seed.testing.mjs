@@ -443,7 +443,7 @@ async function main() {
   console.log('\nSeed testing selesai.');
   console.log('Akun:');
   for (const user of CONFIG.users) {
-    console.log(`- ${user.username} / ${user.password}`);
+    console.log(`- ${user.username} / [REDACTED_TEST_PASSWORD]`);
   }
 
   console.log('\nSession:');

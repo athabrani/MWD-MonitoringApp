@@ -518,6 +518,44 @@ function getThresholdBreach(value: number, threshold?: UserSettings['thresholds'
   return null;
 }
 
+type E2ERealtimeDisplayWindow = Window & {
+  __mwdDisplayedRecords?: Record<string, {
+    sequence_id: string;
+    session_id: string;
+    source_timestamp_ms: number;
+    backend_received_timestamp_ms: number | null;
+    client_received_timestamp_ms: number | null;
+    displayed_timestamp_ms: number;
+  }>;
+};
+
+function recordE2ERealtimeDisplayEvidence(chartPoint: ChartDataPoint) {
+  if (process.env.NEXT_PUBLIC_E2E_MODE !== 'true' || typeof window === 'undefined') return;
+
+  const sequenceId = typeof chartPoint.gatewaySequence === 'string' ? chartPoint.gatewaySequence : undefined;
+  if (!sequenceId) return;
+
+  const sourceTimestampMs = chartPoint.timestamp instanceof Date
+    ? chartPoint.timestamp.getTime()
+    : Number(chartPoint.timestamp);
+  if (!Number.isFinite(sourceTimestampMs)) return;
+
+  const targetWindow = window as E2ERealtimeDisplayWindow;
+  targetWindow.__mwdDisplayedRecords ??= {};
+  if (targetWindow.__mwdDisplayedRecords[sequenceId]) return;
+
+  targetWindow.__mwdDisplayedRecords[sequenceId] = {
+    sequence_id: sequenceId,
+    session_id: chartPoint.sessionId ? String(chartPoint.sessionId) : '',
+    source_timestamp_ms: sourceTimestampMs,
+    backend_received_timestamp_ms:
+      typeof chartPoint.backendReceivedTimestamp === 'number' ? chartPoint.backendReceivedTimestamp : null,
+    client_received_timestamp_ms:
+      typeof chartPoint.clientReceivedTimestamp === 'number' ? chartPoint.clientReceivedTimestamp : null,
+    displayed_timestamp_ms: Date.now(),
+  };
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, isAuthenticated, user } = useAuth();
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(() => getInitialNetworkStatus());
@@ -552,6 +590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [, setFailoverEventIds] = useState<Set<string>>(() => new Set());
   const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
+  const activeMwdSessionIdRef = useRef('');
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
   const serialStatusRequestInFlight = useRef(false);
@@ -1424,21 +1463,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const requestSessionId = activeMwdSessionId;
     setMwdDataLoading(true);
     setMwdDataError('');
 
     try {
       const [latestRecords, records] = await Promise.all([
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
           limit: 1,
         }),
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
         }),
       ]);
-      const latestScopedRecords = filterMwdDataForSession(latestRecords, activeMwdSessionId);
-      const scopedRecords = filterMwdDataForSession(records, activeMwdSessionId);
+
+      if (activeMwdSessionIdRef.current !== requestSessionId) return;
+
+      const latestScopedRecords = filterMwdDataForSession(latestRecords, requestSessionId);
+      const scopedRecords = filterMwdDataForSession(records, requestSessionId);
       const nextChartData = mwdDataRecordsToChartData(scopedRecords);
       const latestRecord = getLatestMwdDataRecord(latestScopedRecords) ?? getLatestMwdDataRecord(scopedRecords);
 
@@ -1512,9 +1555,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const chartPoint = mwdDataRecordsToChartData([record])[0];
 
     if (chartPoint) {
-      setChartData((current) =>
-        [...current, chartPoint].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime())
-      );
+      setChartData((current) => {
+        recordE2ERealtimeDisplayEvidence(chartPoint);
+        const lastPoint = current[current.length - 1];
+        if (!lastPoint || lastPoint.timestamp.getTime() <= chartPoint.timestamp.getTime()) {
+          return [...current, chartPoint];
+        }
+
+        return [...current, chartPoint].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
+      });
     }
 
     setLatestMwdDataRecord((current) => {
@@ -1659,6 +1708,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isAuthenticated, refreshWitsConfig, token]);
 
   useEffect(() => {
+    activeMwdSessionIdRef.current = activeMwdSessionId;
+  }, [activeMwdSessionId]);
+
+  useEffect(() => {
     if (!isAuthenticated || !token || !activeMwdSessionId) {
       setWitsDataValuesError('');
       setWitsAlarmsError('');
@@ -1668,6 +1721,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFailoverEventIds(new Set());
       return;
     }
+
+    mwdRecordKeysRef.current.clear();
+    setChartData([]);
+    setLatestMwdDataRecord(null);
+    setKpiData(buildEmptyKpiData());
 
     void (async () => {
       await refreshMwdData();

@@ -152,6 +152,24 @@ function normalizeRealtimeMessage(raw: string): RealtimeEvent | null {
   };
 }
 
+function readSilentRealtimeMessage(raw: string) {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+
+    const type = readEventType(parsed);
+    if (!type || !silentlyIgnoredEventTypes.has(type.toLowerCase())) return null;
+
+    const payload = parsed.data ?? parsed.payload;
+    return {
+      type: type.toLowerCase(),
+      data: isRecord(payload) ? payload : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
 class RealtimeClient {
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
@@ -257,14 +275,25 @@ class RealtimeClient {
         readyState: socket.readyState,
         sessionId: this.subscribedSessionId || undefined,
       });
-      if (this.subscribedSessionId) {
-        this.sendSubscribe(this.subscribedSessionId);
-      }
     });
 
     socket.addEventListener("message", (message) => {
       if (this.socket !== socket) return;
       if (typeof message.data !== "string") return;
+
+      const silentEvent = readSilentRealtimeMessage(message.data);
+      if (silentEvent?.type === "connected" && this.subscribedSessionId) {
+        this.sendSubscribe(this.subscribedSessionId);
+      }
+      if (silentEvent?.type === "subscribed") {
+        this.pushDiagnostic("subscription-ack", {
+          sessionId:
+            typeof silentEvent.data.sessionId === "string" || typeof silentEvent.data.sessionId === "number"
+              ? String(silentEvent.data.sessionId)
+              : this.subscribedSessionId || undefined,
+          readyState: socket.readyState,
+        });
+      }
 
       const event = normalizeRealtimeMessage(message.data);
       if (!event) return;

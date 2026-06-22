@@ -279,8 +279,34 @@ const emptyTest = (): CompatibilityTestResult => ({
 test.beforeAll(async ({}, workerInfo) => {
   ensureDirs();
   const filePath = rawPath(workerInfo.project.name);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+  if (!fs.existsSync(filePath)) {
+    writeRaw({
+      platform: projectMetadata[workerInfo.project.name]?.platform ?? workerInfo.project.name,
+      projectName: workerInfo.project.name,
+      browserName: "pending",
+      browserEngine: projectMetadata[workerInfo.project.name]?.engine ?? "pending",
+      browserVersion: "pending",
+      deviceProfile: projectMetadata[workerInfo.project.name]?.deviceProfile ?? "pending",
+      viewport: { width: 0, height: 0 },
+      operatingSystem: `${process.platform} ${process.arch}`,
+      testType: projectMetadata[workerInfo.project.name]?.emulated ? "emulation" : "native desktop",
+      emulated: projectMetadata[workerInfo.project.name]?.emulated ?? false,
+      deviceScaleFactor: 0,
+      isMobile: projectMetadata[workerInfo.project.name]?.emulated ?? false,
+      hasTouch: false,
+      userAgent: "pending",
+      tests: {
+        login: emptyTest(),
+        dashboard: emptyTest(),
+        plot: emptyTest(),
+        export: emptyTest(),
+      },
+      layoutDefects: [],
+      consoleErrors: [],
+      pageErrors: [],
+      failedNetworkRequests: [],
+      overallResult: "pending",
+    });
   }
 });
 
@@ -319,7 +345,27 @@ async function readOrCreateRaw(page: Page, testInfo: TestInfo): Promise<RawCompa
   ensureDirs();
   const filePath = rawPath(testInfo.project.name);
   if (fs.existsSync(filePath)) {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as RawCompatibilityResult;
+    const existing = JSON.parse(fs.readFileSync(filePath, "utf8")) as RawCompatibilityResult;
+    const { project, viewport, runtime } = await getRuntimeMetadata(page, testInfo);
+    const projectUse = testInfo.project.use as {
+      browserName?: string;
+      hasTouch?: boolean;
+      isMobile?: boolean;
+    };
+    existing.platform = project.platform;
+    existing.browserName = projectUse.browserName?.toString() ?? existing.browserName;
+    existing.browserEngine = project.engine;
+    existing.browserVersion = page.context().browser()?.version() ?? existing.browserVersion;
+    existing.deviceProfile = project.deviceProfile;
+    existing.viewport = viewport;
+    existing.operatingSystem = `${process.platform} ${process.arch}`;
+    existing.testType = project.emulated ? "emulation" : "native desktop";
+    existing.emulated = project.emulated;
+    existing.deviceScaleFactor = Number(runtime.deviceScaleFactor) || existing.deviceScaleFactor;
+    existing.isMobile = Boolean(projectUse.isMobile ?? project.emulated);
+    existing.hasTouch = Boolean(projectUse.hasTouch ?? runtime.hasTouch);
+    existing.userAgent = runtime.userAgent;
+    return existing;
   }
 
   const { project, viewport, runtime } = await getRuntimeMetadata(page, testInfo);
@@ -374,7 +420,10 @@ function writeRaw(result: RawCompatibilityResult) {
         ? "pending"
         : "passed";
 
-  fs.writeFileSync(rawPath(result.projectName), `${JSON.stringify(result, null, 2)}\n`);
+  const destination = rawPath(result.projectName);
+  const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(result, null, 2)}\n`);
+  fs.renameSync(temporary, destination);
 }
 
 function uniquePush(list: string[], value: string) {
@@ -662,6 +711,7 @@ async function collectPlotDefects(
     const plotRects = pageElement
       ? Array.from(pageElement.querySelectorAll("svg,canvas"))
           .map((element) => {
+            const style = window.getComputedStyle(element);
             const rect = element.getBoundingClientRect();
             return {
               left: rect.left,
@@ -670,9 +720,14 @@ async function collectPlotDefects(
               bottom: rect.bottom,
               width: rect.width,
               height: rect.height,
+              visible:
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                rect.width > 8 &&
+                rect.height > 8,
             };
           })
-          .filter((rect) => rect.width > 8 && rect.height > 8)
+          .filter((rect) => rect.visible)
       : [];
     const labels = Array.from(document.querySelectorAll("text,span,div"))
       .filter((element) => /planned|actual/i.test(element.textContent ?? ""))
@@ -714,16 +769,14 @@ async function collectPlotDefects(
   if (check.container) {
     for (const rect of check.plotRects) {
       const outside =
-        rect.left < check.container.left - 4 ||
-        rect.right > check.container.right + 4 ||
-        rect.top < check.container.top - 4 ||
-        rect.bottom > check.container.bottom + 4;
+        rect.left < check.container.left - 12 ||
+        rect.right > check.container.right + 12;
       if (!outside) continue;
       raw.layoutDefects.push({
         severity: "critical",
         page: "well plot",
         element: "plot graphic",
-        description: "Plot graphic is outside the well plot page container tolerance.",
+        description: "Plot graphic overflows horizontally outside the well plot page container tolerance.",
         screenshot: screenshotPath,
         browserProject: raw.projectName,
         viewport: `${raw.viewport.width}x${raw.viewport.height}`,

@@ -12,9 +12,13 @@ const DEFAULT_CORS_ORIGINS = [
 
 export const getAllowedCorsOrigins = () => {
   const configured = process.env.CORS_ORIGIN?.trim();
-  const origins = configured
+  const configuredOrigins = configured
     ? configured.split(",").map((origin) => origin.trim()).filter(Boolean)
-    : DEFAULT_CORS_ORIGINS;
+    : [];
+  const origins =
+    process.env.NODE_ENV === "production"
+      ? configuredOrigins
+      : [...DEFAULT_CORS_ORIGINS, ...configuredOrigins];
 
   return Array.from(new Set(origins));
 };

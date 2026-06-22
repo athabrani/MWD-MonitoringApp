@@ -20,6 +20,7 @@ import {
   updateDepthTrackingState,
 } from "../services/depth-tracking.service.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import { broadcastMWDData } from "../services/websocket.service.js";
 
 const parsePositiveInt = (value: unknown) => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
@@ -405,6 +406,8 @@ export const createMWDData = async (req: Request, res: Response) => {
         measuredAt: data.measuredAt.toISOString(),
       },
     });
+
+    broadcastMWDData(data);
 
     res.status(201).json({
       ...data,

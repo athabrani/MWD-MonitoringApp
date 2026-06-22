@@ -129,7 +129,11 @@ export async function waitForConnected(page: Page, timeout = 30_000) {
   await expect
     .poll(
       async () =>
-        (await page.getByTestId(SELECTORS.connectionStatus).textContent()) ?? "",
+        (await page
+          .getByTestId(SELECTORS.dashboardPage)
+          .getByTestId(SELECTORS.connectionStatus)
+          .first()
+          .textContent()) ?? "",
       { timeout },
     )
     .toMatch(/connected/i);

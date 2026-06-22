@@ -34,6 +34,19 @@ import { getRenderableTracksFromPlotConfig } from '@/lib/plot-track-config';
 import { getDepthTrackingState, type DepthTrackingState } from '@/lib/depth-tracking-api';
 import { chartParameterGroups, type ChartTimeWindow } from '@/lib/chart-analytics';
 
+type E2EDisplayedRecord = {
+  sequence_id: string;
+  session_id: string;
+  source_timestamp_ms: number;
+  backend_received_timestamp_ms: number | null;
+  client_received_timestamp_ms: number | null;
+  displayed_timestamp_ms: number;
+};
+
+type E2EWindow = Window & {
+  __mwdDisplayedRecords?: Record<string, E2EDisplayedRecord>;
+};
+
 export const DashboardPage: React.FC = () => {
   const { token, user } = useAuth();
   const {
@@ -108,6 +121,7 @@ export const DashboardPage: React.FC = () => {
   const [depthTrackingLoading, setDepthTrackingLoading] = useState(false);
   const [depthTrackingError, setDepthTrackingError] = useState('');
   const activeDepthTrackingIssueRef = useRef(false);
+  const e2eDisplayedSequencesRef = useRef<Set<string>>(new Set());
   const thresholdByParameter = useMemo(
     () => new Map(settings.thresholds.map((threshold) => [threshold.parameter, threshold])),
     [settings.thresholds]
@@ -344,6 +358,37 @@ export const DashboardPage: React.FC = () => {
   const dashboardTargetDepthLabel =
     typeof dashboardTargetDepth === 'number' ? `${formatDepth(dashboardTargetDepth)} ${depthUnit}` : '-';
   const latestMwdMeasuredAt = latestMwdDataRecord?.timestamp.toISOString();
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_E2E_MODE !== 'true') return;
+
+    const targetWindow = window as E2EWindow;
+    targetWindow.__mwdDisplayedRecords ??= {};
+    const displayedTimestampMs = Date.now();
+
+    for (const record of chartData) {
+      const sequenceId = typeof record.gatewaySequence === 'string' ? record.gatewaySequence : undefined;
+      if (!sequenceId || e2eDisplayedSequencesRef.current.has(sequenceId)) continue;
+      if (targetWindow.__mwdDisplayedRecords[sequenceId]) continue;
+
+      const sourceTimestampMs = record.timestamp instanceof Date
+        ? record.timestamp.getTime()
+        : Number(record.timestamp);
+      if (!Number.isFinite(sourceTimestampMs)) continue;
+
+      e2eDisplayedSequencesRef.current.add(sequenceId);
+      targetWindow.__mwdDisplayedRecords[sequenceId] = {
+        sequence_id: sequenceId,
+        session_id: record.sessionId ? String(record.sessionId) : '',
+        source_timestamp_ms: sourceTimestampMs,
+        backend_received_timestamp_ms:
+          typeof record.backendReceivedTimestamp === 'number' ? record.backendReceivedTimestamp : null,
+        client_received_timestamp_ms:
+          typeof record.clientReceivedTimestamp === 'number' ? record.clientReceivedTimestamp : null,
+        displayed_timestamp_ms: displayedTimestampMs,
+      };
+    }
+  }, [chartData]);
 
   useEffect(() => {
     const normalizedDtsStatus = (depthTrackingState?.status ?? depthTrackingState?.mode ?? '').toLowerCase();
@@ -700,6 +745,13 @@ export const DashboardPage: React.FC = () => {
             key={`${record.sessionId ?? activeMwdSessionId}-${record.timestamp.toISOString()}-${record.depth ?? index}`}
             data-testid="dashboard-data-row"
             data-session-id={record.sessionId ? String(record.sessionId) : undefined}
+            data-gateway-sequence={typeof record.gatewaySequence === 'string' ? record.gatewaySequence : undefined}
+            data-backend-received-timestamp={
+              typeof record.backendReceivedTimestamp === 'number' ? String(record.backendReceivedTimestamp) : undefined
+            }
+            data-client-received-timestamp={
+              typeof record.clientReceivedTimestamp === 'number' ? String(record.clientReceivedTimestamp) : undefined
+            }
             data-depth={typeof record.depth === 'number' ? String(record.depth) : undefined}
             data-timestamp={record.timestamp.toISOString()}
           >

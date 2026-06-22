@@ -10,6 +10,9 @@
     "build": "npm --prefix mwd-app-be run build && npm --prefix mwd-app-fe run build",
     "start:local": "npm run build && concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start:port-3001\"",
     "start": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start\"",
+    "test:wait-env": "node scripts/wait-for-test-environment.mjs",
+    "test:validate-results": "node scripts/validate-test-results.mjs",
+    "test:verify-security-headers": "node scripts/verify-security-headers.mjs",
     "clean": "rimraf mwd-app-be/dist mwd-app-fe/.next"
   },
   "devDependencies": {

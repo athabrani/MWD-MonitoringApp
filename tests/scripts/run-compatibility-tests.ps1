@@ -50,15 +50,11 @@ function Assert-PortOpen {
 }
 
 function Assert-RequiredEnvironment {
-  $required = @(
-    "E2E_ENGINEER_USERNAME",
-    "E2E_ENGINEER_PASSWORD"
-  )
-
-  foreach ($name in $required) {
-    if (-not [Environment]::GetEnvironmentVariable($name)) {
-      throw "$name is required. Set it in the environment before running this script."
-    }
+  if (-not $env:E2E_ENGINEER_USERNAME) {
+    $env:E2E_ENGINEER_USERNAME = "engineer_test"
+  }
+  if (-not $env:E2E_ENGINEER_PASSWORD -and -not $env:E2E_TEST_PASSWORD) {
+    $env:E2E_TEST_PASSWORD = "TestPassword123!"
   }
 
   if (-not $env:E2E_BASE_URL) {

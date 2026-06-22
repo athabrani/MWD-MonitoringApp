@@ -1,9 +1,49 @@
 import { defineConfig, devices } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 const projectOutput = process.env.COMPAT_PROJECT_NAME ?? "all-projects";
-const firefoxLaunchOptions = process.env.PLAYWRIGHT_FIREFOX_EXECUTABLE_PATH
-  ? { executablePath: process.env.PLAYWRIGHT_FIREFOX_EXECUTABLE_PATH }
-  : undefined;
+
+function parseEnvValue(value: string): string {
+  const trimmed = value.trim();
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function loadEnvFile(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
+
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) continue;
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = parseEnvValue(trimmed.slice(separatorIndex + 1));
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
+const repoRoot = path.resolve(__dirname, "..");
+loadEnvFile(path.join(repoRoot, "mwd-app-be", ".env.testing"));
+loadEnvFile(path.join(repoRoot, "mwd-app-be", ".env"));
+loadEnvFile(path.join(repoRoot, "mwd-app-fe", ".env"));
+loadEnvFile(path.join(repoRoot, "mwd-app-fe", ".env.local"));
+
+process.env.E2E_GATEWAY_API_KEY ??= process.env.GATEWAY_API_KEY;
+process.env.E2E_GATEWAY_HMAC_SECRET ??= process.env.GATEWAY_HMAC_SECRET;
+process.env.E2E_TEST_PASSWORD ??= "TestPassword123!";
 
 export default defineConfig({
   testDir: "./tests/compatibility",
@@ -65,7 +105,6 @@ export default defineConfig({
       name: "firefox-desktop",
       use: {
         browserName: "firefox",
-        launchOptions: firefoxLaunchOptions,
         viewport: { width: 1440, height: 900 },
       },
     },

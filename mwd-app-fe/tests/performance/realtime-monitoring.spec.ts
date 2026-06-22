@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -8,7 +8,6 @@ import {
   mean,
   percentile,
   selectActiveSession,
-  SELECTORS,
   waitForConnected,
 } from "../helpers/mwd-test-helpers";
 
@@ -121,27 +120,106 @@ async function pause(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForRealtimeSubscription(page: Page, sessionId: string, afterTimestampMs: number) {
+  await page.waitForFunction(
+    ({ expectedSessionId, afterIso }) => {
+      const e2eWindow = window as typeof window & {
+        __MWD_E2E__?: {
+          getRealtimeDiagnostics?: () => Array<{ event?: string; sessionId?: string; timestamp?: string }>;
+        };
+      };
+      const diagnostics = e2eWindow.__MWD_E2E__?.getRealtimeDiagnostics?.() ?? [];
+      return diagnostics.some(
+        (entry) =>
+          entry.event === "subscription-ack" &&
+          String(entry.sessionId) === String(expectedSessionId) &&
+          typeof entry.timestamp === "string" &&
+          entry.timestamp >= afterIso,
+      );
+    },
+    { expectedSessionId: sessionId, afterIso: new Date(afterTimestampMs).toISOString() },
+    { timeout: 15_000 },
+  );
+}
+
+type DisplayedRecordEvidence = {
+  sequence_id: string;
+  session_id: string;
+  source_timestamp_ms: number;
+  backend_received_timestamp_ms: number | null;
+  client_received_timestamp_ms: number | null;
+  displayed_timestamp_ms: number;
+};
+
+async function waitForDisplayedSequence(page: Page, sequenceId: string, timeout: number) {
+  await page.waitForFunction(
+    (expectedSequenceId) => {
+      const displayed = (window as typeof window & {
+        __mwdDisplayedRecords?: Record<string, DisplayedRecordEvidence>;
+      }).__mwdDisplayedRecords ?? {};
+      return Boolean(displayed[expectedSequenceId]);
+    },
+    sequenceId,
+    { timeout },
+  );
+}
+
 test("End-to-end monitoring delay", async ({ page, request }) => {
   const runId =
     process.env.MONITORING_RUN_ID || `E2E-PILOT-${Date.now()}`;
   const messageCount = envNumber("LATENCY_MESSAGE_COUNT", 20);
   const intervalMs = envNumber("LATENCY_INTERVAL_MS", 1000);
   const displayTimeoutMs = envNumber("LATENCY_DISPLAY_TIMEOUT_MS", 10_000);
+  const p95ThresholdMs = envNumber("LATENCY_P95_THRESHOLD_MS", 500);
+  const ingestConcurrency = Math.max(
+    1,
+    Math.floor(envNumber("LATENCY_INGEST_CONCURRENCY", intervalMs > 0 ? 1 : messageCount >= 1000 ? 50 : 10)),
+  );
   const session = activeSession();
-  const rows: LatencyRow[] = [];
+  const rows = new Array<LatencyRow>(messageCount);
 
   test.setTimeout(
-    Math.max(180_000, messageCount * (intervalMs + 3_000) + 120_000),
+    Math.max(180_000, messageCount * Math.max(intervalMs, 20) + 240_000),
   );
 
   fs.mkdirSync(outputDir, { recursive: true });
 
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "mwd_settings",
+      JSON.stringify({
+        display: {
+          autoRefresh: false,
+          refreshInterval: 60,
+        },
+      }),
+    );
+  });
+
   await loginAsEngineer(page);
   await selectActiveSession(page, session);
   await waitForConnected(page);
+  const reconnectStartedAt = Date.now();
+  await page.evaluate(() => {
+    (window as typeof window & {
+      __MWD_E2E__?: { forceReconnect?: () => void };
+    }).__MWD_E2E__?.forceReconnect?.();
+  });
+  await waitForConnected(page);
+  await waitForRealtimeSubscription(page, session.id, reconnectStartedAt);
+  await expect(page.getByRole("button", { name: /refresh all/i })).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.evaluate(() => {
+    (window as typeof window & {
+      __mwdDisplayedRecords?: Record<string, DisplayedRecordEvidence>;
+    }).__mwdDisplayedRecords = {};
+  });
 
-  for (let index = 1; index <= messageCount; index += 1) {
-    const sequenceId = `${runId}-${String(index).padStart(6, "0")}`;
+  const sequenceIdFor = (index: number) => `${runId}-${String(index).padStart(6, "0")}`;
+
+  const submitRecord = async (index: number) => {
+    const sequenceId = sequenceIdFor(index);
     const sourceTimestampMs = Date.now();
     const depth = 3000 + index;
     const ingestResult = await ingestMwdData(request, {
@@ -176,66 +254,91 @@ test("End-to-end monitoring delay", async ({ page, request }) => {
       display_status: accepted ? "lost" : "not_attempted",
     };
 
-    if (accepted) {
-      try {
-        const sequenceLocator = page.locator(
-          `[data-testid="${SELECTORS.chartLatestValue}"][data-gateway-sequence="${sequenceId}"]`,
-        );
+    rows[index - 1] = row;
+    return row;
+  };
 
-        await expect(sequenceLocator).toBeVisible({
-          timeout: displayTimeoutMs,
-        });
-
-        const displayedTimestampMs = Date.now();
-        const attributes = await sequenceLocator.evaluate((element) => ({
-          backendReceived: element.getAttribute(
-            "data-backend-received-timestamp",
-          ),
-          clientReceived: element.getAttribute(
-            "data-client-received-timestamp",
-          ),
-          sessionId: element.getAttribute("data-session-id"),
-        }));
-        const backendReceivedTimestampMs = Number(
-          attributes.backendReceived,
-        );
-        const clientReceivedTimestampMs = Number(attributes.clientReceived);
-
-        row.session_id = attributes.sessionId || session.id;
-        row.backend_received_timestamp_ms = Number.isFinite(
-          backendReceivedTimestampMs,
-        )
-          ? backendReceivedTimestampMs
-          : row.backend_received_timestamp_ms;
-        row.client_received_timestamp_ms = Number.isFinite(
-          clientReceivedTimestampMs,
-        )
-          ? clientReceivedTimestampMs
-          : "";
-        row.displayed_timestamp_ms = displayedTimestampMs;
-        row.source_to_backend_ms =
-          typeof row.backend_received_timestamp_ms === "number"
-            ? row.backend_received_timestamp_ms - sourceTimestampMs
-            : "";
-        row.backend_to_client_ms =
-          typeof row.backend_received_timestamp_ms === "number" &&
-          typeof row.client_received_timestamp_ms === "number"
-            ? row.client_received_timestamp_ms -
-              row.backend_received_timestamp_ms
-            : "";
-        row.client_to_display_ms =
-          typeof row.client_received_timestamp_ms === "number"
-            ? displayedTimestampMs - row.client_received_timestamp_ms
-            : "";
-        row.end_to_end_delay_ms = displayedTimestampMs - sourceTimestampMs;
-        row.display_status = "displayed";
-      } catch {
-        row.display_status = "lost";
+  if (ingestConcurrency === 1) {
+    for (let index = 1; index <= messageCount; index += 1) {
+      const iterationStartedAt = Date.now();
+      const row = await submitRecord(index);
+      if (row.ingest_status === "accepted") {
+        await waitForDisplayedSequence(page, row.sequence_id, displayTimeoutMs).catch(() => undefined);
       }
+      await pause(Math.max(0, intervalMs - (Date.now() - iterationStartedAt)));
     }
+  } else {
+    const pending = new Set<Promise<LatencyRow>>();
+    for (let index = 1; index <= messageCount; index += 1) {
+      const recordPromise = submitRecord(index).finally(() => {
+        pending.delete(recordPromise);
+      });
+      pending.add(recordPromise);
 
-    rows.push(row);
-    await pause(intervalMs);
+      if (pending.size >= ingestConcurrency) {
+        await Promise.race(pending);
+      }
+
+      await pause(intervalMs);
+    }
+    await Promise.all(pending);
+  }
+
+  await page.waitForFunction(
+    ({ expectedCount, expectedRunId }) => {
+      const displayed = (window as typeof window & {
+        __mwdDisplayedRecords?: Record<string, DisplayedRecordEvidence>;
+      }).__mwdDisplayedRecords ?? {};
+      return Object.keys(displayed).filter((sequenceId) => sequenceId.startsWith(`${expectedRunId}-`)).length >= expectedCount;
+    },
+    { expectedCount: messageCount, expectedRunId: runId },
+    { timeout: Math.max(displayTimeoutMs, messageCount * 100) },
+  ).catch(() => undefined);
+
+  const displayedRecords = await page.evaluate((expectedRunId) => {
+    const displayed = (window as typeof window & {
+      __mwdDisplayedRecords?: Record<string, DisplayedRecordEvidence>;
+    }).__mwdDisplayedRecords ?? {};
+    return Object.fromEntries(
+      Object.entries(displayed).filter(([sequenceId]) => sequenceId.startsWith(`${expectedRunId}-`)),
+    );
+  }, runId);
+
+  for (const row of rows) {
+    if (!row || row.ingest_status !== "accepted") continue;
+
+    const displayedRecord = displayedRecords[row.sequence_id];
+    if (!displayedRecord) continue;
+
+    const backendReceivedTimestampMs =
+      typeof displayedRecord.backend_received_timestamp_ms === "number"
+        ? displayedRecord.backend_received_timestamp_ms
+        : row.backend_received_timestamp_ms;
+    const clientReceivedTimestampMs =
+      typeof displayedRecord.client_received_timestamp_ms === "number"
+        ? displayedRecord.client_received_timestamp_ms
+        : "";
+    const displayedTimestampMs = displayedRecord.displayed_timestamp_ms;
+
+    row.session_id = displayedRecord.session_id || session.id;
+    row.backend_received_timestamp_ms = backendReceivedTimestampMs;
+    row.client_received_timestamp_ms = clientReceivedTimestampMs;
+    row.displayed_timestamp_ms = displayedTimestampMs;
+    row.source_to_backend_ms =
+      typeof row.backend_received_timestamp_ms === "number"
+        ? row.backend_received_timestamp_ms - row.source_timestamp_ms
+        : "";
+    row.backend_to_client_ms =
+      typeof row.backend_received_timestamp_ms === "number" &&
+      typeof row.client_received_timestamp_ms === "number"
+        ? row.client_received_timestamp_ms - row.backend_received_timestamp_ms
+        : "";
+    row.client_to_display_ms =
+      typeof row.client_received_timestamp_ms === "number"
+        ? displayedTimestampMs - row.client_received_timestamp_ms
+        : "";
+    row.end_to_end_delay_ms = displayedTimestampMs - row.source_timestamp_ms;
+    row.display_status = "displayed";
   }
 
   const csvPath = path.join(outputDir, `realtime-latency-${runId}.csv`);
@@ -248,9 +351,10 @@ test("End-to-end monitoring delay", async ({ page, request }) => {
   writeCsv(csvPath, rows);
   fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
 
-  if (/PILOT/i.test(runId)) {
-    expect(summary.generated).toBe(messageCount);
-    expect(summary.accepted).toBe(messageCount);
-    expect(summary.displayed).toBe(messageCount);
-  }
+  expect(summary.generated).toBe(messageCount);
+  expect(summary.accepted).toBe(messageCount);
+  expect(summary.displayed).toBe(messageCount);
+  expect(summary.duplicates).toBe(0);
+  expect(summary.invalidRecords).toBe(0);
+  expect(summary.p95DelayMs).toBeLessThan(p95ThresholdMs);
 });

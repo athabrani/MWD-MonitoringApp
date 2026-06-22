@@ -276,6 +276,9 @@ export function mwdDataRecordsToChartData(records: MwdDataRecord[]): ChartDataPo
       return {
         timestamp: record.timestamp,
         sessionId: record.sessionId,
+        gatewaySequence: record.gatewaySequence,
+        backendReceivedTimestamp: record.backendReceivedTimestamp,
+        clientReceivedTimestamp: record.clientReceivedTimestamp,
         depth,
         ...record.metrics,
       };

@@ -12,10 +12,40 @@ const latencyCsv = path.join(
   `realtime-latency-${runId}.csv`,
 );
 const apiCountPath = path.join(resultsDir, `api-count-${runId}.json`);
+const latencySummaryPath = path.join(
+  root,
+  "tests",
+  "results",
+  "latency",
+  `realtime-latency-${runId}-summary.json`,
+);
 const sqlVerificationPath = path.join(
   resultsDir,
   `sql-verification-${runId}.txt`,
 );
+
+const requiredEvidence = [
+  latencyCsv,
+  latencySummaryPath,
+  apiCountPath,
+  sqlVerificationPath,
+];
+
+const missingEvidence = requiredEvidence.filter((filePath) => !fs.existsSync(filePath));
+if (missingEvidence.length > 0) {
+  console.error(
+    JSON.stringify(
+      {
+        status: "MISSING_EVIDENCE",
+        runId,
+        missingEvidence: missingEvidence.map((filePath) => path.relative(root, filePath)),
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(1);
+}
 
 function parseCsvLine(line) {
   const values = [];
@@ -116,15 +146,12 @@ fs.writeFileSync(
   `${JSON.stringify(frontendCount, null, 2)}\n`,
 );
 
-const apiCount = fs.existsSync(apiCountPath)
-  ? JSON.parse(fs.readFileSync(apiCountPath, "utf8"))
-  : {
-      totalReturned: 0,
-      uniqueSequences: 0,
-      duplicates: 0,
-      missingSequence: 0,
-      sessionMismatch: 0,
-    };
+const latencySummary = JSON.parse(fs.readFileSync(latencySummaryPath, "utf8"));
+if (latencySummary.runId && latencySummary.runId !== runId) {
+  throw new Error(`Latency summary runId mismatch: expected ${runId}, got ${latencySummary.runId}`);
+}
+
+const apiCount = JSON.parse(fs.readFileSync(apiCountPath, "utf8"));
 const sqlMetrics = readSqlMetrics();
 const stored = sqlMetrics.total_stored_records ?? 0;
 const duplicateRecords =
