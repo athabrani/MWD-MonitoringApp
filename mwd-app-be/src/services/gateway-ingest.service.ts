@@ -12,6 +12,7 @@ import {
 } from "./depth-tracking.service.js";
 import { syncTimestampAndDepth } from "../utils/timestamp-depth-sync.js";
 import { recordConfiguredWitsValues } from "./wits-data.service.js";
+import { broadcastMWDData } from "./websocket.service.js";
 
 type GatewayPayload = Record<string, unknown>;
 
@@ -256,10 +257,16 @@ const normalizeGatewayPayloads = (rawPayload: unknown) => {
 };
 
 export const ingestGatewayPayloads = async (rawPayload: unknown) => {
+  const backendReceivedTimestamp = Date.now();
   const payloads = normalizeGatewayPayloads(rawPayload);
-  const depthTrackingInputs: ReturnType<
-    typeof buildDepthTrackingInputFromMwdSource
-  >[] = [];
+  const sideEffectInputs: {
+    itemIndex: number;
+    sessionId: number;
+    measuredAt: Date;
+    depthMd: ReturnType<typeof getDepthBasis>;
+    source: GatewayPayload;
+    depthTrackingInput: ReturnType<typeof buildDepthTrackingInputFromMwdSource>;
+  }[] = [];
 
   const items = await prisma.$transaction(async (tx) => {
     const items = [];
@@ -323,24 +330,6 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
           tx,
         );
 
-      depthTrackingInputs.push(
-        buildDepthTrackingInputFromMwdSource({
-          sessionId,
-          measuredAt: syncedMeasuredAt,
-          source: payload,
-        }),
-      );
-
-      const witsInfo = await recordConfiguredWitsValues(
-        {
-          sessionId,
-          measuredAt: syncedMeasuredAt,
-          depthMd: depthBasis,
-          source: payload,
-        },
-        tx,
-      );
-
       if (!isNewDepthSnapshot(syncInfo.latestDepthMd, depthBasis)) {
         console.log(
           `[Gateway Ingest] Depth did not advance for session ${sessionId}; storing row for time-series data.`,
@@ -350,22 +339,46 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
       const input: {
         sessionId: number;
         measuredAt: Date;
+        gatewaySequence?: string;
       } & MWDMeasurementInput = {
         sessionId,
         measuredAt: syncedMeasuredAt,
       };
 
+      const gatewaySequence = parseOptionalText(
+        payload.gatewaySequence ?? payload.sequence ?? payload.seq,
+      );
+
+      if (gatewaySequence) {
+        input.gatewaySequence = gatewaySequence;
+      }
+
       applyMeasurementFields(input, measurementResult.parsedFields);
 
       const createdItem = await mwdDataService.createMWDData(input, tx);
+      const itemIndex = items.length;
+      sideEffectInputs.push({
+        itemIndex,
+        sessionId,
+        measuredAt: syncedMeasuredAt,
+        depthMd: depthBasis,
+        source: payload,
+        depthTrackingInput: buildDepthTrackingInputFromMwdSource({
+          sessionId,
+          measuredAt: syncedMeasuredAt,
+          source: payload,
+        }),
+      });
       items.push({
         ...createdItem,
+        gatewaySequence,
+        backendReceivedTimestamp,
         syncInfo,
         witsInfo: {
-          configuredCount: witsInfo.configuredCount,
-          loggedCount: witsInfo.loggedCount,
-          alarmCount: witsInfo.alarmCount,
-          skippedInvalid: witsInfo.skippedInvalid,
+          configuredCount: 0,
+          loggedCount: 0,
+          alarmCount: 0,
+          skippedInvalid: [] as string[],
         },
       });
     }
@@ -373,9 +386,38 @@ export const ingestGatewayPayloads = async (rawPayload: unknown) => {
     return items;
   });
 
-  for (const depthTrackingInput of depthTrackingInputs) {
+  for (const item of items) {
+    broadcastMWDData({
+      source: "gateway-http",
+      ...item,
+    });
+  }
+
+  for (const sideEffectInput of sideEffectInputs) {
     try {
-      await updateDepthTrackingState(depthTrackingInput);
+      const witsInfo = await recordConfiguredWitsValues({
+        sessionId: sideEffectInput.sessionId,
+        measuredAt: sideEffectInput.measuredAt,
+        depthMd: sideEffectInput.depthMd,
+        source: sideEffectInput.source,
+      });
+      const item = items[sideEffectInput.itemIndex];
+      if (item) {
+        item.witsInfo = {
+          configuredCount: witsInfo.configuredCount,
+          loggedCount: witsInfo.loggedCount,
+          alarmCount: witsInfo.alarmCount,
+          skippedInvalid: witsInfo.skippedInvalid,
+        };
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unknown WITS recording error";
+      console.warn(`[Gateway Ingest] WITS recording failed: ${message}`);
+    }
+
+    try {
+      await updateDepthTrackingState(sideEffectInput.depthTrackingInput);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Unknown depth tracking error";

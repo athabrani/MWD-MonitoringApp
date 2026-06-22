@@ -474,11 +474,11 @@ function buildEmptyKpiData(): KPIData {
 }
 
 function resolveActiveMwdSessionId(currentSessionId: string, sessions: MwdSessionListItem[]) {
-  if (currentSessionId && sessions.some((session) => session.id === currentSessionId)) {
+  if (currentSessionId && sessions.some((session) => String(session.id) === String(currentSessionId))) {
     return currentSessionId;
   }
 
-  return sessions[0]?.id ?? '';
+  return sessions[0]?.id ? String(sessions[0].id) : '';
 }
 
 function normalizeStatusValue(value?: string | null) {
@@ -549,6 +549,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [, setFailoverEventIds] = useState<Set<string>>(() => new Set());
   const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
+  const activeMwdSessionIdRef = useRef('');
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
   const serialStatusRequestInFlight = useRef(false);
@@ -638,7 +639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const activeMwdSession = useMemo(
-    () => mwdSessions.find((session) => session.id === activeMwdSessionId) ?? null,
+    () => mwdSessions.find((session) => String(session.id) === String(activeMwdSessionId)) ?? null,
     [activeMwdSessionId, mwdSessions]
   );
   const operationalThresholds = useMemo(
@@ -786,8 +787,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (error) {
       logBackendError('Unable to load MWD sessions.', error);
-      setMwdSessions([]);
-      setActiveMwdSessionId('');
+      if (!isExpectedBackendConnectivityError(error)) {
+        setMwdSessions([]);
+        setActiveMwdSessionId('');
+      }
       setMwdSessionsError(getMwdSessionsErrorMessage(error));
     } finally {
       setMwdSessionsLoading(false);
@@ -1422,19 +1425,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setMwdDataLoading(true);
     setMwdDataError('');
+    const requestSessionId = activeMwdSessionId;
 
     try {
       const [latestRecords, records] = await Promise.all([
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
           limit: 1,
         }),
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
         }),
       ]);
-      const latestScopedRecords = filterMwdDataForSession(latestRecords, activeMwdSessionId);
-      const scopedRecords = filterMwdDataForSession(records, activeMwdSessionId);
+
+      if (activeMwdSessionIdRef.current !== requestSessionId) return;
+
+      const latestScopedRecords = filterMwdDataForSession(latestRecords, requestSessionId);
+      const scopedRecords = filterMwdDataForSession(records, requestSessionId);
       const nextChartData = mwdDataRecordsToChartData(scopedRecords);
       const latestRecord = getLatestMwdDataRecord(latestScopedRecords) ?? getLatestMwdDataRecord(scopedRecords);
 
@@ -1480,7 +1487,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeMwdSessionId, applyLatestMwdRecord, token]);
 
   const applyRealtimeMwdData = useCallback((data: Record<string, unknown>) => {
-    const record = normalizeMwdDataRecord(data);
+    const record = normalizeMwdDataRecord({
+      ...data,
+      clientReceivedTimestamp: Date.now(),
+    });
     if (!record) return;
 
     if (record.sessionId && activeMwdSessionId && String(record.sessionId) !== String(activeMwdSessionId)) {
@@ -1649,6 +1659,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     void refreshWitsConfig();
   }, [isAuthenticated, refreshWitsConfig, token]);
+
+  useEffect(() => {
+    activeMwdSessionIdRef.current = activeMwdSessionId;
+  }, [activeMwdSessionId]);
 
   useEffect(() => {
     if (!isAuthenticated || !token || !activeMwdSessionId) {
@@ -1880,6 +1894,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const client = getRealtimeClient();
       if (activeMwdSessionId) {
+        client.setAuthToken(token);
         client.connect();
         client.subscribeSession(activeMwdSessionId);
       }
@@ -1951,6 +1966,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const client = getRealtimeClient();
+    client.setAuthToken(token);
     const unsubscribeStatus = client.on('status', ({ status, error }) => {
       setRealtimeStatus(status);
       setRealtimeError(error ?? '');
@@ -1976,6 +1992,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeMwdSessionId &&
         !isBackendImportActive()
       ) {
+        client.subscribeSession(activeMwdSessionId);
         void refreshMwdData();
         void refreshWitsAlarms();
         void refreshConnectionStatus();
