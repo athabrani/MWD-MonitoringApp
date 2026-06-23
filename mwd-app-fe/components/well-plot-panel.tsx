@@ -28,6 +28,7 @@ import type { PlotConfiguration } from '@/types/plotting'
 type DepthRow = {
   depth: number
   time: string
+  sourceKey: string
   metrics: Record<string, number>
 }
 
@@ -233,6 +234,20 @@ function readNumericValue(record: Record<string, unknown>, keys: string[]) {
   return undefined
 }
 
+function readStableTextValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString()
+    }
+  }
+
+  return undefined
+}
+
 function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
   const depth = readNumericValue(point, [
     'depth',
@@ -258,6 +273,19 @@ function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
           typeof point.timestamp === 'number'
         ? new Date(point.timestamp)
         : null
+  const timestampKey =
+    timestamp && !Number.isNaN(timestamp.getTime())
+      ? timestamp.toISOString()
+      : readStableTextValue(point, ['timestamp', 'time', 'measuredAt', 'createdAt'])
+  const sourceKey = [
+    readStableTextValue(point, ['id', 'recordId', 'mwdDataId', 'dataId']),
+    readStableTextValue(point, ['sessionId', 'mwdSessionId']),
+    timestampKey,
+    roundedDepth,
+  ]
+    .filter((part): part is string | number => part !== undefined && part !== null)
+    .map((part) => String(part).replace(/\s+/g, '_'))
+    .join('-')
   const metrics: Record<string, number> = {}
 
   for (const [key, value] of Object.entries(point)) {
@@ -276,6 +304,7 @@ function chartPointToDepthRow(point: Record<string, unknown>): DepthRow | null {
 
   return {
     depth: roundedDepth,
+    sourceKey,
     time:
       timestamp && !Number.isNaN(timestamp.getTime())
         ? timestamp.toLocaleTimeString()
@@ -701,6 +730,24 @@ function getSharedTrackHeaderHeightPx(
   )
 }
 
+function makeStableKey(parts: Array<string | number | null | undefined>) {
+  return parts
+    .map((part) => String(part ?? 'na').replace(/\s+/g, '_'))
+    .join('-')
+}
+
+function findDuplicateKeys(keys: string[]) {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+
+  for (const key of keys) {
+    if (seen.has(key)) duplicates.add(key)
+    seen.add(key)
+  }
+
+  return Array.from(duplicates)
+}
+
 function DepthScale({
   rows,
   compact = false,
@@ -715,6 +762,33 @@ function DepthScale({
     : dense
       ? 'w-[46px] sm:w-[48px] lg:w-[52px]'
       : 'w-[64px] sm:w-[72px] lg:w-[84px]'
+  const scaleContextId = makeStableKey([
+    'depth-scale',
+    rows.length,
+    rows[0]?.sourceKey,
+    rows.at(-1)?.sourceKey,
+  ])
+  const scaleTicks = rows.map((row, rowIndex) => ({
+    row,
+    key: makeStableKey([
+      scaleContextId,
+      row.sourceKey,
+      row.depth,
+      row.time,
+      rowIndex,
+    ]),
+  }))
+
+  if (process.env.NODE_ENV !== 'production') {
+    const duplicateKeys = findDuplicateKeys(scaleTicks.map((tick) => tick.key))
+
+    if (duplicateKeys.length > 0) {
+      console.warn(
+        '[DepthScale] Duplicate scale keys detected',
+        duplicateKeys.slice(0, 10),
+      )
+    }
+  }
 
   return (
     <div
@@ -723,8 +797,8 @@ function DepthScale({
       <div
         className={`absolute inset-0 flex flex-col justify-between py-3 ${compact ? 'px-1' : 'px-1.5 sm:px-2'}`}
       >
-        {rows.map((row) => (
-          <div key={`${row.depth}-${row.time}-scale`} className="leading-tight">
+        {scaleTicks.map(({ row, key }) => (
+          <div key={key} className="leading-tight">
             <div
               className={
                 compact

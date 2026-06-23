@@ -61,6 +61,8 @@ const testAwarePositiveInt = (
     ? envPositiveInt(testName, envPositiveInt(name, testDefault))
     : envPositiveInt(name, normalDefault);
 
+const resolveServerPort = () => envPositiveInt("PORT", 5001);
+
 const isDecimalLike = (value: unknown): value is { toString: () => string } => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -122,10 +124,14 @@ const getSystemHealth = async () => {
   const databaseStartedAt = Date.now();
   let databaseStatus = "ok";
   let databaseLatencyMs: number | null = null;
+  let databaseName: string | null = null;
   let databaseError: string | undefined;
 
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    const databaseInfo = await prisma.$queryRaw<Array<{ database_name: string }>>`
+      SELECT current_database() AS database_name
+    `;
+    databaseName = databaseInfo[0]?.database_name ?? null;
     databaseLatencyMs = Date.now() - databaseStartedAt;
   } catch (error: unknown) {
     databaseStatus = "error";
@@ -150,11 +156,18 @@ const getSystemHealth = async () => {
     uptimeSeconds: Math.round(process.uptime()),
     environment: process.env.NODE_ENV ?? "development",
     version: process.env.npm_package_version ?? "local",
+    service: "mwd-app-be",
+    server: {
+      port: resolveServerPort(),
+      nodeEnv: process.env.NODE_ENV ?? "development",
+    },
     api: {
       status: "ok",
     },
     database: {
       status: databaseStatus,
+      connected: databaseStatus === "ok",
+      name: databaseName,
       latencyMs: databaseLatencyMs,
       ...(databaseError ? { error: databaseError } : {}),
     },
@@ -271,6 +284,27 @@ app.get("/api/health", async (_req, res, next) => {
   try {
     const health = await getSystemHealth();
     res.status(health.status === "error" ? 503 : 200).json(health);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/readiness", async (_req, res, next) => {
+  try {
+    const health = await getSystemHealth();
+    const ready = health.database.connected;
+
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "ok" : "error",
+      service: health.service,
+      timestamp: health.checkedAt,
+      server: health.server,
+      database: {
+        connected: health.database.connected,
+        name: health.database.name,
+        latencyMs: health.database.latencyMs,
+      },
+    });
   } catch (error) {
     next(error);
   }

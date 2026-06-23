@@ -64,6 +64,23 @@ const parseOptionalDateInput = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? ("invalid" as const) : date;
 };
 
+const parseOptionalNumberInput = (value: unknown) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : ("invalid" as const);
+  }
+
+  return "invalid" as const;
+};
+
 const canAccessSession = (req: Request, sessionUserId: number) => {
   const user = (req as AuthenticatedRequest).user;
   return !!user && canAccessSessionOwner(user.roleName, user.userId, sessionUserId);
@@ -584,11 +601,31 @@ export const getAllMWDData = async (req: Request, res: Response) => {
     const sessionIdParam = req.query.sessionId;
     const sessionId =
       typeof sessionIdParam === "string" ? parsePositiveInt(sessionIdParam) : null;
+    const limitParam = req.query.limit;
+    const limit =
+      typeof limitParam === "string" ? parsePositiveInt(limitParam) : undefined;
+    const measuredFrom = parseOptionalDateInput(req.query.measuredFrom);
+    const measuredTo = parseOptionalDateInput(req.query.measuredTo);
+    const depthMin = parseOptionalNumberInput(req.query.depthMin);
+    const depthMax = parseOptionalNumberInput(req.query.depthMax);
+    const latest = req.query.latest === "true" || req.query.latest === "1";
     const includeHidden =
       req.query.includeHidden === "true" || req.query.includeHidden === "1";
 
     if (sessionIdParam !== undefined && sessionId === null) {
       return res.status(400).json({ message: "sessionId must be a positive integer" });
+    }
+
+    if (limitParam !== undefined && limit === null) {
+      return res.status(400).json({ message: "limit must be a positive integer" });
+    }
+
+    if (measuredFrom === "invalid" || measuredTo === "invalid") {
+      return res.status(400).json({ message: "measuredFrom/measuredTo must be valid dates" });
+    }
+
+    if (depthMin === "invalid" || depthMax === "invalid") {
+      return res.status(400).json({ message: "depthMin/depthMax must be valid numbers" });
     }
 
     if (sessionId !== null) {
@@ -606,6 +643,12 @@ export const getAllMWDData = async (req: Request, res: Response) => {
     const authUser = (req as AuthenticatedRequest).user;
     const allData = await mwdDataService.getAllMWDData(sessionId ?? undefined, {
       includeHidden,
+      latest,
+      ...(limit !== undefined && limit !== null ? { limit } : {}),
+      measuredFrom,
+      measuredTo,
+      depthMin,
+      depthMax,
     });
 
     const filteredData =

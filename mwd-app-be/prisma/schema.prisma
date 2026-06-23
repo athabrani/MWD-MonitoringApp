@@ -305,6 +305,8 @@ model MWDData {
   session                     MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+  @@index([sessionId, measuredAt])
+  @@index([sessionId, depthMd])
   @@index([measuredAt])
   @@index([isHidden])
   @@index([gatewaySequence])

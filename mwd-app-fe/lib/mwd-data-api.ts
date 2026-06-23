@@ -30,14 +30,14 @@ export type MwdDataInput = Record<string, unknown>;
 export type GetMwdDataOptions = {
   sessionId?: string | number;
   limit?: number;
+  latest?: boolean;
+  measuredFrom?: string;
+  measuredTo?: string;
   depthMin?: number;
   depthMax?: number;
 };
 
-export type GetHistoricalDataOptions = GetMwdDataOptions & {
-  measuredFrom?: string;
-  measuredTo?: string;
-};
+export type GetHistoricalDataOptions = GetMwdDataOptions;
 
 const timestampKeys = [
   "timestamp",
@@ -331,11 +331,13 @@ function toQueryString(params: Record<string, unknown>) {
 
 export async function getMwdData(
   token: string,
-  options: GetMwdDataOptions = {}
+  options: GetMwdDataOptions = {},
+  requestOptions: Pick<RequestInit, "signal"> = {}
 ): Promise<MwdDataRecord[]> {
   const response = await apiRequest<BackendMwdDataResponse | BackendMwdDataRecord[]>(`/api/mwd-data${toQueryString(options)}`, {
     method: "GET",
     token,
+    ...requestOptions,
   });
   const rawRecords = unwrapRecordList(response);
   const normalizedRecords = rawRecords

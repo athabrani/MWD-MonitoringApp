@@ -194,6 +194,8 @@ const defaultSettings: UserSettings = {
 };
 
 const backendErrorMessage = 'Gagal memuat data dari backend.';
+const DASHBOARD_MWD_WINDOW_SIZE = 1000;
+const REALTIME_MWD_BATCH_INTERVAL_MS = 300;
 const dashboardMetricToKpiKey: Partial<Record<string, keyof KPIData>> = {
   rop: 'rop',
   wob: 'wob',
@@ -549,6 +551,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [, setFailoverEventIds] = useState<Set<string>>(() => new Set());
   const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
+  const mwdRecordKeyOrderRef = useRef<string[]>([]);
+  const pendingRealtimeMwdRecordsRef = useRef<MwdDataRecord[]>([]);
+  const mwdDataAbortControllerRef = useRef<AbortController | null>(null);
   const activeMwdSessionIdRef = useRef('');
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
@@ -1417,12 +1422,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshMwdData = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
+      mwdDataAbortControllerRef.current?.abort();
+      mwdDataAbortControllerRef.current = null;
+      pendingRealtimeMwdRecordsRef.current = [];
       setChartData([]);
       setLatestMwdDataRecord(null);
       setMwdDataError('');
       return;
     }
 
+    mwdDataAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    mwdDataAbortControllerRef.current = abortController;
     setMwdDataLoading(true);
     setMwdDataError('');
     const requestSessionId = activeMwdSessionId;
@@ -1432,13 +1443,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getMwdData(token, {
           sessionId: requestSessionId || undefined,
           limit: 1,
+          latest: true,
+        }, {
+          signal: abortController.signal,
         }),
         getMwdData(token, {
           sessionId: requestSessionId || undefined,
+          limit: DASHBOARD_MWD_WINDOW_SIZE,
+          latest: true,
+        }, {
+          signal: abortController.signal,
         }),
       ]);
 
       if (activeMwdSessionIdRef.current !== requestSessionId) return;
+      if (abortController.signal.aborted) return;
 
       const latestScopedRecords = filterMwdDataForSession(latestRecords, requestSessionId);
       const scopedRecords = filterMwdDataForSession(records, requestSessionId);
@@ -1465,7 +1484,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      mwdRecordKeysRef.current = new Set(scopedRecords.map(getMwdRecordKey));
+      const scopedRecordKeys = scopedRecords.map(getMwdRecordKey);
+      mwdRecordKeysRef.current = new Set(scopedRecordKeys);
+      mwdRecordKeyOrderRef.current = scopedRecordKeys.slice(-DASHBOARD_MWD_WINDOW_SIZE);
+      pendingRealtimeMwdRecordsRef.current = [];
       setChartData(nextChartData);
       setLatestMwdDataRecord(latestRecord);
 
@@ -1479,10 +1501,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setKpiData(buildEmptyKpiData());
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       logBackendError('Unable to load MWD data.', error);
       setMwdDataError(backendErrorMessage);
     } finally {
-      setMwdDataLoading(false);
+      if (mwdDataAbortControllerRef.current === abortController) {
+        mwdDataAbortControllerRef.current = null;
+        setMwdDataLoading(false);
+      }
     }
   }, [activeMwdSessionId, applyLatestMwdRecord, token]);
 
@@ -1497,42 +1523,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    const recordKey = getMwdRecordKey(record);
-    if (mwdRecordKeysRef.current.has(recordKey)) {
+    pendingRealtimeMwdRecordsRef.current.push(record);
+  }, [activeMwdSessionId]);
+
+  const flushRealtimeMwdData = useCallback(() => {
+    const pendingRecords = pendingRealtimeMwdRecordsRef.current;
+    if (pendingRecords.length === 0) return;
+
+    pendingRealtimeMwdRecordsRef.current = [];
+    const requestSessionId = activeMwdSessionIdRef.current;
+    const batchKeys = new Set<string>();
+    const nextRecords: MwdDataRecord[] = [];
+    let latestRecord: MwdDataRecord | null = null;
+
+    for (const record of pendingRecords) {
+      if (record.sessionId && requestSessionId && String(record.sessionId) !== String(requestSessionId)) {
+        continue;
+      }
+
+      if (!latestRecord || record.timestamp.getTime() >= latestRecord.timestamp.getTime()) {
+        latestRecord = record;
+      }
+
+      const recordKey = getMwdRecordKey(record);
+      if (batchKeys.has(recordKey) || mwdRecordKeysRef.current.has(recordKey)) {
+        continue;
+      }
+
+      batchKeys.add(recordKey);
+      mwdRecordKeysRef.current.add(recordKey);
+      mwdRecordKeyOrderRef.current.push(recordKey);
+      nextRecords.push(record);
+    }
+
+    if (mwdRecordKeyOrderRef.current.length > DASHBOARD_MWD_WINDOW_SIZE) {
+      mwdRecordKeyOrderRef.current = mwdRecordKeyOrderRef.current.slice(-DASHBOARD_MWD_WINDOW_SIZE);
+      mwdRecordKeysRef.current = new Set(mwdRecordKeyOrderRef.current);
+    }
+
+    const nextChartPoints = nextRecords.length > 0 ? mwdDataRecordsToChartData(nextRecords) : [];
+    if (nextChartPoints.length > 0) {
+      setChartData((current) => {
+        const merged = [...current, ...nextChartPoints].sort(
+          (left, right) => left.timestamp.getTime() - right.timestamp.getTime()
+        );
+        return merged.length > DASHBOARD_MWD_WINDOW_SIZE ? merged.slice(-DASHBOARD_MWD_WINDOW_SIZE) : merged;
+      });
+    }
+
+    if (latestRecord) {
       setLatestMwdDataRecord((current) => {
-        if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
-          applyLatestMwdRecord(record);
-          return record;
+        if (!current || latestRecord.timestamp.getTime() >= current.timestamp.getTime()) {
+          applyLatestMwdRecord(latestRecord);
+          return latestRecord;
         }
 
         return current;
       });
-      return;
+
+      setConnectionState((current) => ({
+        ...current,
+        lastReceived: latestRecord.timestamp,
+      }));
     }
-
-    mwdRecordKeysRef.current.add(recordKey);
-    const chartPoint = mwdDataRecordsToChartData([record])[0];
-
-    if (chartPoint) {
-      setChartData((current) =>
-        [...current, chartPoint].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime())
-      );
-    }
-
-    setLatestMwdDataRecord((current) => {
-      if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
-        applyLatestMwdRecord(record);
-        return record;
-      }
-
-      return current;
-    });
-
-    setConnectionState((current) => ({
-      ...current,
-      lastReceived: record.timestamp,
-    }));
-  }, [activeMwdSessionId, applyLatestMwdRecord]);
+  }, [applyLatestMwdRecord]);
 
   const applyRealtimeEspGatewayStatus = useCallback((data: Record<string, unknown>) => {
     const status = normalizeRealtimeEspStatus(data);
@@ -1583,6 +1637,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [applyRealtimeConnectionStatus, applyRealtimeEspGatewayStatus, applyRealtimeMwdData]);
 
   useEffect(() => {
+    if (!isAuthenticated || !token || !activeMwdSessionId) {
+      pendingRealtimeMwdRecordsRef.current = [];
+      return;
+    }
+
+    const interval = window.setInterval(flushRealtimeMwdData, REALTIME_MWD_BATCH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+      flushRealtimeMwdData();
+    };
+  }, [activeMwdSessionId, flushRealtimeMwdData, isAuthenticated, token]);
+
+  useEffect(() => {
     if (isAuthenticated && token) return;
 
     connectionStatusRequestInFlight.current = false;
@@ -1593,6 +1661,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gatewayRawPacketsRequestInFlight.current = false;
     activeGeneratedEventKeysRef.current.clear();
     mwdRecordKeysRef.current.clear();
+    mwdRecordKeyOrderRef.current = [];
+    pendingRealtimeMwdRecordsRef.current = [];
+    mwdDataAbortControllerRef.current?.abort();
+    mwdDataAbortControllerRef.current = null;
 
     setMwdSessions([]);
     setActiveMwdSessionId('');
@@ -1672,6 +1744,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setChartData([]);
       setLatestMwdDataRecord(null);
       setFailoverEventIds(new Set());
+      mwdRecordKeysRef.current.clear();
+      mwdRecordKeyOrderRef.current = [];
+      pendingRealtimeMwdRecordsRef.current = [];
       return;
     }
 
