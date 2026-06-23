@@ -12,6 +12,7 @@
     "start:local-session": "powershell -ExecutionPolicy Bypass -File ./scripts/start-local-session.ps1",
     "check:local-session": "node ./scripts/check-local-session.mjs",
     "check:dev-ports": "node ./scripts/check-dev-ports.mjs",
+    "start:mwd": "powershell -ExecutionPolicy Bypass -File ./scripts/start-mwd-app.ps1",
     "start": "concurrently -n backend,frontend -c blue,green \"npm --prefix mwd-app-be run start\" \"npm --prefix mwd-app-fe run start\"",
     "clean": "rimraf mwd-app-be/dist mwd-app-fe/.next"
   },
