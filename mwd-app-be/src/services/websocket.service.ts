@@ -6,6 +6,7 @@ import { isCorsOriginAllowed } from "../config/cors.js";
 import * as authService from "./auth.service.js";
 import * as sessionService from "./mwd-session.service.js";
 import { canAccessSessionOwner } from "../utils/roles.js";
+import { getAccessTokenFromCookieHeader } from "../utils/cookies.js";
 
 let wss: WebSocketServer | null = null;
 const websocketEventEmitter = new EventEmitter();
@@ -69,7 +70,14 @@ const sendToClient = (
 const getTokenFromRequest = (request: IncomingMessage) => {
   try {
     const parsed = new URL(request.url ?? "/ws", "http://localhost");
-    return parsed.searchParams.get("token")?.trim() ?? "";
+    const queryToken = parsed.searchParams.get("token")?.trim() ?? "";
+    if (queryToken) {
+      return queryToken;
+    }
+
+    const rawCookie =
+      typeof request.headers.cookie === "string" ? request.headers.cookie : undefined;
+    return getAccessTokenFromCookieHeader(rawCookie);
   } catch {
     return "";
   }

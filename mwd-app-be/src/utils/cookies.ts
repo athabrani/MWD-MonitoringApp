@@ -6,15 +6,28 @@ const CSRF_TOKEN_COOKIE = "mwd_csrf_token";
 const COOKIE_SAME_SITE_VALUES = new Set(["Lax", "Strict", "None"]);
 
 const getCookieSameSite = () => {
-  const configured = process.env.AUTH_COOKIE_SAME_SITE?.trim();
+  const configured = (
+    process.env.AUTH_COOKIE_SAME_SITE ??
+    process.env.COOKIE_SAME_SITE ??
+    ""
+  ).trim();
+  const normalized = configured
+    ? `${configured.charAt(0).toUpperCase()}${configured.slice(1).toLowerCase()}`
+    : "";
 
-  return COOKIE_SAME_SITE_VALUES.has(configured ?? "")
-    ? (configured as "Lax" | "Strict" | "None")
+  return COOKIE_SAME_SITE_VALUES.has(normalized)
+    ? (normalized as "Lax" | "Strict" | "None")
     : "Lax";
 };
 
 const shouldUseSecureCookie = () => {
-  const configured = process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase();
+  const configured = (
+    process.env.AUTH_COOKIE_SECURE ??
+    process.env.COOKIE_SECURE ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
 
   if (configured !== undefined && configured !== "") {
     return ["1", "true", "yes", "on"].includes(configured);
@@ -23,9 +36,7 @@ const shouldUseSecureCookie = () => {
   return isProduction;
 };
 
-export const parseCookies = (req: Request) => {
-  const rawCookie = req.headers.cookie;
-
+export const parseCookieHeader = (rawCookie?: string) => {
   if (!rawCookie) {
     return {};
   }
@@ -52,6 +63,14 @@ export const parseCookies = (req: Request) => {
         }
       }),
   );
+};
+
+export const parseCookies = (req: Request) => {
+  return parseCookieHeader(req.headers.cookie);
+};
+
+export const getAccessTokenFromCookieHeader = (rawCookie?: string) => {
+  return parseCookieHeader(rawCookie)[ACCESS_TOKEN_COOKIE] ?? "";
 };
 
 const serializeCookie = (

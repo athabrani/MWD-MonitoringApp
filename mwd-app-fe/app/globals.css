@@ -20,6 +20,8 @@
   --border: 214 28% 87%;
   --input: 214 28% 87%;
   --ring: 204 88% 38%;
+  --font-geist-sans: "Segoe UI", Arial, sans-serif;
+  --font-geist-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 }
 
 @theme inline {
@@ -74,7 +76,7 @@ body {
     radial-gradient(circle at 93% 2%, hsl(146 66% 74% / 0.14), transparent 30%),
     hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-family: var(--font-geist-sans);
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;

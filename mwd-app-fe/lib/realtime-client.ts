@@ -1,4 +1,5 @@
 import { logSecurityDebug } from "@/lib/security/errors";
+import { COOKIE_AUTH_SESSION_TOKEN } from "@/lib/security/storage";
 
 export type RealtimeConnectionState =
   | "idle"
@@ -81,13 +82,18 @@ function getWsUrl(token?: string) {
     }
     const frontendHost = window.location.hostname;
     const envUsesLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-    const frontendUsesNetworkHost = frontendHost !== "localhost" && frontendHost !== "127.0.0.1";
+    const frontendUsesLoopback = frontendHost === "localhost" || frontendHost === "127.0.0.1";
+    const frontendUsesNetworkHost = !frontendUsesLoopback;
 
     if (envUsesLoopback && frontendUsesNetworkHost) {
       parsed.hostname = frontendHost;
     }
 
-    if (token?.trim()) {
+    if (envUsesLoopback && frontendUsesLoopback && parsed.hostname !== frontendHost) {
+      parsed.hostname = frontendHost;
+    }
+
+    if (token?.trim() && token !== COOKIE_AUTH_SESSION_TOKEN) {
       parsed.searchParams.set("token", token.trim());
     }
 

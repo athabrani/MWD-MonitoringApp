@@ -1,5 +1,9 @@
 import { getSafeErrorMessage } from "@/lib/security/errors";
 import { notifyAuthSessionInvalid } from "@/lib/security/session-events";
+import {
+  COOKIE_AUTH_SESSION_TOKEN,
+  readStoredCsrfToken,
+} from "@/lib/security/storage";
 
 export class ApiClientError extends Error {
   status: number;
@@ -46,9 +50,14 @@ export function getApiBaseUrl() {
   if (typeof window !== "undefined") {
     const frontendHost = window.location.hostname;
     const envUsesLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-    const frontendUsesNetworkHost = frontendHost !== "localhost" && frontendHost !== "127.0.0.1";
+    const frontendUsesLoopback = frontendHost === "localhost" || frontendHost === "127.0.0.1";
+    const frontendUsesNetworkHost = !frontendUsesLoopback;
 
     if (envUsesLoopback && frontendUsesNetworkHost) {
+      parsed.hostname = frontendHost;
+    }
+
+    if (envUsesLoopback && frontendUsesLoopback && parsed.hostname !== frontendHost) {
       parsed.hostname = frontendHost;
     }
   }
@@ -78,7 +87,33 @@ function normalizeApiPath(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-function prepareRequestHeaders(headers: HeadersInit | undefined, body: BodyInit | null | undefined, token?: string) {
+function readCsrfTokenFromCookie() {
+  if (typeof document === "undefined") return null;
+
+  const match = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith("mwd_csrf_token="));
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match.slice("mwd_csrf_token=".length)).trim() || null;
+  } catch {
+    return match.slice("mwd_csrf_token=".length).trim() || null;
+  }
+}
+
+function isMutatingMethod(method: string | undefined) {
+  return !["GET", "HEAD", "OPTIONS"].includes((method ?? "GET").toUpperCase());
+}
+
+function prepareRequestHeaders(
+  headers: HeadersInit | undefined,
+  body: BodyInit | null | undefined,
+  token?: string,
+  method?: string,
+) {
   const requestHeaders = new Headers(headers);
   const isFormDataBody = typeof FormData !== "undefined" && body instanceof FormData;
 
@@ -90,8 +125,15 @@ function prepareRequestHeaders(headers: HeadersInit | undefined, body: BodyInit 
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  if (token?.trim()) {
+  if (token?.trim() && token !== COOKIE_AUTH_SESSION_TOKEN) {
     requestHeaders.set("Authorization", `Bearer ${token.trim()}`);
+  }
+
+  if (isMutatingMethod(method) && !requestHeaders.has("x-csrf-token")) {
+    const csrfToken = readStoredCsrfToken() ?? readCsrfTokenFromCookie();
+    if (csrfToken) {
+      requestHeaders.set("x-csrf-token", csrfToken);
+    }
   }
 
   return requestHeaders;
@@ -157,13 +199,14 @@ export async function apiRequest<T>(
   { token, headers, body, ...options }: ApiRequestOptions = {}
 ): Promise<T> {
   const normalizedPath = normalizeApiPath(path);
-  const requestHeaders = prepareRequestHeaders(headers, body, token);
+  const requestHeaders = prepareRequestHeaders(headers, body, token, options.method);
 
   const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
     ...options,
     body,
     headers: requestHeaders,
     cache: options.cache ?? "no-store",
+    credentials: options.credentials ?? "include",
   });
 
   const text = await response.text();
@@ -195,13 +238,14 @@ export async function apiFetch(
   { token, headers, body, ...options }: ApiRequestOptions = {}
 ): Promise<Response> {
   const normalizedPath = normalizeApiPath(path);
-  const requestHeaders = prepareRequestHeaders(headers, body, token);
+  const requestHeaders = prepareRequestHeaders(headers, body, token, options.method);
 
   const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
     ...options,
     body,
     headers: requestHeaders,
     cache: options.cache ?? "no-store",
+    credentials: options.credentials ?? "include",
   });
 
   if (!response.ok) {

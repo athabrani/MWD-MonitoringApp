@@ -1,5 +1,6 @@
 import { User } from "@/types";
 import { apiRequest } from "@/lib/api-client";
+import { COOKIE_AUTH_SESSION_TOKEN } from "@/lib/security/storage";
 
 type BackendRoleName = "admin" | "engineer" | "operator";
 
@@ -25,12 +26,17 @@ type BackendUser = {
 
 type LoginResponse = {
   token?: string;
+  accessToken?: string;
   user?: BackendUser;
+  csrfToken?: string;
+  authMode?: "cookie" | "token";
 };
 
 export type AuthSession = {
   token: string;
   user: User;
+  csrfToken?: string | null;
+  authMode: "cookie" | "token";
 };
 
 function normalizeRole(value: unknown): BackendRoleName {
@@ -65,7 +71,30 @@ export async function loginWithPassword(
     body: JSON.stringify({ identifier, password }),
   });
 
-  const token = typeof response.token === "string" ? response.token.trim() : "";
+  if (response.authMode === "cookie") {
+    if (!response.user) {
+      throw new Error("Login response missing user.");
+    }
+
+    const currentUser = normalizeBackendUser(response.user);
+    if (currentUser.isActive === false) {
+      throw new Error("User account is inactive.");
+    }
+
+    return {
+      token: COOKIE_AUTH_SESSION_TOKEN,
+      user: currentUser,
+      csrfToken: typeof response.csrfToken === "string" ? response.csrfToken : null,
+      authMode: "cookie",
+    };
+  }
+
+  const token =
+    typeof response.token === "string"
+      ? response.token.trim()
+      : typeof response.accessToken === "string"
+        ? response.accessToken.trim()
+        : "";
   if (!token) {
     throw new Error("Login response did not include a token.");
   }
@@ -78,14 +107,23 @@ export async function loginWithPassword(
   return {
     token,
     user: currentUser,
+    csrfToken: typeof response.csrfToken === "string" ? response.csrfToken : null,
+    authMode: "token",
   };
 }
 
-export async function fetchCurrentUser(token: string): Promise<User> {
+export async function fetchCurrentUser(token?: string | null): Promise<User> {
   const user = await apiRequest<BackendUser>("/api/auth/me", {
     method: "GET",
-    token,
+    token: token ?? undefined,
   });
 
   return normalizeBackendUser(user);
+}
+
+export async function logoutFromBackend(token?: string | null): Promise<void> {
+  await apiRequest<unknown>("/api/auth/logout", {
+    method: "POST",
+    token: token ?? undefined,
+  });
 }
