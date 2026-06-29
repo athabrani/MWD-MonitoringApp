@@ -1,5 +1,7 @@
 # Central Local Server Troubleshooting
 
+Update 2026-06-29: LocalOnly and LAN runtime are READY on the configured server. For the current final troubleshooting guide, prefer `docs/deployment/CENTRAL_SERVER_TROUBLESHOOTING.md` and `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 This file tracks LAN/local runtime issues specific to the central server deployment. The broader troubleshooting guide is `CENTRAL_SERVER_TROUBLESHOOTING.md`.
 
 ## Login returns 200 but UI shows request failed

@@ -1,5 +1,7 @@
 # Central Local Server Deployment Analysis
 
+Update 2026-06-29: central local server deployment has moved from analysis to operational readiness on the configured server. LocalOnly runtime, LAN runtime, LAN access from another device, cookie-based auth, backend/frontend WinSW services, restart test, manual backup, backup scheduler, and installer compile pipeline are READY. Installer status is RELEASE CANDIDATE pending clean-machine installation test. See `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md` for the current final deployment guide.
+
 ## 1. Tujuan deployment
 
 MWD Monitoring App diarahkan menjadi sistem production-ready untuk satu server lokal pusat. Industrial PC atau laptop utama menjalankan PostgreSQL, backend API, frontend web service, receiver/gateway MWD-WITS, logs, dan backups. Laptop lain tidak menjalankan database, backend, frontend, source code, VSCode, atau command; laptop lain hanya membuka browser atau shortcut app-mode ke IP/hostname server.

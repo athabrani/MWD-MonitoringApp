@@ -1,5 +1,7 @@
 # Central Server Security Notes
 
+Update 2026-06-29: operational central server is READY with cookie-based auth and no 401 after login on the configured server. PostgreSQL must remain unexposed to LAN clients. Firewall status is unchanged in the final deployment record. See `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md` for current deployment status.
+
 ## Network exposure
 
 Do not expose PostgreSQL to user laptops. Keep this flow:

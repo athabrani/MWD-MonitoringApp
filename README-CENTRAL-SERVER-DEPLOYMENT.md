@@ -1,269 +1,310 @@
 # MWD Monitoring App Central Server Deployment
 
-This repository now targets a Central Local Server deployment for production/local operation.
+Branch: `package`  
+Status lingkungan utama: operationally ready  
+Dokumen detail final: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`
 
-Current deployment/package branch:
-
-```text
-package
-```
-
-Current validation notes:
-
-- Backend Prisma Client generation and TypeScript build: passed.
-- Frontend production build: passed.
-- Package scaffold creation: passed.
-- Production security env: passed.
-- Local-only central runtime: READY.
-- LAN env generated for `192.168.18.75`.
-- LAN start requires ports `3000` and `5001` to be free from old local-only listeners.
-- If login from `http://192.168.18.75:3000` calls `http://192.168.18.75:5001/api/auth/login` and gets `ERR_CONNECTION_REFUSED`, restart in LAN mode and verify backend binding on `0.0.0.0:5001` or `192.168.18.75:5001`.
-- Cookie auth mode is supported: login may return `authMode: "cookie"` with `user` and `csrfToken`, without exposing a token in the response body.
-- Frontend backend calls must use cookies with `credentials: "include"`; mutating requests send `x-csrf-token`.
-- Central package build ignores `mwd-app-fe/.env.local` and uses `mwd-app-fe/.env`.
-- Windows service installation: dry-run only; WinSW is the default service wrapper.
-
-Selected architecture:
+## Current Status
 
 ```text
-Central local server
-+ Level 3 installer/package only for the server utama
-+ Browser/app-mode shortcut for server and user laptops
+Operational deployment on the configured central local server: READY.
+Admin-assisted installer pipeline: READY.
+Installer release status: RELEASE CANDIDATE.
+Final stable installer status: pending clean-machine installation test.
 ```
 
-Not selected:
+Validated state:
+
+- LocalOnly runtime: READY.
+- LAN runtime: READY.
+- LAN access dari device lain: READY.
+- Cookie-based auth: READY.
+- Login berhasil.
+- Dashboard berhasil terbuka.
+- Tidak ada error 401 setelah login.
+- Backend service WinSW: running.
+- Frontend service WinSW: running.
+- `npm run central:services:check`: READY.
+- Restart test Windows: PASSED.
+- Database backup manual: READY.
+- Backup scheduler: READY.
+- Scheduled task: `MWDMonitoringDailyDatabaseBackup`.
+- Restore guide: READY.
+- Inno Setup `.iss`: generated and valid.
+- Inno Setup compiler detection: READY.
+- Installer compile pipeline: READY.
+- Installer `.exe`: sudah berhasil dicompile dari GUI/user-confirmed.
+- Installer status: admin-assisted release candidate.
+- Clean-machine installer test: pending.
+- Receiver service: pending karena standalone receiver entrypoint belum verified.
+- Firewall: unchanged.
+- Database destructive operation: none.
+
+## Architecture
 
 ```text
-Full isolated Level 3 install on every user laptop
+Industrial PC / Laptop Server Utama
+├── PostgreSQL
+├── Backend API Service
+├── Frontend Web Service
+├── Receiver / Gateway MWD-WITS
+├── Logs
+├── Backups
+└── LAN URL
+
+User Device
+└── Browser / app-mode shortcut ke server
 ```
 
-## Quick commands
+PostgreSQL tetap lokal di server dan tidak diekspos ke LAN clients.
 
-Check local-only:
+## LocalOnly Mode
+
+Dipakai untuk testing/operasi dari server sendiri.
 
 ```powershell
+npm run central:env:local
+npm run central:start:local:build
 npm run central:check:local
 ```
 
-Start local-only:
-
-```powershell
-npm run central:stop
-npm run central:reset:dryrun
-npm run central:reset
-npm run central:env:local
-npm run central:start:local:build
-```
-
-If `central:reset` reports `Access denied`, open PowerShell as Administrator and run the printed `Stop-Process -Id <PID> -Force` command. Do not stop PostgreSQL.
-
-LocalOnly browser validation:
+Open:
 
 ```text
-Open http://127.0.0.1:3000
-Do not mix localhost and 127.0.0.1 during cookie testing
-Use Incognito/InPrivate or clear site data
-POST /api/auth/login -> 200
-Response includes authMode: cookie
-Response headers include Set-Cookie
-/api/auth/me is not 401
-/api/mwd-sessions is not 401
-Dashboard opens
+http://127.0.0.1:3000
 ```
 
-Start LAN mode:
+Jangan campur `localhost` dan `127.0.0.1` saat cookie auth.
+
+## LAN Mode
+
+Dipakai agar device lain dapat mengakses aplikasi.
 
 ```powershell
-npm run central:stop
 npm run central:env:lan
 npm run central:start:lan:build
-```
-
-Stop before switching between LocalOnly and LAN mode:
-
-```powershell
-npm run central:stop
-npm run central:reset
-```
-
-Check LAN binding:
-
-```powershell
 npm run central:check:lan
-netstat -ano -p tcp | Select-String ':5001|:3000'
 ```
 
-Create server shortcut:
+Open:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\create-central-shortcut.ps1 -AppUrl "http://127.0.0.1:3000" -Desktop -StartMenu
+```text
+http://192.168.18.75:3000
 ```
 
-Create user shortcut:
+Catatan:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\create-central-shortcut.ps1 -AppUrl "http://192.168.1.10:3000" -Desktop
-```
+- IP server harus stabil.
+- Gunakan DHCP reservation atau static IP.
+- Jika IP berubah, env harus digenerate ulang dan frontend harus rebuild.
 
-Dry-run service install:
+## WinSW Service Mode
 
-```powershell
-npm run central:services:dryrun
-```
+Service manager: WinSW.
 
-Install Windows services only after LAN runtime and client access are verified:
-
-```powershell
-npm run central:reset
-npm run central:services:dryrun
-npm run central:services:install
-```
-
-`central:services:install` still asks for interactive confirmation and requires WinSW. The script does not download WinSW, apply firewall rules, open PostgreSQL, run migrations/seeds, or compile the installer.
-
-Provide WinSW manually at:
+Path WinSW:
 
 ```text
 C:\Tools\winsw\WinSW-x64.exe
 ```
 
-or set:
+Commands:
 
 ```powershell
-$env:WINSW_PATH="D:\path\to\WinSW-x64.exe"
+npm run central:services:dryrun
+npm run central:services:install
+npm run central:services:start
+npm run central:services:check
+npm run central:services:restart
+npm run central:services:stop
 ```
 
-Manage service mode:
+Expected ready status:
+
+```text
+Backend service       : running
+Frontend service      : running
+Backend health        : OK
+Frontend health       : OK
+Final status          : READY
+```
+
+Jangan menjalankan manual runtime bersamaan dengan service mode.
+
+## Restart Test
+
+1. Pastikan service mode READY.
+2. Restart laptop/server.
+3. Tunggu 30-60 detik.
+4. Jalankan:
 
 ```powershell
 npm run central:services:check
-npm run central:services:start
-npm run central:services:stop
-npm run central:services:restart
 ```
 
-If Windows reports `Cannot open ... service on computer '.'`, rerun the same service command from PowerShell as Administrator.
+5. Buka dari server dan device lain:
 
-Service restart test:
-
-1. Install service.
-2. Restart laptop/server.
-3. Wait 30-60 seconds.
-4. Open `http://192.168.18.75:3000` from the server.
-5. Open `http://192.168.18.75:3000` from a client device.
-6. Login.
-7. Confirm dashboard opens.
-8. Run `npm run central:services:check`.
-
-Dry-run firewall:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\configure-central-firewall.ps1 -DryRun
+```text
+http://192.168.18.75:3000
 ```
 
-Apply firewall only after explicit approval:
+6. Login dan dashboard harus berhasil.
 
-```powershell
-npm run central:firewall:apply
-```
+Current status: PASSED.
 
-The apply command still asks for confirmation in PowerShell. It must only open frontend `3000` and backend API/WebSocket `5001`. PostgreSQL `5432` must remain closed to LAN clients.
+## Backup Database
 
-Dry-run LAN env:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\generate-central-env.ps1 -LanMode -ServerHost 192.168.1.10 -DryRun
-```
-
-Apply LAN env only after confirming the real server IP, then rebuild frontend:
-
-```powershell
-npm run central:env:lan
-```
-
-## LAN client test
-
-After the server laptop passes LAN mode, test from another laptop on the same LAN/VLAN:
-
-1. Open `http://192.168.18.75:3000`.
-2. Login.
-3. Confirm the dashboard opens.
-4. Confirm API requests target `http://192.168.18.75:5001`.
-5. If the page does not open, check frontend port `3000` and Windows Firewall.
-6. If the page opens but login/API fails, check backend port `5001`, backend LAN binding, and firewall.
-7. Do not expose PostgreSQL `5432`.
-
-## Stable IP
-
-The current LAN address `192.168.18.75` can change if DHCP assigns a new address. For production use, configure either a DHCP reservation in the router or a static IP on the server laptop/industrial PC.
-
-If the IP changes:
-
-```powershell
-npm run central:stop
-powershell -ExecutionPolicy Bypass -File .\scripts\generate-central-env.ps1 -LanMode -ServerHost <NEW_SERVER_IP> -Apply
-npm run central:start:lan:build
-```
-
-Then update user shortcuts to the new server URL.
-
-Backup database:
+Manual backup:
 
 ```powershell
 npm run central:backup:dryrun
 npm run central:backup
 ```
 
-Backup output:
+Backup folder:
 
 ```text
-backups/database/mwd-db-backup-YYYYMMDD-HHMMSS.dump
+backups/database
 ```
 
-Default retention:
+File format:
 
 ```text
-14 days
+mwd-db-backup-YYYYMMDD-HHMMSS.dump
 ```
 
-Schedule daily backup:
+Scheduler:
 
 ```powershell
-npm run central:backup:schedule:dryrun
 npm run central:backup:schedule
 ```
 
-`central:backup:schedule` asks for `SCHEDULE`. Task name:
+Task name:
 
 ```text
 MWDMonitoringDailyDatabaseBackup
 ```
 
-Restore dry-run:
+Restore default adalah dry-run. Production restore diblokir kecuali ada explicit confirmation. Jangan restore ke production tanpa backup tambahan.
 
-```powershell
-npm run central:restore:dryrun
+## Installer
+
+Installer type: admin-assisted installer.
+
+Files:
+
+```text
+installer/inno/MWDMonitoringCentralServer.iss.template
+installer/inno/MWDMonitoringCentralServer.iss
+installer/output/
 ```
 
-Restore to production is blocked unless extra flag and typed confirmation are used. Prefer restore to a new verification database first.
-
-Prepare package:
+Commands:
 
 ```powershell
-npm run central:package
+npm run central:installer:check
+npm run central:installer:compile:dryrun
+npm run central:installer:compile
 ```
 
-## Documentation
+Inno Setup compiler detection:
 
-Read:
+```text
+C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+C:\Program Files\Inno Setup 6\ISCC.exe
+$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe
+$env:INNO_SETUP_ISCC
+```
 
-- `docs/deployment/CENTRAL_LOCAL_SERVER_ANALYSIS.md`
+Installer `.exe` sudah berhasil dicompile dari GUI/user-confirmed. Status installer adalah RELEASE CANDIDATE sampai clean-machine installation test selesai.
+
+Prerequisites yang kemungkinan dibutuhkan:
+
+- Node.js.
+- PostgreSQL.
+- WinSW.
+- PowerShell.
+- Correct database/env setup.
+
+## Troubleshooting
+
+### 401 Unauthorized after login
+
+- Check cookie mode.
+- Confirm requests use credentials include.
+- Use the same host consistently.
+- Do not mix `localhost` and `127.0.0.1`.
+
+### ERR_CONNECTION_REFUSED
+
+- Check LocalOnly vs LAN env mismatch.
+- Check backend host binding.
+- Check backend port `5001`.
+
+### ISCC found: no
+
+- Check per-user Inno Setup path.
+- Set `$env:INNO_SETUP_ISCC` if needed.
+
+### Service stopped
+
+```powershell
+npm run central:services:start
+npm run central:services:check
+```
+
+Then check `service-logs`.
+
+### Port conflict
+
+```powershell
+npm run central:reset:dryrun
+```
+
+Do not stop PostgreSQL.
+
+### PostgreSQL exposure
+
+Do not expose PostgreSQL `5432` to LAN clients.
+
+## Git Safety
+
+Do not commit:
+
+```text
+.env
+.env.local
+.env.testing
+*.env.backup
+*.env.bak
+service-logs/
+backups/
+*.dump
+*.log
+dist-central-server-package/
+service/winsw/**/*.exe
+service/winsw/**/*.xml
+tools/winsw/*.exe
+```
+
+Safe to commit:
+
+```text
+scripts/*.ps1
+docs/deployment/*.md
+README.md
+README-CENTRAL-SERVER-DEPLOYMENT.md
+service/winsw/**/*.xml.template
+package.json
+```
+
+## More Documentation
+
+- `README.md`
+- `docs/PROJECT_CONTEXT_PRD.md`
+- `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`
 - `docs/deployment/CENTRAL_LOCAL_SERVER_GUIDE.md`
-- `docs/deployment/IP_BASED_CLIENT_ACCESS_GUIDE.md`
-- `docs/deployment/CENTRAL_SERVER_SERVICE_GUIDE.md`
 - `docs/deployment/CENTRAL_SERVICE_MODE_GUIDE.md`
-- `docs/deployment/CENTRAL_SERVER_SECURITY_NOTES.md`
-- `docs/deployment/CENTRAL_SERVER_BACKUP_GUIDE.md`
 - `docs/deployment/CENTRAL_DATABASE_BACKUP_GUIDE.md`
-- `docs/deployment/CENTRAL_SERVER_TROUBLESHOOTING.md`
 - `docs/deployment/CENTRAL_SERVER_INSTALLER_GUIDE.md`
+- `docs/deployment/CENTRAL_SERVER_TROUBLESHOOTING.md`

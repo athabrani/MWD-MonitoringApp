@@ -1,5 +1,13 @@
 # IP-Based Client Access Guide
 
+Update 2026-06-29: LAN access dari device lain sudah READY pada server yang dikonfigurasi. URL tervalidasi:
+
+```text
+http://192.168.18.75:3000
+```
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 ## Find server IP
 
 On the server:
@@ -27,7 +35,6 @@ http://192.168.1.10:3000
 On the server, use the LAN command set. Do not use LocalOnly commands for client laptop access.
 
 ```powershell
-npm run central:stop
 npm run central:env:lan
 npm run central:start:lan:build
 npm run central:check:lan

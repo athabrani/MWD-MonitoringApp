@@ -1,5 +1,152 @@
 # Project Context PRD - MWD Monitoring App
 
+## 0. Final Central Local Server Deployment Update
+
+Tanggal update: 2026-06-29  
+Branch: `package`  
+Status utama: operationally ready pada central local server yang sudah dikonfigurasi.
+
+Bagian ini adalah status PRD terbaru dan menjadi acuan utama jika ada perbedaan dengan catatan audit lama di bawahnya.
+
+### Nama dan Tujuan Aplikasi
+
+**Nama aplikasi:** MWD Monitoring App.
+
+MWD Monitoring App adalah aplikasi web/PWA untuk central local server yang digunakan untuk monitoring MWD/WITS, visualisasi data drilling, MWD session management, historical data, service mode operation, export, dan backup database. Sistem dirancang agar satu server utama menjadi source of truth data operasional, sementara device lain mengakses aplikasi melalui browser atau app-mode shortcut pada jaringan LAN.
+
+### Arsitektur Final
+
+```text
+Industrial PC / Laptop Server Utama
+├── PostgreSQL
+├── Backend API Service
+├── Frontend Web Service
+├── Receiver / Gateway MWD-WITS
+├── Logs
+├── Backups
+└── LAN URL
+
+User Device
+└── Browser / app-mode shortcut ke server
+```
+
+Frontend dan backend berjalan sebagai service pada server utama. PostgreSQL tidak diekspos ke client LAN. User device hanya mengakses frontend dan backend API/WebSocket melalui server.
+
+### Deployment Model
+
+| Model | Status | Keterangan |
+|---|---|---|
+| LocalOnly mode | READY | Digunakan untuk akses dari server sendiri melalui `http://127.0.0.1:3000`. |
+| LAN mode | READY | Device lain dapat mengakses `http://192.168.18.75:3000`. |
+| WinSW service mode | READY | Backend dan frontend service berjalan dan restart test Windows passed. |
+| Backup scheduler | READY | Scheduled task `MWDMonitoringDailyDatabaseBackup`. |
+| Admin-assisted installer | READY pipeline / RELEASE CANDIDATE installer | `.iss` valid dan installer `.exe` sudah berhasil dicompile via GUI/user-confirmed. |
+
+Status final yang harus dipakai:
+
+```text
+Operational deployment on the configured central local server: READY.
+Admin-assisted installer pipeline: READY.
+Installer release status: RELEASE CANDIDATE.
+Final stable installer status: pending clean-machine installation test.
+```
+
+### Current Readiness
+
+| Area | Status |
+|---|---|
+| LocalOnly runtime | READY |
+| LAN runtime | READY |
+| LAN access dari device lain | READY |
+| Cookie-based auth | READY |
+| Login dan dashboard | READY |
+| 401 after login | RESOLVED pada deployment saat ini |
+| Backend WinSW service | running |
+| Frontend WinSW service | running |
+| `npm run central:services:check` | READY |
+| Restart test Windows | PASSED |
+| Database backup manual | READY |
+| Backup scheduler | READY |
+| Restore guide | READY |
+| Inno Setup `.iss` | generated and valid |
+| Inno Setup compiler detection | READY |
+| Installer compile pipeline | READY |
+| Installer `.exe` | compiled via GUI/user-confirmed |
+| Clean-machine installer test | PENDING |
+| Receiver service | PENDING; standalone receiver entrypoint belum verified |
+| Firewall | unchanged |
+| Database destructive operation | none |
+
+### Scope Sistem
+
+Sistem saat ini mencakup:
+
+- menerima data MWD/WITS melalui backend/gateway yang dikonfigurasi;
+- menyimpan data operasional ke PostgreSQL;
+- menyinkronkan session/job aktif;
+- menampilkan dashboard, Rig WITS, historical data, well plot, connection status, dan failover events;
+- mengekspor data sesuai fitur yang tersedia;
+- menjalankan backend dan frontend sebagai Windows service;
+- melakukan backup database manual dan terjadwal;
+- menyediakan installer admin-assisted untuk central server.
+
+Out of scope untuk status final ini:
+
+- decoding sinyal mentah radio/LoRa level fisik;
+- mengendalikan rig;
+- membuka PostgreSQL langsung ke client LAN;
+- clean-machine stable installer claim sebelum installation test selesai;
+- receiver service standalone sampai entrypoint diverifikasi.
+
+### Functional Modules
+
+| Modul | Status | Catatan |
+|---|---|---|
+| Login/auth | READY | Cookie-based auth berhasil; tidak ada 401 setelah login pada deployment saat ini. |
+| Dashboard | READY | Dashboard berhasil terbuka setelah login. |
+| MWD sessions | READY untuk runtime saat ini | Session digunakan sebagai konteks data. |
+| Rig WITS monitoring | READY/PARTIAL | Siap sebagai modul monitoring; bergantung pada input backend/gateway. |
+| Historical data | READY/PARTIAL | Tersedia sebagai workflow data historis. |
+| Well plot | READY/PARTIAL | Tersedia sebagai modul visualisasi. |
+| Connection status | READY | Dipakai untuk health/runtime visibility. |
+| Failover events | READY/PARTIAL | Tersedia sebagai modul status/event. |
+| Export | READY/PARTIAL | Bergantung pada endpoint dan data yang tersedia. |
+| Admin/settings | READY/PARTIAL | Dipakai untuk administrasi dan konfigurasi. |
+| Backup/restore | READY guide | Backup siap; restore production dibatasi oleh dry-run dan confirmation. |
+| Service mode | READY | Backend/frontend service running dan restart test passed. |
+| Installer | RELEASE CANDIDATE | Pipeline siap; clean install pending. |
+
+### Non-Functional Requirements Final
+
+| Requirement | Status | Catatan |
+|---|---|---|
+| LAN-based access | READY | Device lain dapat akses server URL. |
+| Service auto-start | READY | Restart test Windows passed. |
+| Backup safety | READY | Manual backup dan scheduler tersedia. |
+| Credential safety | REQUIRED | `.env` dan secret tidak boleh di-commit. |
+| No PostgreSQL exposure to clients | REQUIRED | Client LAN hanya akses frontend/backend, bukan `5432`. |
+| Installer safety | PARTIAL | Installer admin-assisted; clean-machine test belum selesai. |
+| Runtime safety | READY | Tidak ada database destructive operation pada deployment final. |
+
+### Known Limitations
+
+| Limitation | Status | Dampak |
+|---|---|---|
+| Receiver service standalone | PENDING | Backend/gateway runtime tetap berjalan, tetapi service receiver terpisah belum dapat diklaim siap. |
+| Clean-machine installer test | PENDING | Installer masih release candidate, belum final stable. |
+| Installer model | Admin-assisted | Belum fully one-click; membutuhkan prerequisite dan setup admin. |
+| Firewall | unchanged | Jika client baru gagal akses, firewall perlu dicek manual tanpa membuka PostgreSQL. |
+
+### Dokumentasi Deployment Terkait
+
+Panduan deployment final ada di:
+
+```text
+docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md
+README-CENTRAL-SERVER-DEPLOYMENT.md
+README.md
+```
+
 Dokumen ini adalah PRD sekaligus context handoff document untuk developer dan AI assistant/GPT/Codex session berikutnya. Isi dokumen disusun berdasarkan scan repository pada 2026-06-10 dari source code yang tersedia di repository ini. Jika ada konflik antara dokumentasi lama dan source code, source code diprioritaskan.
 
 ## 1. Project Overview
@@ -362,7 +509,7 @@ Ini adalah pola yang benar agar Express dan WebSocket tidak melakukan `listen` t
 **Migration/seed behavior:**
 
 - Migration tersedia di `mwd-app-be/prisma/migrations`.
-- Seed: `npm run seed` menjalankan `prisma db seed`.
+- Seed dari root repository: `npm run seed:local` menjalankan seed backend.
 - Seed membuat role `admin`, `engineer`, `operator`, tetapi default user hanya `admin` dan `engineer`.
 - Seed mengisi banyak WITS config default dan satu plot template default.
 
@@ -490,9 +637,8 @@ NEXT_PUBLIC_WS_URL=ws://localhost:5001/ws
 **Database setup:**
 
 ```bash
-cd mwd-app-be
-npx prisma migrate dev
-npm run seed
+npm run setup:local
+npm run seed:local
 ```
 
 **Menjalankan backend:**

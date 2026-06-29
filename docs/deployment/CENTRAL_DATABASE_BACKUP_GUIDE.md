@@ -1,5 +1,9 @@
 # Central Database Backup Guide
 
+Update 2026-06-29: manual database backup is READY, backup scheduler is READY, and scheduled task `MWDMonitoringDailyDatabaseBackup` is configured. Restore guide is READY; production restore remains blocked unless explicit confirmation is used.
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 ## Goal
 
 Backup central PostgreSQL database from server laptop/industrial PC. Backup does not modify database and does not print password.

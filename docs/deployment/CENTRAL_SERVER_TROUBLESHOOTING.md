@@ -1,5 +1,9 @@
 # Central Server Troubleshooting
 
+Update 2026-06-29: LocalOnly, LAN, cookie-based login, dashboard access, WinSW service mode, restart test, manual backup, backup scheduler, and installer compile pipeline are READY on the configured server. Installer remains RELEASE CANDIDATE until clean-machine installation test passes.
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 ## Frontend opens but data does not appear
 
 Check:
@@ -23,6 +27,7 @@ Common causes:
 
 - frontend was built with LAN env while backend is running LocalOnly, or the reverse;
 - browser opened `localhost:3000` while backend cookies were set on `127.0.0.1`, or the reverse;
+- browser mixed `localhost`, `127.0.0.1`, and LAN IP in the same cookie auth test;
 - frontend requests are not using `credentials: "include"`;
 - CSRF token is missing on mutating requests;
 - backend cookie is marked `Secure` while using plain HTTP.
@@ -100,6 +105,8 @@ http://192.168.x.x:5001/api/auth/login ERR_CONNECTION_REFUSED
 Cause:
 
 The frontend was rebuilt with the LAN API URL, but the backend is not listening on the LAN interface. It may be stopped, bound only to `127.0.0.1`, or blocked by an old local-only frontend/backend process.
+
+This usually indicates LocalOnly vs LAN env mismatch, backend binding mismatch, or a stopped backend service.
 
 Fix:
 
@@ -425,6 +432,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\backup-central-db.ps1 -Backup
 ```
 
 The script also searches PostgreSQL and pgAdmin install folders.
+
+## ISCC found: no
+
+If installer check reports that Inno Setup compiler is not found, check these locations:
+
+```text
+C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+C:\Program Files\Inno Setup 6\ISCC.exe
+$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe
+$env:INNO_SETUP_ISCC
+```
+
+Then run:
+
+```powershell
+npm run central:installer:check
+npm run central:installer:compile:dryrun
+```
 
 ## Backup file empty
 

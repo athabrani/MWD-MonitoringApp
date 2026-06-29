@@ -2,6 +2,10 @@
 
 This guide covers Windows Service mode for the MWD Monitoring App Central Local Server.
 
+Update 2026-06-29: service mode is READY on the configured server. Backend and frontend WinSW services are running, `npm run central:services:check` is READY, and the Windows restart test has PASSED.
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 Service mode is only for the main server laptop/industrial PC. User laptops still access the app through a browser or app-mode shortcut.
 
 ## Service manager

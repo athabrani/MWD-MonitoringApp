@@ -1,5 +1,9 @@
 # Central Server Service Guide
 
+Update 2026-06-29: Backend service WinSW and frontend service WinSW are running. `npm run central:services:check` reports READY on the configured central local server. Windows restart test has PASSED.
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 ## Service manager
 
 The default Windows Service wrapper is:
@@ -23,6 +27,12 @@ Planned Windows services:
 PostgreSQL is expected to run as its own PostgreSQL service. Do not expose PostgreSQL port `5432` to LAN clients.
 
 ## WinSW setup
+
+Primary WinSW location for the validated server:
+
+```text
+C:\Tools\winsw\WinSW-x64.exe
+```
 
 Supported WinSW locations:
 
@@ -120,3 +130,15 @@ Generated `.exe` and final `.xml` files are machine-local and ignored by git.
 7. Login.
 8. Confirm dashboard opens.
 9. Run `npm run central:services:check`.
+
+Expected ready status:
+
+```text
+Backend service       : running
+Frontend service      : running
+Backend health        : OK
+Frontend health       : OK
+Final status          : READY
+```
+
+Do not run manual LocalOnly/LAN runtime at the same time as service mode.

@@ -1,5 +1,18 @@
 # Central Local Server Guide
 
+Update 2026-06-29: LocalOnly runtime, LAN runtime, LAN access dari device lain, cookie-based auth, login, dan dashboard sudah READY pada central local server yang dikonfigurasi.
+
+Status final:
+
+```text
+Operational deployment on the configured central local server: READY.
+Admin-assisted installer pipeline: READY.
+Installer release status: RELEASE CANDIDATE.
+Final stable installer status: pending clean-machine installation test.
+```
+
+Dokumen final utama: `docs/deployment/CENTRAL_SERVER_FINAL_DEPLOYMENT_GUIDE.md`.
+
 ## Architecture
 
 MWD Monitoring App production/local deployment uses one central server:
@@ -68,9 +81,9 @@ Do not mix these modes. `NEXT_PUBLIC_*` values are compiled into the frontend bu
 ## Start local-only
 
 ```powershell
-npm run central:stop
 npm run central:env:local
 npm run central:start:local:build
+npm run central:check:local
 ```
 
 Server opens:
@@ -112,9 +125,9 @@ CORS_ORIGIN=http://127.0.0.1:3000,http://localhost:3000,http://<SERVER_HOST>:300
 Then run:
 
 ```powershell
-npm run central:stop
 npm run central:env:lan
 npm run central:start:lan:build
+npm run central:check:lan
 ```
 
 Client laptops open:
@@ -141,3 +154,15 @@ User browser -> Frontend -> Backend -> PostgreSQL
 npm run central:check:local
 npm run central:check:lan
 ```
+
+## Final LAN readiness
+
+Validated LAN URL:
+
+```text
+http://192.168.18.75:3000
+```
+
+IP server harus stabil. Gunakan DHCP reservation atau static IP. Jika IP berubah, generate LAN env ulang dan rebuild frontend sebelum digunakan oleh client device.
+
+Jangan expose PostgreSQL port `5432` ke LAN clients.
