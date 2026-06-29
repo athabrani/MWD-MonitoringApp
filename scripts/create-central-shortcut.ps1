@@ -1,6 +1,10 @@
 param(
     [string]$AppUrl = "http://127.0.0.1:3000",
     [string]$ShortcutName = "MWD Monitoring App",
+    [ValidateSet("Custom", "LocalOnly", "LanClient")]
+    [string]$Mode = "Custom",
+    [string]$ServerHost = "192.168.18.75",
+    [int]$FrontendPort = 3000,
     [switch]$Desktop,
     [switch]$StartMenu
 )
@@ -73,11 +77,27 @@ function New-AppShortcut {
         $shortcut.WorkingDirectory = Split-Path -Parent $Browser.Target
     }
     $shortcut.Description = "Open MWD Monitoring App at $AppUrl"
-    $shortcut.Save()
+    try {
+        $shortcut.Save()
+    } catch [System.UnauthorizedAccessException] {
+        Write-Host "Access denied while creating shortcut."
+        Write-Host ("Target path: {0}" -f $Path)
+        Write-Host "Run this command from a normal user PowerShell session, or choose a writable location."
+        throw
+    }
 }
 
 if (!$Desktop -and !$StartMenu) {
     $Desktop = $true
+}
+
+if ($Mode -eq "LocalOnly") {
+    $AppUrl = "http://127.0.0.1:$FrontendPort"
+} elseif ($Mode -eq "LanClient") {
+    if ([string]::IsNullOrWhiteSpace($ServerHost)) {
+        throw "ServerHost is required for -Mode LanClient."
+    }
+    $AppUrl = "http://$ServerHost`:$FrontendPort"
 }
 
 try {

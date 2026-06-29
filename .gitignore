@@ -5,7 +5,17 @@ dist
 .env.local
 .env.*.local
 logs
+service-logs/
+tools/winsw/*.exe
+service/winsw/**/*.exe
+service/winsw/**/*.xml
 coverage
+dist-central-server-package/
+backups/
+*.log
+*.central-backup-*
+*.env.backup
+*.env.bak
 
 .vercel
 mwd-app-be/node_modules

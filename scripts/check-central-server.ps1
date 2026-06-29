@@ -466,6 +466,9 @@ $shortcutScriptFound = Test-Path (Join-Path $repoRoot "scripts\create-central-sh
 $postgres = Test-PostgreSql $backendEnv
 $securityIssues = @(Test-ProductionSecurityEnv $backendEnv)
 $securityStatus = if ($securityIssues.Count -eq 0) { "OK" } else { "NOT OK" }
+$authExposeToken = $backendEnv["AUTH_EXPOSE_TOKEN"]
+$authExposeEnabled = $authExposeToken -and @("1", "true", "yes", "on") -contains $authExposeToken.Trim().ToLowerInvariant()
+$authCookieStatus = if ($securityStatus -eq "OK" -and !$authExposeEnabled) { "OK" } else { "NOT OK" }
 
 $finalReady = $true
 foreach ($condition in @(
@@ -518,10 +521,17 @@ Write-Result "API URL" $apiStatus
 Write-Result "WS URL" $wsStatus
 Write-Result "CORS" $corsStatus
 Write-Result "Security env" $securityStatus
+Write-Result "Auth cookie" $authCookieStatus
 Write-Result "Backend binding" $(if ($backendBindingOk) { "OK" } else { "NOT OK" })
 Write-Result "Frontend binding" $(if ($frontendBindingOk) { "OK" } else { "NOT OK" })
 Write-Result "Backend bindings" $backendBindingSummary
 Write-Result "Frontend bindings" $frontendBindingSummary
+if ($LanMode) {
+    Write-Result "LAN backend listen" $(if ($backendBindingOk) { $backendBindingSummary } else { "NOT OK" })
+    Write-Result "LAN frontend listen" $(if ($frontendBindingOk) { $frontendBindingSummary } else { "NOT OK" })
+    Write-Result "Frontend URL" $frontendOrigin
+    Write-Result "Backend health" $(if ($backendLan) { "OK" } else { "NOT OK" })
+}
 Write-Result "Backend local" $(if ($backendLocal) { "OK" } else { "NOT READY" })
 Write-Result "Backend LAN" $(if ($backendLan) { "OK" } else { "NOT READY" })
 Write-Result "Backend IP health" $(if ($backendLan) { "OK" } else { "NOT OK" })

@@ -38,7 +38,7 @@ Template:
 installer/inno/MWDMonitoringCentralServer.iss.template
 ```
 
-This is not compiled automatically. Review PostgreSQL prerequisites, NSSM availability, service commands, env templates, and firewall policy before compiling an installer.
+This is not compiled automatically. Review PostgreSQL prerequisites, WinSW availability, service commands, env templates, and firewall policy before compiling an installer.
 
 ## Safety defaults
 

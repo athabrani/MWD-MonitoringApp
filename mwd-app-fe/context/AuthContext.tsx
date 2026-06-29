@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User } from '../types';
 import { ApiClientError } from '@/lib/api-client';
-import { fetchCurrentUser, loginWithPassword } from '@/lib/auth-api';
+import { fetchCurrentUser, loginWithPassword, logoutFromBackend } from '@/lib/auth-api';
 import { toast } from 'sonner';
 import {
   bootstrapStoredSession,
@@ -48,7 +48,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     resetAuthSessionInvalidNotification();
+    const currentToken = token;
+    void logoutFromBackend(currentToken).catch(() => {
+      // Local logout should still clear the UI session if the backend is unreachable.
+    });
     clearAuthSession();
+    router.replace("/login");
   };
 
   useEffect(
@@ -94,7 +99,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resetAuthSessionInvalidNotification();
       setUser(session.user);
       setToken(session.token);
-      writeStoredSession(session.user, session.token, rememberMe);
+      writeStoredSession(session.user, session.token, rememberMe, {
+        csrfToken: session.csrfToken,
+      });
       return true;
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 401) {

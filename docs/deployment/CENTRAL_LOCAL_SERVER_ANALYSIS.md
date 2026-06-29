@@ -105,7 +105,7 @@ Shortcut app-mode adalah mekanisme akses UI ringan:
 - CORS production harus memuat origin IP/hostname server.
 - Firewall Windows dapat memblokir port frontend/backend.
 - PostgreSQL tidak boleh diekspos ke LAN.
-- Service Windows perlu tool seperti NSSM dan konfigurasi working directory/log yang benar.
+- Service Windows perlu wrapper seperti WinSW dan konfigurasi working directory/log yang benar.
 - Receiver serial/gateway harus hanya aktif di server utama.
 - Mengubah `NEXT_PUBLIC_*` membutuhkan rebuild frontend.
 - LAN mode membutuhkan IP/hostname server aktual sebelum env diterapkan.
@@ -130,7 +130,7 @@ Shortcut app-mode adalah mekanisme akses UI ringan:
 2. Tambahkan script validasi central local server.
 3. Tambahkan script start production central server dengan log dan mode LAN/local-only.
 4. Tambahkan shortcut app-mode untuk server dan client.
-5. Tambahkan scaffold service Windows berbasis NSSM dengan dry-run default.
+5. Tambahkan scaffold service Windows berbasis WinSW dengan dry-run default.
 6. Tambahkan firewall dry-run/apply eksplisit.
 7. Tambahkan backup database aman dengan `pg_dump`.
 8. Tambahkan package scaffold dan Inno Setup template untuk server utama.

@@ -1,63 +1,122 @@
 # Central Server Service Guide
 
+## Service manager
+
+The default Windows Service wrapper is:
+
+```text
+WinSW / Windows Service Wrapper
+```
+
+NSSM is no longer the default service manager. Any old NSSM references are legacy/alternative context only.
+
 ## Services
 
 Planned Windows services:
 
-- `MWDBackend`
-- `MWDFrontend`
-- `MWDReceiver`
+- `MWDMonitoringBackend`
+- `MWDMonitoringFrontend`
+- `MWDMonitoringReceiver`
 
-`MWDReceiver` is scaffolded but skipped by installer scripts until the receiver command is manually verified. Current receiver/gateway logic starts inside the backend process.
+`MWDMonitoringReceiver` is pending and skipped by installer scripts until a standalone receiver command is manually verified. Current receiver/gateway logic starts inside the backend process.
 
-PostgreSQL is expected to run as its own PostgreSQL service.
+PostgreSQL is expected to run as its own PostgreSQL service. Do not expose PostgreSQL port `5432` to LAN clients.
+
+## WinSW setup
+
+Supported WinSW locations:
+
+```text
+WINSW_PATH
+C:\Tools\winsw\WinSW-x64.exe
+C:\winsw\WinSW-x64.exe
+.\tools\winsw\WinSW-x64.exe
+```
+
+Download WinSW x64 manually from the official GitHub Releases page through the approved admin process. The deployment scripts do not download WinSW.
 
 ## Dry-run install
 
 ```powershell
-.\scripts\install-central-services.ps1 -DryRun
+npm run central:services:dryrun
 ```
 
-## Confirm install
+## Install
 
-Requires NSSM installed and available in `PATH`.
+Requires:
 
-Current scaffold status: NSSM is not installed on this machine, so service installation remains dry-run only. Do not run `-ConfirmInstall` until NSSM is installed and the service command plan has been reviewed.
-
-Firewall and service installation remain separate approvals. A ready local runtime does not imply services have been installed.
+- WinSW available;
+- LAN env applied;
+- backend build found;
+- frontend build found;
+- manual runtime stopped on ports `3000` and `5001`.
 
 ```powershell
-.\scripts\install-central-services.ps1 -ConfirmInstall
+npm run central:reset
+npm run central:services:dryrun
+npm run central:services:install
 ```
 
-LAN mode:
-
-```powershell
-.\scripts\install-central-services.ps1 -ConfirmInstall -LanMode -ServerHost 192.168.1.10
-```
-
-## Start, stop, and check
-
-```powershell
-.\scripts\start-central-services.ps1
-.\scripts\stop-central-services.ps1
-.\scripts\check-central-services.ps1
-```
-
-## Logs
-
-Service logs are written to:
+The install command asks for interactive confirmation. Type:
 
 ```text
-service-logs/service-backend.log
-service-logs/service-backend-error.log
-service-logs/service-frontend.log
-service-logs/service-frontend-error.log
+INSTALL
 ```
 
-## Notes
+before it creates services.
 
-- Services must use production build.
-- Services must not run `npm run dev`.
-- Service installation is never performed unless `-ConfirmInstall` is provided.
-- Uninstall is dry-run by default and requires `-ConfirmUninstall`.
+## Start, stop, restart, and check
+
+```powershell
+npm run central:services:status
+npm run central:services:check
+npm run central:services:start
+npm run central:services:stop
+npm run central:services:restart
+```
+
+## Uninstall
+
+Uninstall is explicit and interactive:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\manage-central-services.ps1 -Uninstall
+```
+
+Then type:
+
+```text
+UNINSTALL
+```
+
+## WinSW files
+
+Templates:
+
+```text
+service/winsw/backend/MWDMonitoringBackend.xml.template
+service/winsw/frontend/MWDMonitoringFrontend.xml.template
+```
+
+Generated during install:
+
+```text
+service/winsw/backend/MWDMonitoringBackend.exe
+service/winsw/backend/MWDMonitoringBackend.xml
+service/winsw/frontend/MWDMonitoringFrontend.exe
+service/winsw/frontend/MWDMonitoringFrontend.xml
+```
+
+Generated `.exe` and final `.xml` files are machine-local and ignored by git.
+
+## Restart validation
+
+1. Install service.
+2. Start services.
+3. Restart laptop/server.
+4. Wait 30-60 seconds.
+5. Open `http://192.168.18.75:3000` from the server.
+6. Open `http://192.168.18.75:3000` from a client device.
+7. Login.
+8. Confirm dashboard opens.
+9. Run `npm run central:services:check`.

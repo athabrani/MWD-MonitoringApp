@@ -77,9 +77,53 @@ Script example:
 .\scripts\create-central-shortcut.ps1 -AppUrl "http://192.168.1.10:3000" -Desktop
 ```
 
+For the current LAN candidate:
+
+```powershell
+.\scripts\create-central-shortcut.ps1 -Mode LanClient -ServerHost 192.168.18.75 -Desktop
+```
+
+## Client laptop checklist
+
+Use this after the server laptop has passed LAN mode checks.
+
+1. Confirm the client laptop is on the same LAN/VLAN as the server.
+2. Open:
+
+```text
+http://192.168.18.75:3000
+```
+
+3. Login with a valid user.
+4. Confirm the dashboard opens.
+5. In browser DevTools, confirm API calls go to:
+
+```text
+http://192.168.18.75:5001
+```
+
+6. If the page does not open, the frontend port `3000` is probably blocked by Windows Firewall or the server is not in LAN mode.
+7. If the page opens but login/API fails, the backend port `5001` may be blocked or the backend is not listening on `0.0.0.0`.
+8. Do not open PostgreSQL port `5432` to client laptops.
+
 ## Static IP and hostname
 
 Use a static IP reservation on the router or IT-managed DHCP reservation for the server. A local hostname such as `mwd-monitoring.local` is acceptable if DNS/mDNS is reliable on the rig network.
+
+The server IP can change when DHCP assigns a new address. For production use, choose one:
+
+1. DHCP reservation on the router for the server laptop/industrial PC MAC address.
+2. Static IP configured on the server network adapter.
+
+If the server IP changes:
+
+```powershell
+npm run central:stop
+powershell -ExecutionPolicy Bypass -File .\scripts\generate-central-env.ps1 -LanMode -ServerHost <NEW_SERVER_IP> -Apply
+npm run central:start:lan:build
+```
+
+Then update user shortcuts to the new URL.
 
 ## Troubleshooting
 

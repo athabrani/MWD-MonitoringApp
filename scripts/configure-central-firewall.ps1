@@ -1,5 +1,6 @@
 param(
     [switch]$DryRun,
+    [switch]$Apply,
     [switch]$ConfirmApply,
     [int]$FrontendPort = 3000,
     [int]$BackendPort = 5001
@@ -7,12 +8,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (!$ConfirmApply) {
+if (!$Apply -and !$ConfirmApply) {
     $DryRun = $true
 }
 
 if ($FrontendPort -eq 5432 -or $BackendPort -eq 5432) {
     throw "Refusing to create firewall rules for PostgreSQL port 5432."
+}
+
+if ($FrontendPort -in @(3002, 5002) -or $BackendPort -in @(3002, 5002)) {
+    throw "Refusing to create firewall rules for testing ports 3002 or 5002."
 }
 
 $rules = @(
@@ -24,7 +29,7 @@ $rules = @(
     },
     @{
         Name = "MWD Monitoring Backend $BackendPort"
-        DisplayName = "MWD Monitoring Backend ($BackendPort)"
+        DisplayName = "MWD Monitoring Backend API $BackendPort"
         Port = $BackendPort
         Description = "Allow browser clients to reach the MWD backend API/WebSocket when frontend calls backend directly."
     }
@@ -33,6 +38,12 @@ $rules = @(
 Write-Host ""
 Write-Host "CENTRAL SERVER FIREWALL PLAN"
 Write-Host ""
+if ($DryRun) {
+    Write-Host "DRY RUN ONLY"
+}
+Write-Host ("Will open TCP {0}" -f $FrontendPort)
+Write-Host ("Will open TCP {0}" -f $BackendPort)
+Write-Host "Will NOT open PostgreSQL 5432"
 Write-Host "PostgreSQL port 5432 will NOT be opened."
 Write-Host "Expected flow: User -> Frontend -> Backend -> PostgreSQL"
 Write-Host ""
@@ -45,8 +56,20 @@ foreach ($rule in $rules) {
 }
 
 if ($DryRun) {
-    Write-Host "Dry-run only. Re-run with -ConfirmApply to create firewall rules."
+    Write-Host "No firewall changes applied."
+    Write-Host "Re-run with -Apply or -ConfirmApply to create firewall rules."
     exit 0
+}
+
+if ($Apply -and !$ConfirmApply) {
+    Write-Host ""
+    Write-Host "This will create inbound Windows Firewall rules for frontend/backend only."
+    Write-Host "PostgreSQL 5432 will remain closed."
+    $answer = Read-Host "Type APPLY to continue"
+    if ($answer -ne "APPLY") {
+        Write-Host "Firewall apply cancelled. No firewall changes applied."
+        exit 1
+    }
 }
 
 foreach ($rule in $rules) {
