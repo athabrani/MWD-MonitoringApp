@@ -5,8 +5,19 @@ const sessionSelect = {
   userId: true,
   connectionStatusId: true,
   sessionCode: true,
+  company: true,
   wellName: true,
+  wellId: true,
   rigName: true,
+  fieldName: true,
+  jobNumber: true,
+  province: true,
+  countyParish: true,
+  country: true,
+  location: true,
+  latitude: true,
+  longitude: true,
+  notes: true,
   startedAt: true,
   endedAt: true,
   createdAt: true,
@@ -32,13 +43,31 @@ const sessionSelect = {
       checkedAt: true,
     },
   },
+  _count: {
+    select: {
+      mwdData: true,
+      surveyStations: true,
+      witsDataValues: true,
+    },
+  },
 } as const;
 
 type SessionInput = {
   userId: number;
   sessionCode: string;
+  company?: string | null;
   wellName?: string | null;
+  wellId?: string | null;
   rigName?: string | null;
+  fieldName?: string | null;
+  jobNumber?: string | null;
+  province?: string | null;
+  countyParish?: string | null;
+  country?: string | null;
+  location?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  notes?: string | null;
   connectionStatusId?: number | null;
   startedAt?: Date;
   endedAt?: Date | null;
@@ -47,23 +76,26 @@ type SessionInput = {
 type SessionUpdateInput = {
   userId?: number;
   sessionCode?: string;
+  company?: string | null;
   wellName?: string | null;
+  wellId?: string | null;
   rigName?: string | null;
+  fieldName?: string | null;
+  jobNumber?: string | null;
+  province?: string | null;
+  countyParish?: string | null;
+  country?: string | null;
+  location?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  notes?: string | null;
   connectionStatusId?: number | null;
   startedAt?: Date;
   endedAt?: Date | null;
 };
 
 export const createSession = async (input: SessionInput) => {
-  const data: {
-    userId: number;
-    sessionCode: string;
-    wellName?: string | null;
-    rigName?: string | null;
-    connectionStatusId?: number | null;
-    startedAt?: Date;
-    endedAt?: Date | null;
-  } = {
+  const data: Record<string, unknown> = {
     userId: input.userId,
     sessionCode: input.sessionCode,
   };
@@ -74,6 +106,24 @@ export const createSession = async (input: SessionInput) => {
 
   if (input.rigName !== undefined) {
     data.rigName = input.rigName;
+  }
+
+  for (const fieldName of [
+    "company",
+    "wellId",
+    "fieldName",
+    "jobNumber",
+    "province",
+    "countyParish",
+    "country",
+    "location",
+    "latitude",
+    "longitude",
+    "notes",
+  ] as const) {
+    if (input[fieldName] !== undefined) {
+      data[fieldName] = input[fieldName];
+    }
   }
 
   if (input.connectionStatusId !== undefined) {
@@ -89,7 +139,7 @@ export const createSession = async (input: SessionInput) => {
   }
 
   return await prisma.mWDSession.create({
-    data,
+    data: data as any,
     select: sessionSelect,
   });
 };
@@ -97,10 +147,10 @@ export const createSession = async (input: SessionInput) => {
 export const getAllSessions = async (userId?: number) => {
   const args: {
     where?: { userId: number };
-    orderBy: { id: "asc" };
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }];
     select: typeof sessionSelect;
   } = {
-    orderBy: { id: "asc" },
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }],
     select: sessionSelect,
   };
 
@@ -110,7 +160,22 @@ export const getAllSessions = async (userId?: number) => {
 
   return await prisma.mWDSession.findMany({
     ...args,
-  });
+  }).then((sessions) =>
+    sessions.sort((left, right) => {
+      const leftDataCount =
+        left._count.mwdData + left._count.surveyStations + left._count.witsDataValues;
+      const rightDataCount =
+        right._count.mwdData + right._count.surveyStations + right._count.witsDataValues;
+
+      if (leftDataCount > 0 && rightDataCount === 0) return -1;
+      if (leftDataCount === 0 && rightDataCount > 0) return 1;
+
+      return (
+        right.startedAt.getTime() - left.startedAt.getTime() ||
+        right.id - left.id
+      );
+    }),
+  );
 };
 
 export const getSessionById = async (id: number) => {

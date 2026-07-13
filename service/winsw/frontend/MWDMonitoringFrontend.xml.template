@@ -1,0 +1,16 @@
+<service>
+  <id>MWDMonitoringFrontend</id>
+  <name>MWD Monitoring Frontend</name>
+  <description>MWD Monitoring Frontend Web Service</description>
+  <workingdirectory>{{FRONTEND_DIR}}</workingdirectory>
+  <executable>{{NPM_EXECUTABLE}}</executable>
+  <arguments>{{FRONTEND_START_ARGUMENTS}}</arguments>
+  <env name="NODE_ENV" value="production"/>
+  <logpath>{{LOG_DIR}}</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10485760</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+  <onfailure action="restart" delay="10 sec"/>
+  <startmode>Automatic</startmode>
+</service>

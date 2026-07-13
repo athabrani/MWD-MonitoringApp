@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 const getGatewayApiKey = () => {
   const apiKey = process.env.GATEWAY_API_KEY;
@@ -8,6 +9,57 @@ const getGatewayApiKey = () => {
   }
 
   return apiKey;
+};
+
+const hashSecret = (value: string) => {
+  return createHash("sha256").update(value, "utf8").digest();
+};
+
+const safeSecretEqual = (left: string, right: string) => {
+  const leftHash = hashSecret(left);
+  const rightHash = hashSecret(right);
+
+  return timingSafeEqual(leftHash, rightHash);
+};
+
+const getGatewayHmacSecret = () => {
+  return process.env.GATEWAY_HMAC_SECRET?.trim() || "";
+};
+
+const canonicalizePayload = (value: unknown): string => {
+  return JSON.stringify(value ?? {});
+};
+
+const verifyGatewaySignature = (req: Request) => {
+  const hmacSecret = getGatewayHmacSecret();
+
+  if (!hmacSecret) {
+    return true;
+  }
+
+  const timestamp =
+    typeof req.headers["x-gateway-timestamp"] === "string"
+      ? req.headers["x-gateway-timestamp"].trim()
+      : "";
+  const signature =
+    typeof req.headers["x-gateway-signature"] === "string"
+      ? req.headers["x-gateway-signature"].trim()
+      : "";
+  const timestampMs = Number(timestamp);
+
+  if (!timestamp || !signature || !Number.isFinite(timestampMs)) {
+    return false;
+  }
+
+  if (Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) {
+    return false;
+  }
+
+  const expectedSignature = createHmac("sha256", hmacSecret)
+    .update(`${timestamp}.${canonicalizePayload(req.body)}`)
+    .digest("hex");
+
+  return safeSecretEqual(signature, expectedSignature);
 };
 
 export const authenticateGateway = (
@@ -27,8 +79,12 @@ export const authenticateGateway = (
           ? authorization.slice(7).trim()
           : "";
 
-    if (!providedApiKey || providedApiKey !== expectedApiKey) {
+    if (!providedApiKey || !safeSecretEqual(providedApiKey, expectedApiKey)) {
       return res.status(401).json({ message: "Invalid gateway credentials" });
+    }
+
+    if (!verifyGatewaySignature(req)) {
+      return res.status(401).json({ message: "Invalid gateway signature" });
     }
 
     next();

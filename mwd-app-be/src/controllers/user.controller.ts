@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import * as userService from "../services/user.service.js";
 
 const parseUserId = (idParam: string) => {
@@ -22,6 +24,18 @@ const parseRoleId = (value: unknown) => {
 
 const normalizeString = (value: unknown) => {
   return typeof value === "string" ? value.trim() : "";
+};
+
+const validatePassword = (password: string) => {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters";
+  }
+
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    return "Password must contain letters and numbers";
+  }
+
+  return null;
 };
 
 const handleUserWriteError = (error: unknown, res: Response) => {
@@ -78,12 +92,30 @@ export const createUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Password is required" });
     }
 
+    const passwordError = validatePassword(password);
+
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
     const user = await userService.createUser({
       roleId,
       username,
       email,
       password,
       isActive,
+    });
+
+    const authUser = (req as AuthenticatedRequest).user;
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "user.create",
+      details: `Created user ${user.username}`,
+      metadata: {
+        targetUserId: user.id,
+        roleId: user.roleId,
+        isActive: user.isActive,
+      },
     });
 
     res.status(201).json(user);
@@ -180,6 +212,12 @@ export const updateUser = async (req: Request, res: Response) => {
         return res.status(400).json({ message: "Password cannot be empty" });
       }
 
+      const passwordError = validatePassword(password);
+
+      if (passwordError) {
+        return res.status(400).json({ message: passwordError });
+      }
+
       updates.password = password;
     }
 
@@ -196,6 +234,19 @@ export const updateUser = async (req: Request, res: Response) => {
     }
 
     const user = await userService.updateUser(id, updates);
+    const authUser = (req as AuthenticatedRequest).user;
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "user.update",
+      details: `Updated user ${user.username}`,
+      metadata: {
+        targetUserId: user.id,
+        updatedFields: Object.keys(updates).filter((fieldName) => fieldName !== "password"),
+        passwordUpdated: updates.password !== undefined,
+      },
+    });
+
     res.json(user);
   } catch (error: unknown) {
     return handleUserWriteError(error, res);
@@ -211,7 +262,19 @@ export const deleteUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid user id" });
     }
 
-    await userService.deleteUser(id);
+    const deletedUser = await userService.deleteUser(id);
+    const authUser = (req as AuthenticatedRequest).user;
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "user.delete",
+      details: `Deleted user ${deletedUser.username}`,
+      metadata: {
+        targetUserId: deletedUser.id,
+        roleId: deletedUser.roleId,
+      },
+    });
+
     res.json({ message: "User deleted successfully" });
   } catch (error: unknown) {
     return handleUserWriteError(error, res);

@@ -1,0 +1,130 @@
+import React from 'react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, AlertCircle } from 'lucide-react';
+import { MWDParameter } from '../types';
+import { cn } from '@/lib/utils';
+
+interface KPICardProps {
+  parameter: MWDParameter;
+  compact?: boolean;
+}
+
+export const KPICard: React.FC<KPICardProps> = ({ parameter, compact = false }) => {
+  const { name, value, unit, status, trend, change1min } = parameter;
+  const hasValue = typeof value === 'number' && Number.isFinite(value);
+  const formattedValue = hasValue ? value.toFixed(1) : '-';
+  const valueLength = formattedValue.length;
+
+  const getTrendIcon = () => {
+    if (!trend || trend === 'stable') return <Minus className="size-3" />;
+    return trend === 'up' 
+      ? <TrendingUp className="size-3" />
+      : <TrendingDown className="size-3" />;
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'normal':
+        return 'border-border';
+      case 'warning':
+        return 'border-yellow-500/50 bg-yellow-500/5';
+      case 'critical':
+        return 'border-red-500/50 bg-red-500/5';
+      default:
+        return 'border-border bg-muted/20';
+    }
+  };
+
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'warning':
+        return <AlertTriangle className="size-4 text-yellow-500" />;
+      case 'critical':
+        return <AlertCircle className="size-4 text-red-500" />;
+      default:
+        return hasValue ? null : <Minus className="size-4 text-muted-foreground" />;
+    }
+  };
+
+  const getValueClassName = () => {
+    if (valueLength >= 6) {
+      return "text-[clamp(1.45rem,2.4vw,2.05rem)]";
+    }
+
+    if (valueLength >= 5) {
+      return "text-[clamp(1.55rem,2.7vw,2.2rem)]";
+    }
+
+    return "text-[clamp(1.7rem,3vw,2.35rem)]";
+  };
+
+  if (compact) {
+    return (
+      <Card className={cn("min-w-0 p-2.5", getStatusColor())}>
+        <div className="mb-1.5 flex items-start justify-between gap-2">
+          <div className="min-w-0 text-[11px] leading-tight text-muted-foreground break-words [overflow-wrap:anywhere]">
+            {name}
+          </div>
+          {getStatusIcon()}
+        </div>
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <div className={cn(
+            "max-w-full truncate font-mono leading-none tracking-tight",
+            valueLength >= 6
+              ? "text-[clamp(1rem,3.4vw,1.35rem)]"
+              : "text-[clamp(1.1rem,3.8vw,1.55rem)]"
+          )}>
+            {formattedValue}
+          </div>
+          <div className="text-[11px] text-muted-foreground break-words sm:text-xs">{unit}</div>
+        </div>
+        {change1min !== undefined && (
+          <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground sm:text-[11px]">
+            {getTrendIcon()}
+            <span className="truncate">
+              {change1min > 0 ? '+' : ''}
+              {change1min.toFixed(1)}
+            </span>
+          </div>
+        )}
+      </Card>
+    );
+  }
+
+  return (
+    <Card className={cn("flex min-w-0 flex-col p-3 sm:p-4", getStatusColor())}>
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 min-h-[3rem] pr-1 text-sm leading-snug text-muted-foreground break-words [overflow-wrap:anywhere] sm:min-h-[3.5rem] sm:text-base">
+            {name}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1 overflow-hidden">
+            <div className={cn(
+              "max-w-full truncate font-mono font-semibold leading-none tracking-tight",
+              getValueClassName()
+            )}>
+              {formattedValue}
+            </div>
+            <div className="text-sm text-muted-foreground break-words sm:text-base">
+              {unit}
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0">{getStatusIcon()}</div>
+      </div>
+      
+      {change1min !== undefined && (
+        <div className="mt-4 flex min-w-0 items-center gap-2">
+          <Badge variant="secondary" className="flex max-w-full items-center gap-1 overflow-hidden px-2 py-1 text-[11px] sm:text-xs">
+            {getTrendIcon()}
+            <span className="min-w-0 truncate">
+              {change1min > 0 ? '+' : ''}
+              {change1min.toFixed(1)} /min
+            </span>
+          </Badge>
+        </div>
+      )}
+    </Card>
+  );
+};

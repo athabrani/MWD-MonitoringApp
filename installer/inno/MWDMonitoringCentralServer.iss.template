@@ -1,0 +1,54 @@
+; MWD Monitoring App Central Server installer template.
+; This is a scaffold only. Do not compile until server paths, env templates,
+; PostgreSQL prerequisite handling, and NSSM availability are reviewed.
+
+#define MyAppName "MWD Monitoring App Central Server"
+#define MyAppVersion "0.1.0"
+#define MyAppPublisher "MWD Monitoring"
+#define MyAppExeName "MWD Monitoring App"
+
+[Setup]
+AppId={{MWDMonitoringCentralServer}}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={autopf}\MWDMonitoringApp
+DefaultGroupName=MWD Monitoring App
+DisableProgramGroupPage=yes
+OutputBaseFilename=MWDMonitoringCentralServer-SETUP-REVIEW-ONLY
+Compression=lzma
+SolidCompression=yes
+PrivilegesRequired=admin
+
+[Files]
+Source: "..\..\dist-central-server-package\backend\*"; DestDir: "{app}\backend"; Flags: recursesubdirs ignoreversion
+Source: "..\..\dist-central-server-package\frontend\*"; DestDir: "{app}\frontend"; Flags: recursesubdirs ignoreversion
+Source: "..\..\dist-central-server-package\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs ignoreversion
+Source: "..\..\dist-central-server-package\docs\*"; DestDir: "{app}\docs"; Flags: recursesubdirs ignoreversion
+
+[Dirs]
+Name: "{commonappdata}\MWDMonitoringApp\logs"
+Name: "{commonappdata}\MWDMonitoringApp\backups\database"
+
+[Icons]
+Name: "{group}\MWD Monitoring App"; Filename: "msedge.exe"; Parameters: "--app=http://127.0.0.1:3000"; Check: EdgeExists
+Name: "{commondesktop}\MWD Monitoring App"; Filename: "msedge.exe"; Parameters: "--app=http://127.0.0.1:3000"; Tasks: desktopicon; Check: EdgeExists
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
+
+[Run]
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-central-services.ps1"" -DryRun"; Flags: runhidden
+
+[Code]
+function EdgeExists: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{pf}\Microsoft\Edge\Application\msedge.exe')) or
+            FileExists(ExpandConstant('{pf32}\Microsoft\Edge\Application\msedge.exe'));
+end;
+
+; Notes:
+; - This installer target is only the server utama / central local server.
+; - User laptops should not receive this installer. They only need the URL or app-mode shortcut.
+; - Service installation must be changed from -DryRun to -ConfirmInstall only after review.
+; - This template does not install PostgreSQL, does not restore data, and does not open firewall.

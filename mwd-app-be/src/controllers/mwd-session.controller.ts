@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import * as sessionService from "../services/mwd-session.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import {
   canAccessSessionOwner,
   canModifyMonitoringData,
@@ -23,6 +24,34 @@ const parsePositiveInt = (value: unknown) => {
 
 const normalizeString = (value: unknown) => {
   return typeof value === "string" ? value.trim() : "";
+};
+
+const normalizeNullableString = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null || value === "") {
+    return null;
+  }
+
+  return typeof value === "string" ? value.trim() || null : null;
+};
+
+const parseOptionalDecimal = (value: unknown, fieldName: string) => {
+  if (value === undefined) {
+    return { provided: false as const, value: undefined };
+  }
+
+  if (value === null || value === "") {
+    return { provided: true as const, value: null };
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(parsed)
+    ? { provided: true as const, value: parsed }
+    : { provided: true as const, error: `${fieldName} must be a valid number` };
 };
 
 const parseOptionalDate = (value: unknown) => {
@@ -81,6 +110,64 @@ const handleSessionWriteError = (error: unknown, res: Response) => {
   return res.status(500).json({ message });
 };
 
+const SESSION_TEXT_FIELDS = [
+  "company",
+  "wellId",
+  "fieldName",
+  "jobNumber",
+  "province",
+  "countyParish",
+  "country",
+  "location",
+  "notes",
+] as const;
+
+const getSessionBodyValue = (
+  body: Record<string, unknown>,
+  fieldName: string,
+) => {
+  if (fieldName === "fieldName" && Object.prototype.hasOwnProperty.call(body, "field")) {
+    return body.field;
+  }
+
+  return body[fieldName];
+};
+
+const collectSessionMetadata = (
+  body: Record<string, unknown>,
+  options: { create: boolean },
+) => {
+  const data: Record<string, string | number | null> = {};
+
+  for (const fieldName of SESSION_TEXT_FIELDS) {
+    const rawValue = getSessionBodyValue(body, fieldName);
+
+    if (!options.create && rawValue === undefined) {
+      continue;
+    }
+
+    const value = normalizeNullableString(rawValue);
+
+    if (value !== undefined) {
+      data[fieldName] = value;
+    }
+  }
+
+  for (const fieldName of ["latitude", "longitude"] as const) {
+    const parsed = parseOptionalDecimal(body[fieldName], fieldName);
+
+    if ("error" in parsed) {
+      return { error: parsed.error };
+    }
+
+    if (parsed.provided) {
+      data[fieldName] = parsed.value;
+    }
+  }
+
+  return { data };
+};
+
 export const createSession = async (req: Request, res: Response) => {
   try {
     const authUser = (req as AuthenticatedRequest).user;
@@ -96,6 +183,7 @@ export const createSession = async (req: Request, res: Response) => {
     const sessionCode = normalizeString(req.body?.sessionCode);
     const wellName = normalizeString(req.body?.wellName);
     const rigName = normalizeString(req.body?.rigName);
+    const metadata = collectSessionMetadata(req.body ?? {}, { create: true });
     const requestedUserId = parsePositiveInt(req.body?.userId);
     const connectionStatusId =
       req.body?.connectionStatusId === undefined
@@ -108,6 +196,10 @@ export const createSession = async (req: Request, res: Response) => {
 
     if (!sessionCode) {
       return res.status(400).json({ message: "Session code is required" });
+    }
+
+    if ("error" in metadata) {
+      return res.status(400).json({ message: metadata.error });
     }
 
     if (connectionStatusId === null && req.body?.connectionStatusId !== null) {
@@ -132,8 +224,19 @@ export const createSession = async (req: Request, res: Response) => {
     const createInput: {
       userId: number;
       sessionCode: string;
+      company?: string | null;
       wellName?: string | null;
+      wellId?: string | null;
       rigName?: string | null;
+      fieldName?: string | null;
+      jobNumber?: string | null;
+      province?: string | null;
+      countyParish?: string | null;
+      country?: string | null;
+      location?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      notes?: string | null;
       connectionStatusId?: number | null;
       startedAt?: Date;
       endedAt?: Date | null;
@@ -142,6 +245,7 @@ export const createSession = async (req: Request, res: Response) => {
       sessionCode,
       wellName: wellName || null,
       rigName: rigName || null,
+      ...metadata.data,
     };
 
     if (connectionStatusId !== undefined) {
@@ -160,6 +264,17 @@ export const createSession = async (req: Request, res: Response) => {
     }
 
     const session = await sessionService.createSession(createInput);
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_session.create",
+      details: `Created session ${session.sessionCode}`,
+      metadata: {
+        sessionId: session.id,
+        sessionCode: session.sessionCode,
+        ownerUserId: session.userId,
+      },
+    });
 
     res.status(201).json(session);
   } catch (error: unknown) {
@@ -245,12 +360,30 @@ export const updateSession = async (req: Request, res: Response) => {
     const updates: {
       userId?: number;
       sessionCode?: string;
+      company?: string | null;
       wellName?: string | null;
+      wellId?: string | null;
       rigName?: string | null;
+      fieldName?: string | null;
+      jobNumber?: string | null;
+      province?: string | null;
+      countyParish?: string | null;
+      country?: string | null;
+      location?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      notes?: string | null;
       connectionStatusId?: number | null;
       startedAt?: Date;
       endedAt?: Date | null;
     } = {};
+    const metadata = collectSessionMetadata(req.body ?? {}, { create: false });
+
+    if ("error" in metadata) {
+      return res.status(400).json({ message: metadata.error });
+    }
+
+    Object.assign(updates, metadata.data);
 
     if (req.body?.userId !== undefined) {
       if (!canViewAllSessions(authUser.roleName)) {
@@ -329,6 +462,18 @@ export const updateSession = async (req: Request, res: Response) => {
     }
 
     const session = await sessionService.updateSession(id, updates);
+
+    await createAuditLog({
+      userId: authUser.userId,
+      action: "mwd_session.update",
+      details: `Updated session ${session.sessionCode}`,
+      metadata: {
+        sessionId: session.id,
+        sessionCode: session.sessionCode,
+        updatedFields: Object.keys(updates),
+      },
+    });
+
     res.json(session);
   } catch (error: unknown) {
     return handleSessionWriteError(error, res);
@@ -354,7 +499,20 @@ export const deleteSession = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    await sessionService.deleteSession(id);
+    const authUser = (req as AuthenticatedRequest).user;
+    const deletedSession = await sessionService.deleteSession(id);
+
+    await createAuditLog({
+      userId: authUser?.userId ?? null,
+      action: "mwd_session.delete",
+      details: `Deleted session ${deletedSession.sessionCode}`,
+      metadata: {
+        sessionId: deletedSession.id,
+        sessionCode: deletedSession.sessionCode,
+        ownerUserId: deletedSession.userId,
+      },
+    });
+
     res.json({ message: "Session deleted successfully" });
   } catch (error: unknown) {
     return handleSessionWriteError(error, res);

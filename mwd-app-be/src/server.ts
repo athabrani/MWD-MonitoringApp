@@ -1,55 +1,36 @@
-import "dotenv/config";
-import cors from "cors";
-import express from "express";
-import authRoutes from "./routes/auth.route.js";
-import connectionStatusRoutes from "./routes/connection-status.route.js";
-import exportRoutes from "./routes/export.route.js";
-import failoverEventRoutes from "./routes/failover-event.route.js";
-import gatewayRoutes from "./routes/gateway.route.js";
-import historicalDataRoutes from "./routes/historical-data.route.js";
-import mwdDataRoutes from "./routes/mwd-data.route.js";
-import mwdSessionRoutes from "./routes/mwd-session.route.js";
-import roleRoutes from "./routes/role.route.js";
-import userRoutes from "./routes/user.route.js";
-import { syncSystemRoles } from "./services/role.service.js";
+import 'dotenv/config'
+import { createServer } from 'http'
+import app from './app.js'
+import { initializeWebSocket } from "./services/websocket.service.js";
+import { startEspWebSocketGateway } from './services/esp-websocket.service.js'
+import { startSerialGateway } from './services/serial-gateway.service.js'
+import { syncSystemRoles } from './services/role.service.js'
 
-const app = express();
-const PORT = 5001;
-const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
+const portFromEnv = Number(process.env.PORT || process.env.BACKEND_PORT)
+const PORT =
+  Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 5001
 
-app.set("json replacer", (_key: string, value: unknown) =>
-  typeof value === "bigint" ? value.toString() : value,
-);
-
-app.use(
-  cors({
-    origin: corsOrigin,
-    credentials: true,
-  }),
-);
-app.use(express.json());
-app.use("/api/auth", authRoutes);
-app.use("/api/connection-status", connectionStatusRoutes);
-app.use("/api/exports", exportRoutes);
-app.use("/api/failover-events", failoverEventRoutes);
-app.use("/api/gateway", gatewayRoutes);
-app.use("/api/historical-data", historicalDataRoutes);
-app.use("/api/mwd-data", mwdDataRoutes);
-app.use("/api/mwd-sessions", mwdSessionRoutes);
-app.use("/api/roles", roleRoutes);
-app.use("/api/users", userRoutes);
+const HOST = process.env.HOST || process.env.BACKEND_HOST || '127.0.0.1'
 
 const startServer = async () => {
-  await syncSystemRoles();
+  await syncSystemRoles()
 
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-};
+  // Create HTTP server for Express and native WebSocket
+  const httpServer = createServer(app)
+
+  // Initialize native WebSocket
+  initializeWebSocket(httpServer)
+
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`Express server running on http://${HOST}:${PORT}`)
+    void startEspWebSocketGateway()
+    void startSerialGateway()
+  })
+}
 
 startServer().catch((error: unknown) => {
   const message =
-    error instanceof Error ? error.message : "Unknown server startup error";
-  console.error(`Failed to start server: ${message}`);
-  process.exit(1);
-});
+    error instanceof Error ? error.message : 'Unknown server startup error'
+  console.error(`Failed to start server: ${message}`)
+  process.exit(1)
+})

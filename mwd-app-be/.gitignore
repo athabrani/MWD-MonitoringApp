@@ -3,3 +3,12 @@ node_modules
 node_modules
 /dist
 /src/generated/prisma
+
+.vercel
+.env*.local
+
+.env.*
+!.env.example
+tests/results/
+playwright-report/
+test-results/
