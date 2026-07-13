@@ -1,7 +1,7 @@
 declare module "cors" {
   import type { RequestHandler } from "express";
 
-  type CorsOptions = {
+  export type CorsOptions = {
     origin?: string | string[] | boolean | RegExp | ((origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => void);
     credentials?: boolean;
     methods?: string | string[];

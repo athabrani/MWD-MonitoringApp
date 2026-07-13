@@ -28,7 +28,7 @@ export default function MemoryImportPage({
         </div>
         <h1 className="text-xl font-bold leading-tight sm:mt-3 sm:text-3xl">Memory File Import</h1>
         <p className="max-w-3xl text-xs leading-snug text-muted-foreground sm:mt-2 sm:text-sm sm:leading-normal">
-          Legacy standalone view. The primary Polaris workflow now lives in Configuration &gt; WITS IDs, inside each WITS ID editor Memory Import tab.
+          Backend memory import workflow for uploading CSV or ZIP memory dumps, reviewing detected segments, and correlating imported memory data with active MWD data.
         </p>
         <Button
           size="sm"

@@ -56,6 +56,7 @@ import {
   parseMemoryCsv,
   validateMemoryWitsId,
 } from "@/lib/memory-import";
+import { collectImportSources, countCsvRecords, ImportSourceBatch } from "@/lib/import-sources";
 import {
   CorrelationSettings,
   GapFillRequest,
@@ -117,12 +118,63 @@ function isTimeLikeField(field: string) {
   return ["time", "timestamp", "datetime", "date", "measuredat"].includes(field.trim().toLowerCase().replace(/[\s_-]+/g, ""));
 }
 
+const memoryTargetByColumn = new Map<string, string>([
+  ["apwd", "mwdPressure"],
+  ["apwdmemory", "mwdPressure"],
+  ["apwdmem", "mwdPressure"],
+  ["pwd", "mwdPressure"],
+  ["mwdpressure", "mwdPressure"],
+  ["memorypressure", "mwdPressure"],
+  ["ecd", "ecd2"],
+  ["ecdmem", "ecd2"],
+  ["ecdmemory", "ecd2"],
+  ["ecdcalc", "ecd2"],
+  ["mudweight", "mudWeight"],
+  ["mw", "mudWeight"],
+  ["annularpressure", "annularPressure"],
+  ["borepressure", "borePressure"],
+  ["standpipepressure", "standpipePressure"],
+  ["pumppressure", "standpipePressure"],
+  ["downholerpm", "downholeRpm"],
+  ["shockaxial", "shockAxial"],
+  ["shocklateral", "shockLateral"],
+  ["vibrationaxial", "vibrationAxial"],
+  ["vibrationlateral", "vibrationLateral"],
+]);
+
+function normalizeMemoryFieldName(field: string) {
+  return field.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getBackendMemoryTarget(field: string) {
+  const normalized = normalizeMemoryFieldName(field);
+  return memoryTargetByColumn.get(normalized) ?? null;
+}
+
 function buildDefaultFieldMappings(fields: string[], depthField = "depth") {
   return fields.reduce<Record<string, string>>((mappings, field) => {
     if (field === depthField || isDepthLikeField(field) || isTimeLikeField(field)) return mappings;
-    mappings[field] = field;
+    const target = getBackendMemoryTarget(field);
+    if (target) mappings[field] = target;
     return mappings;
   }, {});
+}
+
+function getValueField(fields: string[], depthField?: string) {
+  return fields.find((field) => {
+    if (field === depthField || isDepthLikeField(field) || isTimeLikeField(field)) return false;
+    return true;
+  });
+}
+
+function buildMemoryImportRows(parsedFile: MemoryImportFile, valueField: string) {
+  return parsedFile.segments.flatMap((segment) =>
+    segment.rows.map((row) => ({
+      depth: row.depth,
+      measuredAt: row.timestamp,
+      [valueField]: row.raw[valueField] ?? row.value,
+    }))
+  );
 }
 
 function getDatasetSourceField(dataset: ImportedMemoryDataset | null) {
@@ -219,8 +271,8 @@ function Stepper({
 export function MemoryImportWizard() {
   const { token, user } = useAuth();
   const { activeMwdSessionId, refreshMwdData } = useApp();
-  const [activeStep, setActiveStep] = useState<WizardStep>("storage");
-  const [storageChannels, setStorageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
+  const [activeStep, setActiveStep] = useState<WizardStep>("upload");
+  const [storageChannels] = useState<MemoryStorageChannel[]>(initialChannels);
   const [selectedStorageId, setSelectedStorageId] = useState(initialChannels[0]?.id ?? "");
   const [storageDraft, setStorageDraft] = useState({
     witsId: "8023",
@@ -232,9 +284,15 @@ export function MemoryImportWizard() {
     plotScaleInfo: "Auto plot scale after import",
   });
   const [importFile, setImportFile] = useState<MemoryImportFile | null>(null);
+  const [importFiles, setImportFiles] = useState<MemoryImportFile[]>([]);
+  const [memoryImportBatch, setMemoryImportBatch] = useState<ImportSourceBatch | null>(null);
+  const [memoryBatchResult, setMemoryBatchResult] = useState<{
+    imported: string[];
+    failed: Array<{ fileName: string; message: string }>;
+  } | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
-  const [datasets, setDatasets] = useState<ImportedMemoryDataset[]>([]);
-  const [activeDatasetId, setActiveDatasetId] = useState<string>("");
+  const [datasets] = useState<ImportedMemoryDataset[]>([]);
+  const [activeDatasetId] = useState<string>("");
   const [correlationSettings, setCorrelationSettings] = useState<CorrelationSettings>({
     timeShiftSeconds: 0,
     depthShift: 0,
@@ -242,7 +300,7 @@ export function MemoryImportWizard() {
   });
   const [gapTargetWitsId, setGapTargetWitsId] = useState(existingWitsTargets[0]);
   const [gapMode, setGapMode] = useState<GapFillRequest["mode"]>("fill-gaps-only");
-  const [gapFillRequests, setGapFillRequests] = useState<GapFillRequest[]>([]);
+  const [gapFillRequests] = useState<GapFillRequest[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [backendMemoryFiles, setBackendMemoryFiles] = useState<MemoryFileRecord[]>([]);
   const [backendCorrelations, setBackendCorrelations] = useState<MemoryFileCorrelation[]>([]);
@@ -272,13 +330,13 @@ export function MemoryImportWizard() {
 
   const completedSteps = useMemo(() => {
     const completed = new Set<WizardStep>();
-    if (selectedStorage) completed.add("storage");
+    if (selectedStorage || backendMemoryFiles.length > 0 || memoryBatchResult?.imported.length) completed.add("storage");
     if (importFile) completed.add("upload");
     if (selectedSegment) completed.add("scan");
-    if (activeDataset) completed.add("import");
-    if (activeDataset?.status === "correlated" || gapFillRequests.length > 0) completed.add("correlate");
+    if (activeDataset || memoryBatchResult?.imported.length || selectedBackendFileId) completed.add("import");
+    if (activeDataset?.status === "correlated" || gapFillRequests.length > 0 || correlationPreview) completed.add("correlate");
     return completed;
-  }, [activeDataset, gapFillRequests.length, importFile, selectedSegment, selectedStorage]);
+  }, [activeDataset, backendMemoryFiles.length, correlationPreview, gapFillRequests.length, importFile, memoryBatchResult?.imported.length, selectedBackendFileId, selectedSegment, selectedStorage]);
 
   const compareRows = useMemo<Array<{
     sampleId: string;
@@ -403,46 +461,101 @@ export function MemoryImportWizard() {
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     setIsParsing(true);
     setMemoryFileImporting(true);
     setMemoryFilesError("");
+    setMemoryImportBatch(null);
+    setMemoryBatchResult(null);
     try {
-      const text = await file.text();
-      const parsedFile = parseMemoryCsv(file.name, text);
-      setImportFile(parsedFile);
-      setSelectedSegmentId(parsedFile.segments[0]?.id ?? "");
+      const batch = await collectImportSources(files);
+      const parsedFiles = batch.validSources.map((source) => parseMemoryCsv(source.fileName, source.content));
+      const firstParsed = parsedFiles[0] ?? null;
+
+      setMemoryImportBatch(batch);
+      setImportFiles(parsedFiles);
+      setImportFile(firstParsed);
+      setSelectedSegmentId(firstParsed?.segments[0]?.id ?? "");
       setActiveStep("scan");
+
+      if (batch.validCsvCount === 0) {
+        toast.warning("No valid memory CSV files found.");
+        return;
+      }
 
       if (!token || !canManageMemoryFiles) {
         toast.warning("Backend import not available for this user", {
-          description: "The file was parsed only for browser-side preview. No memory data was stored.",
+          description: "The files were parsed only for browser-side preview. No memory data was stored.",
         });
         return;
       }
 
-      const depthField =
-        parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
-        "depth";
-      const imported = await importMemoryFile(token, {
-        sessionId: toBackendSessionId(activeMwdSessionId),
-        fileName: file.name,
-        source: "memory_file",
-        content: text,
-        delimiter: ",",
-        hasHeader: true,
-        depthField,
-        fieldMappings: buildDefaultFieldMappings(parsedFile.detectedFields, depthField),
-      });
-      setSelectedBackendFileId(imported.id);
+      const sessionId = toBackendSessionId(activeMwdSessionId);
+      if (!sessionId) {
+        const message = "Select an active MWD session before importing memory files.";
+        setMemoryFilesError(message);
+        toast.error("Unable to import memory CSV files", { description: message });
+        return;
+      }
+
+      const importedNames: string[] = [];
+      const failed: Array<{ fileName: string; message: string }> = [];
+      let latestImportedId = "";
+
+      for (const [index, source] of batch.validSources.entries()) {
+        const parsedFile = parsedFiles[index];
+        try {
+          const depthField =
+            parsedFile.detectedFields.find((field) => isDepthLikeField(field)) ??
+            undefined;
+          const measuredAtField = parsedFile.detectedFields.find((field) => isTimeLikeField(field));
+          const valueField = getValueField(parsedFile.detectedFields, depthField);
+          const fieldMappings = buildDefaultFieldMappings(parsedFile.detectedFields, depthField);
+          const shouldSendNormalizedRows = !depthField && !measuredAtField && valueField && parsedFile.segments.length > 0;
+          const imported = await importMemoryFile(token, {
+            sessionId,
+            fileName: source.fileName,
+            source: "memory_file",
+            ...(shouldSendNormalizedRows
+              ? { rows: buildMemoryImportRows(parsedFile, valueField) }
+              : { content: source.content }),
+            hasHeader: true,
+            ...(depthField ? { depthField } : {}),
+            ...(measuredAtField ? { measuredAtField } : {}),
+            ...(Object.keys(fieldMappings).length > 0 ? { fieldMappings } : {}),
+          });
+          latestImportedId = imported.id;
+          importedNames.push(source.fileName);
+        } catch (error) {
+          failed.push({
+            fileName: source.fileName,
+            message: error instanceof Error ? error.message : "Backend request failed.",
+          });
+        }
+      }
+
+      setMemoryBatchResult({ imported: importedNames, failed });
+      if (latestImportedId) setSelectedBackendFileId(latestImportedId);
       await loadBackendMemoryFiles();
-      toast.success(`${parsedFile.fileName} imported and scanned with ${parsedFile.segments.length} detected segment(s)`);
+
+      if (importedNames.length > 0 && failed.length > 0) {
+        toast.warning(`${importedNames.length} memory CSV imported, ${failed.length} failed.`, {
+          description: failed[0] ? `${failed[0].fileName}: ${failed[0].message}` : undefined,
+        });
+      } else if (importedNames.length > 0) {
+        toast.success(`${importedNames.length} memory CSV file(s) imported and scanned.`);
+      } else {
+        const firstFailure = failed[0];
+        toast.error("No memory CSV files were imported.", {
+          description: firstFailure ? `${firstFailure.fileName}: ${firstFailure.message}` : "No backend import response was returned.",
+        });
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to import memory CSV file.";
+      const message = error instanceof Error ? error.message : "Unable to import memory CSV files.";
       setMemoryFilesError(message);
-      toast.error("Unable to import memory CSV file", { description: message });
+      toast.error("Unable to import memory CSV files", { description: message });
     } finally {
       setIsParsing(false);
       setMemoryFileImporting(false);
@@ -456,15 +569,24 @@ export function MemoryImportWizard() {
       return;
     }
 
-    toast.warning("Local memory import disabled", {
-      description: "Use POST /api/memory-files/import from the upload step. The frontend no longer creates local runtime memory datasets.",
+    if (memoryBatchResult?.imported.length) {
+      toast.success(`${memoryBatchResult.imported.length} memory file(s) already imported through POST /api/memory-files/import.`);
+      setActiveStep("correlate");
+      return;
+    }
+
+    toast.warning("Upload a CSV first", {
+      description: "The backend memory import runs during the upload step through POST /api/memory-files/import.",
     });
   };
 
   const handleApplyCorrelation = () => {
-    toast.warning("Local-only correlation disabled", {
-      description: "Run backend dry-run preview and apply through POST /api/memory-files/:id/correlate.",
-    });
+    if (correlationPreview) {
+      void handleApplyBackendCorrelation();
+      return;
+    }
+
+    void handlePreviewBackendCorrelation();
   };
 
   const buildCorrelationPayload = (dryRun: boolean) => {
@@ -493,7 +615,7 @@ export function MemoryImportWizard() {
         }
       : {
           sessionId,
-          mode: "time" as const,
+          mode: "timestamp" as const,
           dryRun,
           measuredAtOffsetMs,
           maxTimeDifferenceMs,
@@ -608,11 +730,11 @@ export function MemoryImportWizard() {
                 Workflow
               </div>
               <div className="mt-2 grid gap-1.5 text-xs leading-snug text-muted-foreground sm:mt-3 sm:grid-cols-2 sm:text-sm lg:grid-cols-5">
-                <div>1. Select or register a non-conflicting WITS ID.</div>
-                <div>2. Upload vendor CSV memory export.</div>
+                <div>1. Upload vendor CSV or ZIP memory export.</div>
+                <div>2. Backend stores the valid CSV file.</div>
                 <div>3. Scan detected fields and segments.</div>
-                <div>4. Import selected segment to memory storage.</div>
-                <div>5. Correlate and stage gap filling.</div>
+                <div>4. Review backend import result.</div>
+                <div>5. Correlate backend memory file to MWD data.</div>
               </div>
             </div>
             <div className="rounded-lg border bg-card p-3 sm:p-4">
@@ -803,7 +925,7 @@ export function MemoryImportWizard() {
 
       {activeStep === "storage" ? (
         <div className="grid gap-3 sm:gap-4 xl:grid-cols-[1fr_1.15fr]">
-          <WorkspaceSection className="p-3 sm:p-5" title="Memory Storage" description="Storage channels must come from backend memory endpoints. No browser-local storage channel is created.">
+          <WorkspaceSection className="p-3 sm:p-5" title="Memory Storage" description="Storage channel registration is optional for the current backend upload flow. Memory CSV import can start from the Upload step now.">
             <div className="space-y-3">
               {storageChannels.map((channel) => (
                 <button
@@ -826,7 +948,7 @@ export function MemoryImportWizard() {
                   </div>
                 </button>
               ))}
-              <Button onClick={() => setActiveStep("upload")} disabled={!selectedStorage}>
+              <Button onClick={() => setActiveStep("upload")}>
                 Continue to upload
               </Button>
             </div>
@@ -883,18 +1005,93 @@ export function MemoryImportWizard() {
               <div className="mt-3 space-y-3 sm:mt-4">
                 <Input
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,.zip,text/csv,application/zip"
+                  multiple
                   onChange={handleFileChange}
                   disabled={isParsing || memoryFileImporting || !canManageMemoryFiles}
                 />
                 <PlaceholderNote>
-                  Upload reads CSV/text in the browser and sends JSON content through POST /api/memory-files/import when backend access is available.
+                  Upload reads one CSV, multiple CSVs, or ZIP dumps in the browser and sends each valid CSV through POST /api/memory-files/import when backend access is available. ZIP upload is the stable folder-dump path.
                 </PlaceholderNote>
               </div>
             </Card>
 
             <Card className="p-3 sm:p-4">
               <div className="font-semibold">File summary</div>
+              {memoryImportBatch ? (
+                <div className="mt-3 space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                    <SummaryTile label="Selected" value={String(memoryImportBatch.inputFileCount)} />
+                    <SummaryTile label="ZIP files" value={String(memoryImportBatch.zipFileCount)} />
+                    <SummaryTile label="Discovered" value={String(memoryImportBatch.discoveredFileCount)} />
+                    <SummaryTile label="Valid CSV" value={String(memoryImportBatch.validCsvCount)} />
+                    <SummaryTile label="Skipped" value={String(memoryImportBatch.skippedSources.length)} />
+                  </div>
+                  {memoryImportBatch.duplicateFileNames.length > 0 ? (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                      Duplicate file names: {memoryImportBatch.duplicateFileNames.join(", ")}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Valid CSV files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.validSources.slice(0, 10).map((source) => (
+                          <div key={source.id} className="flex justify-between gap-3">
+                            <span className="truncate">{source.sourcePath}</span>
+                            <span className="shrink-0">{countCsvRecords(source.content)} rows</span>
+                          </div>
+                        ))}
+                        {memoryImportBatch.validSources.length > 10 ? <div>+{memoryImportBatch.validSources.length - 10} more</div> : null}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold">Skipped / invalid files</div>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-auto text-xs text-muted-foreground">
+                        {memoryImportBatch.skippedSources.length > 0 ? (
+                          memoryImportBatch.skippedSources.slice(0, 10).map((source) => (
+                            <div key={`${source.sourcePath}-${source.reason}`} className="flex justify-between gap-3">
+                              <span className="truncate">{source.sourcePath}</span>
+                              <span className="shrink-0">{source.reason}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div>No skipped files.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {memoryBatchResult ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs">
+                        Backend imported: {memoryBatchResult.imported.length}
+                      </div>
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs">
+                        Failed: {memoryBatchResult.failed.length}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {importFiles.length > 1 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {importFiles.slice(0, 8).map((file) => (
+                    <Button
+                      key={file.id}
+                      type="button"
+                      size="sm"
+                      variant={importFile?.id === file.id ? "default" : "outline"}
+                      onClick={() => {
+                        setImportFile(file);
+                        setSelectedSegmentId(file.segments[0]?.id ?? "");
+                      }}
+                    >
+                      {file.fileName}
+                    </Button>
+                  ))}
+                  {importFiles.length > 8 ? <Badge variant="outline">+{importFiles.length - 8} more</Badge> : null}
+                </div>
+              ) : null}
               {importFile ? (
                 <div className="mt-3 grid gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3">
                   <SummaryTile label="File name" value={importFile.fileName} />
@@ -913,7 +1110,7 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "scan" ? (
-        <WorkspaceSection className="p-3 sm:p-5" title="Scan and Select Segment" description="Detected segments are split by large time gaps. Select one run before importing to WITS ID storage.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Scan and Select Segment" description="Detected segments are split by large time gaps. Backend file storage already happens during upload; segment selection is for review and correlation.">
           {importFile ? (
             <div className="grid gap-2.5 sm:gap-3">
               {importFile.segments.map((segment) => (
@@ -955,17 +1152,17 @@ export function MemoryImportWizard() {
       ) : null}
 
       {activeStep === "import" ? (
-        <WorkspaceSection className="p-3 sm:p-5" title="Import to Storage" description="Selected segments must be stored by POST /api/memory-files/import. The frontend does not create runtime memory datasets.">
+        <WorkspaceSection className="p-3 sm:p-5" title="Backend Import Result" description="Memory CSV files are stored by POST /api/memory-files/import during upload. This step confirms what was imported before correlation.">
           <div className="grid gap-2 sm:gap-4 lg:grid-cols-3">
-            <SummaryCard icon={Database} label="Target storage" value={selectedStorage ? `${selectedStorage.witsId} - ${selectedStorage.name}` : "None"} />
+            <SummaryCard icon={Database} label="Backend imported" value={memoryBatchResult ? String(memoryBatchResult.imported.length) : "Upload first"} />
             <SummaryCard icon={FileSearch} label="Selected segment" value={selectedSegment ? `${selectedSegment.name}, ${selectedSegment.sampleCount} samples` : "None"} />
-            <SummaryCard icon={Check} label="Runtime datasets" value="Disabled" />
+            <SummaryCard icon={Check} label="Failed files" value={memoryBatchResult ? String(memoryBatchResult.failed.length) : "-"} />
           </div>
           <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <Button variant="outline" onClick={() => setActiveStep("scan")}>Back to scan</Button>
-            <Button onClick={handleImportSegment} disabled={!selectedStorage || !selectedSegment}>
+            <Button onClick={handleImportSegment} disabled={!selectedSegment}>
               <Database className="mr-2 size-4" />
-              Import selected segment
+              Continue to correlation
             </Button>
           </div>
           {datasets.length > 0 ? (

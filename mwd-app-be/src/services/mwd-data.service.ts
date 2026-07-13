@@ -22,6 +22,7 @@ const mwdDataSelect = {
   hiddenAt: true,
   hiddenById: true,
   editNote: true,
+  gatewaySequence: true,
   createdAt: true,
   session: {
     select: {
@@ -50,6 +51,7 @@ const mwdDataSelect = {
 type MWDDataInput = {
   sessionId: number;
   measuredAt: Date;
+  gatewaySequence?: string;
 } & MWDMeasurementInput;
 
 type MWDDataUpdateInput = {
@@ -69,27 +71,64 @@ export const createMWDData = async (
 
 export const getAllMWDData = async (
   sessionId?: number,
-  options: { includeHidden?: boolean } = {},
+  options: {
+    includeHidden?: boolean;
+    latest?: boolean;
+    limit?: number;
+    measuredFrom?: Date;
+    measuredTo?: Date;
+    depthMin?: number;
+    depthMax?: number;
+  } = {},
   db: PrismaDbClient = prisma,
 ) => {
-  const args: {
-    where?: { sessionId?: number; isHidden?: boolean };
-    orderBy: [{ measuredAt: "asc" }, { id: "asc" }];
-    select: typeof mwdDataSelect;
-  } = {
-    where: options.includeHidden ? {} : { isHidden: false },
-    orderBy: [{ measuredAt: "asc" }, { id: "asc" }],
-    select: mwdDataSelect,
-  };
+  const where: Prisma.MWDDataWhereInput = {};
+
+  if (!options.includeHidden) {
+    where.isHidden = false;
+  }
 
   if (sessionId !== undefined) {
-    args.where = {
-      ...(args.where ?? {}),
-      sessionId,
+    where.sessionId = sessionId;
+  }
+
+  if (options.measuredFrom || options.measuredTo) {
+    where.measuredAt = {
+      ...(options.measuredFrom ? { gte: options.measuredFrom } : {}),
+      ...(options.measuredTo ? { lte: options.measuredTo } : {}),
     };
   }
 
-  return await db.mWDData.findMany(args);
+  if (options.depthMin !== undefined || options.depthMax !== undefined) {
+    where.depthMd = {
+      ...(options.depthMin !== undefined ? { gte: options.depthMin } : {}),
+      ...(options.depthMax !== undefined ? { lte: options.depthMax } : {}),
+    };
+  }
+
+  const take =
+    options.limit !== undefined
+      ? Math.max(1, Math.min(options.limit, 10_000))
+      : undefined;
+  const args: {
+    where: Prisma.MWDDataWhereInput;
+    orderBy: Prisma.MWDDataOrderByWithRelationInput[];
+    take?: number;
+    select: typeof mwdDataSelect;
+  } = {
+    where,
+    orderBy: options.latest
+      ? [{ measuredAt: "desc" }, { id: "desc" }]
+      : [{ measuredAt: "asc" }, { id: "asc" }],
+    select: mwdDataSelect,
+  };
+
+  if (take !== undefined) {
+    args.take = take;
+  }
+
+  const rows = await db.mWDData.findMany(args);
+  return options.latest ? rows.reverse() : rows;
 };
 
 export const getMWDDataById = async (

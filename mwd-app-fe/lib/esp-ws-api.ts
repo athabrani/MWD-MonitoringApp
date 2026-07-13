@@ -72,12 +72,17 @@ function unwrapSingle(response: unknown) {
 }
 
 function normalizeEspWsStatus(record: BackendRecord): EspWsStatus {
-  const status = readString(record, ["status", "state", "connectionStatus", "connection_status"]) ?? "disconnected";
-  const connected = readBoolean(record, ["connected", "isConnected", "is_connected", "status", "state"]) ?? status === "connected";
+  const enabled = readBoolean(record, ["enabled", "isEnabled", "is_enabled"]) ?? true;
+  const connected = readBoolean(record, ["connected", "isConnected", "is_connected", "status", "state"]) ?? false;
+  const reconnecting = readBoolean(record, ["reconnecting", "isReconnecting", "is_reconnecting"]) ?? false;
+  const status =
+    readString(record, ["status", "state", "connectionStatus", "connection_status"]) ??
+    (!enabled ? "disabled" : connected ? "connected" : reconnecting ? "reconnecting" : "disconnected");
   const signal = isRecord(record.signal) ? record.signal : {};
 
   return {
     connected,
+    reconnecting,
     status,
     lastReceivedAt: readString(record, ["lastReceivedAt", "last_received_at", "lastReceived", "last_received", "updatedAt", "updated_at"]),
     clientCount: readNumber(record, ["clientCount", "client_count", "clients", "connections"]),

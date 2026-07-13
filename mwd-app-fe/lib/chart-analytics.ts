@@ -81,6 +81,21 @@ export function filterChartDataByTimeWindow(data: ChartDataPoint[], timeWindow: 
   });
 }
 
+export function downsampleChartData(data: ChartDataPoint[], maxPoints = 1000) {
+  if (data.length <= maxPoints) return data;
+  if (maxPoints <= 2) return data.slice(-Math.max(1, maxPoints));
+
+  const result: ChartDataPoint[] = [data[0]];
+  const step = (data.length - 2) / (maxPoints - 2);
+
+  for (let index = 1; index < maxPoints - 1; index += 1) {
+    result.push(data[Math.floor(index * step)]);
+  }
+
+  result.push(data[data.length - 1]);
+  return result;
+}
+
 export function getParametersWithData(
   data: ChartDataPoint[],
   parameters: ChartParameterDefinition[]

@@ -1,6 +1,12 @@
 import { Server as HTTPServer } from "http";
+import type { IncomingMessage } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { EventEmitter } from "events";
+import { isCorsOriginAllowed } from "../config/cors.js";
+import * as authService from "./auth.service.js";
+import * as sessionService from "./mwd-session.service.js";
+import { canAccessSessionOwner } from "../utils/roles.js";
+import { getAccessTokenFromCookieHeader } from "../utils/cookies.js";
 
 let wss: WebSocketServer | null = null;
 const websocketEventEmitter = new EventEmitter();
@@ -13,7 +19,14 @@ type WebSocketMessage = {
   timestamp: string;
 };
 
+type WebSocketUser = {
+  userId: number;
+  roleName: string;
+};
+
 const clients = new Set<WebSocket>();
+const authenticatedClients = new WeakMap<WebSocket, WebSocketUser>();
+const clientSubscriptions = new WeakMap<WebSocket, Set<number>>();
 
 const safeJsonReplacer = (_key: string, value: unknown) => {
   if (typeof value === "bigint") {
@@ -54,6 +67,66 @@ const sendToClient = (
   client.send(createMessage(event, payload));
 };
 
+const getTokenFromRequest = (request: IncomingMessage) => {
+  try {
+    const parsed = new URL(request.url ?? "/ws", "http://localhost");
+    const queryToken = parsed.searchParams.get("token")?.trim() ?? "";
+    if (queryToken) {
+      return queryToken;
+    }
+
+    const rawCookie =
+      typeof request.headers.cookie === "string" ? request.headers.cookie : undefined;
+    return getAccessTokenFromCookieHeader(rawCookie);
+  } catch {
+    return "";
+  }
+};
+
+const authenticateWebSocketRequest = async (
+  request: IncomingMessage,
+): Promise<WebSocketUser | null> => {
+  const token = getTokenFromRequest(request);
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const payload = authService.verifyAccessToken(token);
+    const currentUser = await authService.getCurrentUser(payload.userId);
+
+    if (!currentUser || !currentUser.isActive) {
+      return null;
+    }
+
+    return {
+      userId: currentUser.id,
+      roleName: currentUser.role.name,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const parseSessionId = (value: unknown) => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const isClientSubscribedToSession = (
+  client: WebSocket,
+  sessionId: unknown,
+) => {
+  const parsedSessionId = parseSessionId(sessionId);
+
+  if (parsedSessionId === null) {
+    return true;
+  }
+
+  return clientSubscriptions.get(client)?.has(parsedSessionId) ?? false;
+};
+
 const broadcast = (event: string, payload: WebSocketPayload) => {
   if (!wss) return;
 
@@ -62,10 +135,64 @@ const broadcast = (event: string, payload: WebSocketPayload) => {
     timestamp: new Date().toISOString(),
   });
 
+  let targetCount = 0;
   clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+    if (
+      client.readyState === WebSocket.OPEN &&
+      isClientSubscribedToSession(client, payload.sessionId)
+    ) {
+      targetCount += 1;
       client.send(message);
     }
+  });
+
+  if (event === "mwd-data" || event === "connection-status") {
+    console.log(`[Native WS] Broadcast ${event}. Target clients: ${targetCount}`);
+  }
+};
+
+const handleSubscription = async (
+  ws: WebSocket,
+  event: "subscribe" | "unsubscribe",
+  payload: WebSocketPayload,
+  sessionIdValue: unknown,
+) => {
+  const sessionId = parseSessionId(sessionIdValue);
+  const user = authenticatedClients.get(ws);
+
+  if (sessionId === null) {
+    sendToClient(ws, "error", {
+      message: "Valid sessionId is required",
+    });
+    return;
+  }
+
+  const session = await sessionService.getSessionById(sessionId);
+
+  if (
+    !user ||
+    !session ||
+    !canAccessSessionOwner(user.roleName, user.userId, session.userId)
+  ) {
+    sendToClient(ws, "error", {
+      message: "Forbidden",
+    });
+    return;
+  }
+
+  const subscriptions = clientSubscriptions.get(ws) ?? new Set<number>();
+
+  if (event === "subscribe") {
+    subscriptions.add(sessionId);
+  } else {
+    subscriptions.delete(sessionId);
+  }
+
+  clientSubscriptions.set(ws, subscriptions);
+  websocketEventEmitter.emit(event, ws, { ...payload, sessionId });
+  console.log(`[Native WS] Session ${event} received. Has session: true`);
+  sendToClient(ws, event === "subscribe" ? "subscribed" : "unsubscribed", {
+    sessionId,
   });
 };
 
@@ -75,12 +202,29 @@ export const initializeWebSocket = (
   wss = new WebSocketServer({
     server: httpServer,
     path: "/ws",
+    verifyClient: ({ origin }, done) => {
+      if (isCorsOriginAllowed(origin)) {
+        return done(true);
+      }
+
+      return done(false, 403, "CORS origin not allowed");
+    },
   });
 
-  wss.on("connection", (ws: WebSocket) => {
-    clients.add(ws);
+  wss.on("connection", async (ws: WebSocket, request) => {
+    const user = await authenticateWebSocketRequest(request);
 
-    console.log(`[Native WS] Client connected. Total clients: ${clients.size}`);
+    if (!user) {
+      ws.close(1008, "Unauthorized");
+      console.warn("[Native WS] Rejected unauthenticated client.");
+      return;
+    }
+
+    clients.add(ws);
+    authenticatedClients.set(ws, user);
+    clientSubscriptions.set(ws, new Set());
+
+    console.log(`[Native WS] Client authenticated. Total clients: ${clients.size}`);
 
     sendToClient(ws, "connected", {
       message: "Welcome to MWD Monitoring System",
@@ -88,40 +232,53 @@ export const initializeWebSocket = (
     });
 
     ws.on("message", (rawMessage) => {
-      try {
-        const messageText = rawMessage.toString();
-        const parsedMessage = JSON.parse(messageText);
+      void (async () => {
+        try {
+          const messageText = rawMessage.toString();
+          const parsedMessage = JSON.parse(messageText);
 
-        const event = parsedMessage?.event;
-        const payload = parsedMessage?.payload ?? {};
+          const event = parsedMessage?.event ?? parsedMessage?.type;
+          const payload = parsedMessage?.payload ?? {};
 
-        if (event === "ping") {
-          sendToClient(ws, "pong", {
-            pong: true,
+          if (event === "ping") {
+            sendToClient(ws, "pong", {
+              pong: true,
+            });
+            return;
+          }
+
+          if (event === "request-latest-data") {
+            websocketEventEmitter.emit("request-latest-data", ws, payload);
+            return;
+          }
+
+          if (event === "subscribe" || event === "unsubscribe") {
+            const sessionId =
+              parsedMessage?.sessionId ?? parsedMessage?.payload?.sessionId ?? null;
+            await handleSubscription(ws, event, payload, sessionId);
+            return;
+          }
+
+          if (typeof event === "string" && event.trim()) {
+            websocketEventEmitter.emit(event, ws, payload);
+          }
+        } catch {
+          sendToClient(ws, "error", {
+            message: "Invalid WebSocket message format",
           });
-          return;
         }
-
-        if (event === "request-latest-data") {
-          websocketEventEmitter.emit("request-latest-data", ws, payload);
-          return;
-        }
-
-        websocketEventEmitter.emit(event, ws, payload);
-      } catch {
-        sendToClient(ws, "error", {
-          message: "Invalid WebSocket message format",
-        });
-      }
+      })();
     });
 
     ws.on("close", () => {
       clients.delete(ws);
+      clientSubscriptions.delete(ws);
       console.log(`[Native WS] Client disconnected. Total clients: ${clients.size}`);
     });
 
     ws.on("error", (error) => {
       clients.delete(ws);
+      clientSubscriptions.delete(ws);
       console.error(`[Native WS] Client error: ${error.message}`);
     });
   });

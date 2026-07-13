@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiRequest } from "@/lib/api-client";
 import { logSecurityDebug } from "@/lib/security/errors";
 import { ChartDataPoint } from "@/types";
 
@@ -15,6 +15,9 @@ type BackendMwdDataResponse = {
 export type MwdDataRecord = {
   id?: string;
   sessionId?: string;
+  gatewaySequence?: string;
+  backendReceivedTimestamp?: number;
+  clientReceivedTimestamp?: number;
   timestamp: Date;
   depth?: number;
   status?: string;
@@ -27,14 +30,14 @@ export type MwdDataInput = Record<string, unknown>;
 export type GetMwdDataOptions = {
   sessionId?: string | number;
   limit?: number;
+  latest?: boolean;
+  measuredFrom?: string;
+  measuredTo?: string;
   depthMin?: number;
   depthMax?: number;
 };
 
-export type GetHistoricalDataOptions = GetMwdDataOptions & {
-  measuredFrom?: string;
-  measuredTo?: string;
-};
+export type GetHistoricalDataOptions = GetMwdDataOptions;
 
 const timestampKeys = [
   "timestamp",
@@ -59,6 +62,13 @@ const depthKeys = ["depth", "depthMd", "depth_md", "md", "measuredDepth", "measu
 const sessionKeys = ["sessionId", "session_id", "mwdSessionId", "mwd_session_id"];
 const idKeys = ["id", "_id", "dataId", "mwdDataId"];
 const statusKeys = ["status", "state"];
+const metadataKeys = [
+  "gatewaySequence",
+  "sequence",
+  "seq",
+  "backendReceivedTimestamp",
+  "clientReceivedTimestamp",
+];
 
 const metricAliases: Record<string, string> = {
   rateofpenetration: "rop",
@@ -206,7 +216,7 @@ function normalizeMetricKey(key: string) {
 }
 
 function isReservedKey(key: string) {
-  return [...timestampKeys, ...depthKeys, ...sessionKeys, ...idKeys, ...statusKeys].includes(key);
+  return [...timestampKeys, ...depthKeys, ...sessionKeys, ...idKeys, ...statusKeys, ...metadataKeys].includes(key);
 }
 
 export function normalizeMwdDataRecord(record: BackendMwdDataRecord): MwdDataRecord | null {
@@ -233,6 +243,9 @@ export function normalizeMwdDataRecord(record: BackendMwdDataRecord): MwdDataRec
   return {
     id: readString(record, idKeys),
     sessionId: readString(record, sessionKeys),
+    gatewaySequence: readString(record, ["gatewaySequence", "sequence", "seq"]),
+    backendReceivedTimestamp: readNumber(record, ["backendReceivedTimestamp"]),
+    clientReceivedTimestamp: readNumber(record, ["clientReceivedTimestamp"]),
     timestamp,
     depth: readNumber(record, depthKeys),
     status: readString(record, statusKeys),
@@ -250,11 +263,26 @@ export function getLatestMwdDataRecord(records: MwdDataRecord[]) {
 
 export function mwdDataRecordsToChartData(records: MwdDataRecord[]): ChartDataPoint[] {
   return records
-    .map((record) => ({
-      timestamp: record.timestamp,
-      depth: record.depth,
-      ...record.metrics,
-    }))
+    .map((record) => {
+      const depth =
+        record.depth ??
+        record.metrics.depthMd ??
+        record.metrics.depth ??
+        record.metrics.holeDepth ??
+        record.metrics.bitDepth ??
+        record.metrics.md ??
+        record.metrics["0110"];
+
+      return {
+        timestamp: record.timestamp,
+        sessionId: record.sessionId,
+        gatewaySequence: record.gatewaySequence,
+        backendReceivedTimestamp: record.backendReceivedTimestamp,
+        clientReceivedTimestamp: record.clientReceivedTimestamp,
+        depth,
+        ...record.metrics,
+      };
+    })
     .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 }
 
@@ -303,11 +331,13 @@ function toQueryString(params: Record<string, unknown>) {
 
 export async function getMwdData(
   token: string,
-  options: GetMwdDataOptions = {}
+  options: GetMwdDataOptions = {},
+  requestOptions: Pick<RequestInit, "signal"> = {}
 ): Promise<MwdDataRecord[]> {
   const response = await apiRequest<BackendMwdDataResponse | BackendMwdDataRecord[]>(`/api/mwd-data${toQueryString(options)}`, {
     method: "GET",
     token,
+    ...requestOptions,
   });
   const rawRecords = unwrapRecordList(response);
   const normalizedRecords = rawRecords

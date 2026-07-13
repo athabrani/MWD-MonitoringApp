@@ -8,8 +8,6 @@ import {
   Copy,
   Download,
   Eye,
-  FilePlus2,
-  FileUp,
   Pencil,
   GripVertical,
   Plus,
@@ -2257,58 +2255,7 @@ export default function PlottingPage({
             </div>
           </Card>
 
-          <div className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-            <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                <div>
-                  <h2 className="text-base font-semibold sm:text-lg">User Files</h2>
-                  <p className="text-xs text-muted-foreground sm:text-sm">Upload and manage files usable by the PDF builder.</p>
-                </div>
-                {canManagePlotting ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
-                    onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
-                  >
-                    <FilePlus2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
-                    Upload File
-                  </Button>
-                ) : null}
-              </div>
-              <div className="mt-3 space-y-2 sm:mt-4">
-                {uploadedFiles.map((file) => (
-                  <div key={file.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-medium sm:text-base">{file.fileName}</div>
-                        <div className="text-xs text-muted-foreground sm:text-sm">{file.description}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{format(new Date(file.updatedAt), "dd MMM yyyy HH:mm")}</div>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                        <Badge variant="outline">{file.type}</Badge>
-                        <Badge variant={file.usableInPlotBuilder ? "secondary" : "outline"}>
-                          {file.usableInPlotBuilder ? "Usable for plotting" : file.conversionStatus}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
-                      <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Open Metadata</Button>
-                      <Button size="sm" variant="outline" onClick={() => toast.message(`${file.fileName} download is a UI scaffold`)}>
-                        <Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
-                        Download
-                      </Button>
-                      {canManagePlotting ? (
-                        <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
-                          {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
+          <div className="grid gap-3 sm:gap-4">
             <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                 <div>
@@ -2428,7 +2375,6 @@ export default function PlottingPage({
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="tracks">Tracks</TabsTrigger>
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="labels">Labels</TabsTrigger>
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="pdf">PDF Builder</TabsTrigger>
-                <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="files">Files</TabsTrigger>
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="depth">Depth Scale</TabsTrigger>
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="mud">Mud R</TabsTrigger>
                 <TabsTrigger className="h-8 px-2 text-xs sm:px-3 sm:text-sm" value="azimuthal">Azimuthal</TabsTrigger>
@@ -2494,103 +2440,6 @@ export default function PlottingPage({
               </TabsContent>
               <TabsContent value="pdf">
                 <PdfBuilder config={activeConfig} files={uploadedFiles} onChange={(pdfItems) => updateActiveConfig({ pdfItems })} />
-              </TabsContent>
-              <TabsContent value="files">
-                <div className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-                  <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                      <h2 className="text-base font-semibold sm:text-lg">Template Files</h2>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
-                        onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
-                      >
-                        <FileUp className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
-                        Upload Template
-                      </Button>
-                    </div>
-                    <div className="mt-2 w-40 sm:mt-3 sm:w-48">
-                      <NativeSelect<TemplateFileType> value={selectedTemplateType} options={["Header", "Track", "LAS", "Report"]} onChange={setSelectedTemplateType} />
-                    </div>
-                    <div className="mt-3 space-y-2 sm:mt-4">
-                      {templates.map((template) => (
-                        <div key={template.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <div className="text-sm font-medium sm:text-base">{template.fileName}</div>
-                              <div className="text-xs text-muted-foreground sm:text-sm">{template.description}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{format(new Date(template.updatedAt), "dd MMM yyyy HH:mm")}</div>
-                            </div>
-                            <Badge variant="secondary">{template.type}</Badge>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
-                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline"><Download className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />Download</Button>
-                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setTemplates((current) => [{ ...template, id: uid("template"), fileName: `${template.fileName}.copy` }, ...current])}>Duplicate</Button>
-                            <ConfirmDeleteButton
-                              title="Remove template file?"
-                              description={`${template.fileName} will be removed from local template metadata.`}
-                              triggerLabel="Remove"
-                              size="sm"
-                              onConfirm={() => {
-                                setTemplates((current) => current.filter((item) => item.id !== template.id));
-                                toast.success("Template removed");
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-
-                  <Card className="rounded-xl p-3 sm:rounded-2xl sm:p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                      <h2 className="text-base font-semibold sm:text-lg">Uploaded User Files</h2>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
-                        onClick={() => toast.message("Endpoint backend untuk fitur ini belum tersedia.")}
-                      >
-                        <FilePlus2 className="mr-1.5 size-3.5 sm:mr-2 sm:size-4" />
-                        Upload File
-                      </Button>
-                    </div>
-                    <div className="mt-3 space-y-2 sm:mt-4">
-                      {uploadedFiles.map((file) => (
-                        <div key={file.id} className="rounded-lg border p-2.5 sm:rounded-xl sm:p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <div className="text-sm font-medium sm:text-base">{file.fileName}</div>
-                              <div className="text-xs text-muted-foreground sm:text-sm">{file.description}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{format(new Date(file.updatedAt), "dd MMM yyyy HH:mm")}</div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline">{file.type}</Badge>
-                              <Badge variant={file.conversionStatus === "Ready" ? "secondary" : "outline"}>{file.conversionStatus}</Badge>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
-                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => toast.message(`${file.fileName}: ${file.description}`)}>Preview Metadata</Button>
-                            <Button size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3" variant="outline" onClick={() => setUploadedFiles((current) => current.map((item) => item.id === file.id ? { ...item, usableInPlotBuilder: !item.usableInPlotBuilder } : item))}>
-                              {file.usableInPlotBuilder ? "Unmark usable" : "Mark usable"}
-                            </Button>
-                            <ConfirmDeleteButton
-                              title="Delete uploaded file?"
-                              description={`${file.fileName} will be removed from local uploaded file metadata.`}
-                              triggerLabel="Delete"
-                              size="sm"
-                              onConfirm={() => {
-                                setUploadedFiles((current) => current.filter((item) => item.id !== file.id));
-                                toast.success("Uploaded file deleted");
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                </div>
               </TabsContent>
               <TabsContent value="depth">
                 <DepthScalePositionEditor

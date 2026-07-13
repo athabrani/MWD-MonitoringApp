@@ -4,6 +4,8 @@ import type { User } from "@/types";
 
 export const USER_STORAGE_KEY = "mwd_user";
 export const TOKEN_STORAGE_KEY = "mwd_auth_token";
+export const CSRF_STORAGE_KEY = "mwd_csrf_token";
+export const COOKIE_AUTH_SESSION_TOKEN = "__mwd_cookie_auth__";
 export const ACTIVE_SESSION_STORAGE_KEY = "mwd_active_session_id";
 export const ACTIVE_PLOT_CONFIG_STORAGE_KEY = "mwd_active_plot_config_id";
 export const SETTINGS_STORAGE_KEY = "mwd_settings";
@@ -11,6 +13,7 @@ export const SETTINGS_STORAGE_KEY = "mwd_settings";
 const sessionScopedKeys = [
   USER_STORAGE_KEY,
   TOKEN_STORAGE_KEY,
+  CSRF_STORAGE_KEY,
   ACTIVE_SESSION_STORAGE_KEY,
   ACTIVE_PLOT_CONFIG_STORAGE_KEY,
 ];
@@ -78,6 +81,11 @@ export function readStoredToken() {
   return token?.trim() || null;
 }
 
+export function readStoredCsrfToken() {
+  const token = readStoredValue(CSRF_STORAGE_KEY);
+  return token?.trim() || null;
+}
+
 export function readStoredUser() {
   const persistedUser = readStoredValue(USER_STORAGE_KEY);
   if (!persistedUser) return null;
@@ -99,12 +107,34 @@ export function clearStoredSession() {
   }
 }
 
-export function writeStoredSession(user: User, token: string, rememberMe: boolean) {
+export function writeStoredSession(
+  user: User,
+  token: string,
+  rememberMe: boolean,
+  options: { csrfToken?: string | null } = {},
+) {
   if (!isBrowser()) return;
+
+  const activeSessionId = readStoredValue(ACTIVE_SESSION_STORAGE_KEY);
+  const activePlotConfigId = readStoredValue(ACTIVE_PLOT_CONFIG_STORAGE_KEY);
+  const existingCsrfToken = readStoredCsrfToken();
 
   clearStoredSession();
   const storage = rememberMe ? window.localStorage : window.sessionStorage;
   safeSet(storage, TOKEN_STORAGE_KEY, token);
+
+  const csrfToken = options.csrfToken?.trim() || existingCsrfToken;
+  if (csrfToken) {
+    safeSet(storage, CSRF_STORAGE_KEY, csrfToken);
+  }
+
+  if (activeSessionId) {
+    safeSet(window.localStorage, ACTIVE_SESSION_STORAGE_KEY, activeSessionId);
+  }
+
+  if (activePlotConfigId) {
+    safeSet(window.localStorage, ACTIVE_PLOT_CONFIG_STORAGE_KEY, activePlotConfigId);
+  }
 }
 
 export function bootstrapStoredSession() {

@@ -1,6 +1,7 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createMWDData,
+  importMWDDataCsv,
   getAllMWDData,
   getMWDDataById,
   updateMWDData,
@@ -39,6 +40,15 @@ router.post("/edit/delete-depth-range", authorize("admin", "engineer"), deleteDe
 router.post("/edit/move-depth", authorize("admin", "engineer"), moveDepthRange);
 router.post("/edit/copy-depth", authorize("admin", "engineer"), copyDepthRange);
 router.post("/edit/rescale", authorize("admin", "engineer"), rescaleDepthRange);
+router.post(
+  "/import-csv",
+  authorize("admin", "engineer"),
+  express.text({
+    type: ["text/csv", "text/plain", "application/csv"],
+    limit: "10mb",
+  }),
+  importMWDDataCsv,
+);
 router.post(
   "/",
   authorize("admin", "engineer"),

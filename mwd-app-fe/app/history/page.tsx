@@ -61,6 +61,7 @@ import {
 } from '@/lib/exports-api';
 import { cn } from '@/lib/utils';
 import { getSafeErrorMessage } from '@/lib/security/errors';
+import { downsampleChartData } from '@/lib/chart-analytics';
 import { toast } from 'sonner';
 
 const ALL_PARAMETERS = 'all';
@@ -403,6 +404,10 @@ export const HistoryPage: React.FC = () => {
   const chartData = useMemo(
     () => buildChartData(filteredRecords, chartParameterKeys),
     [chartParameterKeys, filteredRecords]
+  );
+  const chartDataForRender = useMemo(
+    () => downsampleChartData(chartData, 1000),
+    [chartData]
   );
   const chartParameters = useMemo(
     () =>
@@ -929,7 +934,7 @@ export const HistoryPage: React.FC = () => {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
+              <LineChart data={chartDataForRender}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
                   dataKey="timestamp"

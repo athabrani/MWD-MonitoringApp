@@ -829,7 +829,10 @@ function SystemInfoTab() {
     events,
   } = useApp();
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "Not configured";
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "Not configured";
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "Not configured";
   const browserHost = typeof window === "undefined" ? "Unavailable" : window.location.host;
 
@@ -1371,15 +1374,19 @@ function ClearDataTab({
               <div className="rounded-xl border bg-muted/30 p-3 text-sm">
                 <div className="font-medium">Selected categories</div>
                 <div className="mt-2 text-muted-foreground">{selectedCategoryLabels.join(", ")}</div>
+                <div className="mt-2 text-muted-foreground">
+                  Previewed records affected: {previewTotal}
+                </div>
                 <div className="mt-2 font-mono text-xs">Confirm token: {preview?.requiredConfirm}</div>
               </div>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={clearLoading || !preview?.requiredConfirm}
                   onClick={() => void handleClearData()}
                 >
-                  Confirm Clear Data
+                  {clearLoading ? "Clearing..." : "Confirm Clear Data"}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -1472,6 +1479,7 @@ export default function SystemUtilitiesPage({
       refreshMwdSessions(),
       refreshWitsAlarms(),
       refreshWitsDataValues(),
+      loadClearTargets(),
       ...(token && activeMwdSessionId
         ? [
             getSurveys(token, { sessionId: activeMwdSessionId, stationType: "actual" }),
@@ -1479,7 +1487,7 @@ export default function SystemUtilitiesPage({
           ]
         : []),
     ]);
-  }, [activeMwdSessionId, refreshMwdData, refreshMwdSessions, refreshWitsAlarms, refreshWitsDataValues, token]);
+  }, [activeMwdSessionId, loadClearTargets, refreshMwdData, refreshMwdSessions, refreshWitsAlarms, refreshWitsDataValues, token]);
 
   const refreshAfterConfigRestore = useCallback(async () => {
     await Promise.allSettled([

@@ -146,6 +146,9 @@ interface AppContextType {
   witsDataValuesLoading: boolean;
   witsDataValuesError: string;
   refreshWitsDataValues: () => Promise<void>;
+  backendImportInProgress: boolean;
+  beginBackendImportActivity: () => void;
+  endBackendImportActivity: () => void;
   witsConfig: PolarisWitsId[];
   witsConfigLoading: boolean;
   witsConfigError: string;
@@ -191,6 +194,8 @@ const defaultSettings: UserSettings = {
 };
 
 const backendErrorMessage = 'Gagal memuat data dari backend.';
+const DASHBOARD_MWD_WINDOW_SIZE = 1000;
+const REALTIME_MWD_BATCH_INTERVAL_MS = 300;
 const dashboardMetricToKpiKey: Partial<Record<string, keyof KPIData>> = {
   rop: 'rop',
   wob: 'wob',
@@ -471,11 +476,11 @@ function buildEmptyKpiData(): KPIData {
 }
 
 function resolveActiveMwdSessionId(currentSessionId: string, sessions: MwdSessionListItem[]) {
-  if (currentSessionId && sessions.some((session) => session.id === currentSessionId)) {
+  if (currentSessionId && sessions.some((session) => String(session.id) === String(currentSessionId))) {
     return currentSessionId;
   }
 
-  return sessions[0]?.id ?? '';
+  return sessions[0]?.id ? String(sessions[0].id) : '';
 }
 
 function normalizeStatusValue(value?: string | null) {
@@ -543,9 +548,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [gatewayRawPacketsReachable, setGatewayRawPacketsReachable] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionState>('idle');
   const [realtimeError, setRealtimeError] = useState('');
-  const [failoverEventIds, setFailoverEventIds] = useState<Set<string>>(() => new Set());
+  const [, setFailoverEventIds] = useState<Set<string>>(() => new Set());
   const activeGeneratedEventKeysRef = useRef<Set<string>>(new Set());
   const mwdRecordKeysRef = useRef<Set<string>>(new Set());
+  const mwdRecordKeyOrderRef = useRef<string[]>([]);
+  const pendingRealtimeMwdRecordsRef = useRef<MwdDataRecord[]>([]);
+  const mwdDataAbortControllerRef = useRef<AbortController | null>(null);
+  const activeMwdSessionIdRef = useRef('');
   const connectionStatusRequestInFlight = useRef(false);
   const failoverEventsRequestInFlight = useRef(false);
   const serialStatusRequestInFlight = useRef(false);
@@ -553,6 +562,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const systemHealthRequestInFlight = useRef(false);
   const gatewayRawPacketsRequestInFlight = useRef(false);
   const recoveryRequestInFlight = useRef(false);
+  const backendImportActivityCountRef = useRef(0);
+  const [backendImportInProgress, setBackendImportInProgress] = useState(false);
 
   const [wells] = useState<Well[]>([]);
   const [activeWell, setActiveWell] = useState<Well | null>(null);
@@ -633,7 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const activeMwdSession = useMemo(
-    () => mwdSessions.find((session) => session.id === activeMwdSessionId) ?? null,
+    () => mwdSessions.find((session) => String(session.id) === String(activeMwdSessionId)) ?? null,
     [activeMwdSessionId, mwdSessions]
   );
   const operationalThresholds = useMemo(
@@ -647,6 +658,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }),
     [operationalThresholds, settings]
   );
+
+  const beginBackendImportActivity = useCallback(() => {
+    backendImportActivityCountRef.current += 1;
+    setBackendImportInProgress(true);
+  }, []);
+
+  const endBackendImportActivity = useCallback(() => {
+    backendImportActivityCountRef.current = Math.max(0, backendImportActivityCountRef.current - 1);
+    setBackendImportInProgress(backendImportActivityCountRef.current > 0);
+  }, []);
+
+  const isBackendImportActive = useCallback(() => backendImportActivityCountRef.current > 0, []);
 
   const recordEvent = useCallback((event: Event) => {
     setEvents((current) => {
@@ -769,8 +792,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (error) {
       logBackendError('Unable to load MWD sessions.', error);
-      setMwdSessions([]);
-      setActiveMwdSessionId('');
+      if (!isExpectedBackendConnectivityError(error)) {
+        setMwdSessions([]);
+        setActiveMwdSessionId('');
+      }
       setMwdSessionsError(getMwdSessionsErrorMessage(error));
     } finally {
       setMwdSessionsLoading(false);
@@ -1397,27 +1422,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshMwdData = useCallback(async () => {
     if (!token || !activeMwdSessionId) {
+      mwdDataAbortControllerRef.current?.abort();
+      mwdDataAbortControllerRef.current = null;
+      pendingRealtimeMwdRecordsRef.current = [];
       setChartData([]);
       setLatestMwdDataRecord(null);
       setMwdDataError('');
       return;
     }
 
+    mwdDataAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    mwdDataAbortControllerRef.current = abortController;
     setMwdDataLoading(true);
     setMwdDataError('');
+    const requestSessionId = activeMwdSessionId;
 
     try {
       const [latestRecords, records] = await Promise.all([
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
           limit: 1,
+          latest: true,
+        }, {
+          signal: abortController.signal,
         }),
         getMwdData(token, {
-          sessionId: activeMwdSessionId || undefined,
+          sessionId: requestSessionId || undefined,
+          limit: DASHBOARD_MWD_WINDOW_SIZE,
+          latest: true,
+        }, {
+          signal: abortController.signal,
         }),
       ]);
-      const latestScopedRecords = filterMwdDataForSession(latestRecords, activeMwdSessionId);
-      const scopedRecords = filterMwdDataForSession(records, activeMwdSessionId);
+
+      if (activeMwdSessionIdRef.current !== requestSessionId) return;
+      if (abortController.signal.aborted) return;
+
+      const latestScopedRecords = filterMwdDataForSession(latestRecords, requestSessionId);
+      const scopedRecords = filterMwdDataForSession(records, requestSessionId);
       const nextChartData = mwdDataRecordsToChartData(scopedRecords);
       const latestRecord = getLatestMwdDataRecord(latestScopedRecords) ?? getLatestMwdDataRecord(scopedRecords);
 
@@ -1441,7 +1484,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      mwdRecordKeysRef.current = new Set(scopedRecords.map(getMwdRecordKey));
+      const scopedRecordKeys = scopedRecords.map(getMwdRecordKey);
+      mwdRecordKeysRef.current = new Set(scopedRecordKeys);
+      mwdRecordKeyOrderRef.current = scopedRecordKeys.slice(-DASHBOARD_MWD_WINDOW_SIZE);
+      pendingRealtimeMwdRecordsRef.current = [];
       setChartData(nextChartData);
       setLatestMwdDataRecord(latestRecord);
 
@@ -1455,57 +1501,92 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setKpiData(buildEmptyKpiData());
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       logBackendError('Unable to load MWD data.', error);
       setMwdDataError(backendErrorMessage);
     } finally {
-      setMwdDataLoading(false);
+      if (mwdDataAbortControllerRef.current === abortController) {
+        mwdDataAbortControllerRef.current = null;
+        setMwdDataLoading(false);
+      }
     }
   }, [activeMwdSessionId, applyLatestMwdRecord, token]);
 
   const applyRealtimeMwdData = useCallback((data: Record<string, unknown>) => {
-    const record = normalizeMwdDataRecord(data);
+    const record = normalizeMwdDataRecord({
+      ...data,
+      clientReceivedTimestamp: Date.now(),
+    });
     if (!record) return;
 
     if (record.sessionId && activeMwdSessionId && String(record.sessionId) !== String(activeMwdSessionId)) {
       return;
     }
 
-    const recordKey = getMwdRecordKey(record);
-    if (mwdRecordKeysRef.current.has(recordKey)) {
+    pendingRealtimeMwdRecordsRef.current.push(record);
+  }, [activeMwdSessionId]);
+
+  const flushRealtimeMwdData = useCallback(() => {
+    const pendingRecords = pendingRealtimeMwdRecordsRef.current;
+    if (pendingRecords.length === 0) return;
+
+    pendingRealtimeMwdRecordsRef.current = [];
+    const requestSessionId = activeMwdSessionIdRef.current;
+    const batchKeys = new Set<string>();
+    const nextRecords: MwdDataRecord[] = [];
+    let latestRecord: MwdDataRecord | null = null;
+
+    for (const record of pendingRecords) {
+      if (record.sessionId && requestSessionId && String(record.sessionId) !== String(requestSessionId)) {
+        continue;
+      }
+
+      if (!latestRecord || record.timestamp.getTime() >= latestRecord.timestamp.getTime()) {
+        latestRecord = record;
+      }
+
+      const recordKey = getMwdRecordKey(record);
+      if (batchKeys.has(recordKey) || mwdRecordKeysRef.current.has(recordKey)) {
+        continue;
+      }
+
+      batchKeys.add(recordKey);
+      mwdRecordKeysRef.current.add(recordKey);
+      mwdRecordKeyOrderRef.current.push(recordKey);
+      nextRecords.push(record);
+    }
+
+    if (mwdRecordKeyOrderRef.current.length > DASHBOARD_MWD_WINDOW_SIZE) {
+      mwdRecordKeyOrderRef.current = mwdRecordKeyOrderRef.current.slice(-DASHBOARD_MWD_WINDOW_SIZE);
+      mwdRecordKeysRef.current = new Set(mwdRecordKeyOrderRef.current);
+    }
+
+    const nextChartPoints = nextRecords.length > 0 ? mwdDataRecordsToChartData(nextRecords) : [];
+    if (nextChartPoints.length > 0) {
+      setChartData((current) => {
+        const merged = [...current, ...nextChartPoints].sort(
+          (left, right) => left.timestamp.getTime() - right.timestamp.getTime()
+        );
+        return merged.length > DASHBOARD_MWD_WINDOW_SIZE ? merged.slice(-DASHBOARD_MWD_WINDOW_SIZE) : merged;
+      });
+    }
+
+    if (latestRecord) {
       setLatestMwdDataRecord((current) => {
-        if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
-          applyLatestMwdRecord(record);
-          return record;
+        if (!current || latestRecord.timestamp.getTime() >= current.timestamp.getTime()) {
+          applyLatestMwdRecord(latestRecord);
+          return latestRecord;
         }
 
         return current;
       });
-      return;
+
+      setConnectionState((current) => ({
+        ...current,
+        lastReceived: latestRecord.timestamp,
+      }));
     }
-
-    mwdRecordKeysRef.current.add(recordKey);
-    const chartPoint = mwdDataRecordsToChartData([record])[0];
-
-    if (chartPoint) {
-      setChartData((current) =>
-        [...current, chartPoint].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime())
-      );
-    }
-
-    setLatestMwdDataRecord((current) => {
-      if (!current || record.timestamp.getTime() >= current.timestamp.getTime()) {
-        applyLatestMwdRecord(record);
-        return record;
-      }
-
-      return current;
-    });
-
-    setConnectionState((current) => ({
-      ...current,
-      lastReceived: record.timestamp,
-    }));
-  }, [activeMwdSessionId, applyLatestMwdRecord]);
+  }, [applyLatestMwdRecord]);
 
   const applyRealtimeEspGatewayStatus = useCallback((data: Record<string, unknown>) => {
     const status = normalizeRealtimeEspStatus(data);
@@ -1556,6 +1637,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [applyRealtimeConnectionStatus, applyRealtimeEspGatewayStatus, applyRealtimeMwdData]);
 
   useEffect(() => {
+    if (!isAuthenticated || !token || !activeMwdSessionId) {
+      pendingRealtimeMwdRecordsRef.current = [];
+      return;
+    }
+
+    const interval = window.setInterval(flushRealtimeMwdData, REALTIME_MWD_BATCH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+      flushRealtimeMwdData();
+    };
+  }, [activeMwdSessionId, flushRealtimeMwdData, isAuthenticated, token]);
+
+  useEffect(() => {
     if (isAuthenticated && token) return;
 
     connectionStatusRequestInFlight.current = false;
@@ -1566,6 +1661,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gatewayRawPacketsRequestInFlight.current = false;
     activeGeneratedEventKeysRef.current.clear();
     mwdRecordKeysRef.current.clear();
+    mwdRecordKeyOrderRef.current = [];
+    pendingRealtimeMwdRecordsRef.current = [];
+    mwdDataAbortControllerRef.current?.abort();
+    mwdDataAbortControllerRef.current = null;
 
     setMwdSessions([]);
     setActiveMwdSessionId('');
@@ -1634,6 +1733,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isAuthenticated, refreshWitsConfig, token]);
 
   useEffect(() => {
+    activeMwdSessionIdRef.current = activeMwdSessionId;
+  }, [activeMwdSessionId]);
+
+  useEffect(() => {
     if (!isAuthenticated || !token || !activeMwdSessionId) {
       setWitsDataValuesError('');
       setWitsAlarmsError('');
@@ -1641,6 +1744,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setChartData([]);
       setLatestMwdDataRecord(null);
       setFailoverEventIds(new Set());
+      mwdRecordKeysRef.current.clear();
+      mwdRecordKeyOrderRef.current = [];
+      pendingRealtimeMwdRecordsRef.current = [];
       return;
     }
 
@@ -1675,6 +1781,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFailoverEventIds(new Set());
       return;
     }
+    if (isBackendImportActive()) return;
 
     void refreshConnectionStatus();
     void refreshFailoverEvents();
@@ -1685,6 +1792,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [
     activeMwdSessionId,
     isAuthenticated,
+    isBackendImportActive,
     refreshConnectionStatus,
     refreshEspWsStatus,
     refreshFailoverEvents,
@@ -1699,6 +1807,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
+      if (isBackendImportActive()) return;
       void refreshConnectionStatus();
       void refreshSerialStatus();
       void refreshEspWsStatus();
@@ -1714,6 +1823,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshGatewayRawPackets,
     refreshSerialStatus,
     refreshSystemHealth,
+    isBackendImportActive,
     settings.display.autoRefresh,
     token,
   ]);
@@ -1723,11 +1833,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
+      if (isBackendImportActive()) return;
       void refreshFailoverEvents();
     }, 30000);
 
     return () => window.clearInterval(interval);
-  }, [isAuthenticated, refreshFailoverEvents, settings.display.autoRefresh, token]);
+  }, [isAuthenticated, isBackendImportActive, refreshFailoverEvents, settings.display.autoRefresh, token]);
 
   useEffect(() => {
     if (!activePlotConfig) return;
@@ -1758,6 +1869,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (networkStatus === 'offline') return;
 
     const interval = setInterval(() => {
+      if (isBackendImportActive()) return;
       void refreshMwdData();
       void refreshWitsDataValues();
     }, settings.display.refreshInterval * 1000);
@@ -1768,6 +1880,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeMwdSessionId,
     refreshMwdData,
     refreshWitsDataValues,
+    isBackendImportActive,
     networkStatus,
     settings.display.autoRefresh,
     settings.display.refreshInterval,
@@ -1776,6 +1889,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const runRecoveryFlow = useCallback(async () => {
     if (recoveryRequestInFlight.current) return;
+    if (isBackendImportActive()) return;
 
     const browserOnline = typeof navigator === 'undefined' ? networkStatus !== 'offline' : navigator.onLine;
     if (!browserOnline) {
@@ -1855,6 +1969,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const client = getRealtimeClient();
       if (activeMwdSessionId) {
+        client.setAuthToken(token);
         client.connect();
         client.subscribeSession(activeMwdSessionId);
       }
@@ -1887,6 +2002,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshWitsAlarms,
     refreshWitsConfig,
     refreshWitsDataValues,
+    isBackendImportActive,
     token,
   ]);
 
@@ -1925,6 +2041,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const client = getRealtimeClient();
+    client.setAuthToken(token);
     const unsubscribeStatus = client.on('status', ({ status, error }) => {
       setRealtimeStatus(status);
       setRealtimeError(error ?? '');
@@ -1947,8 +2064,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         networkStatus === 'online' &&
         isAuthenticated &&
         token &&
-        activeMwdSessionId
+        activeMwdSessionId &&
+        !isBackendImportActive()
       ) {
+        client.subscribeSession(activeMwdSessionId);
         void refreshMwdData();
         void refreshWitsAlarms();
         void refreshConnectionStatus();
@@ -1996,6 +2115,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshEspWsStatus,
     refreshMwdData,
     refreshWitsAlarms,
+    isBackendImportActive,
     token,
   ]);
 
@@ -2143,6 +2263,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       witsDataValuesLoading,
       witsDataValuesError,
       refreshWitsDataValues,
+      backendImportInProgress,
+      beginBackendImportActivity,
+      endBackendImportActivity,
       witsConfig,
       witsConfigLoading,
       witsConfigError,

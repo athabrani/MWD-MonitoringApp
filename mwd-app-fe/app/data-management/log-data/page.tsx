@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
@@ -66,7 +66,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
-import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataRecord } from "@/lib/mwd-data-api";
+import { ApiClientError } from "@/lib/api-client";
+import {
+  buildLogDataImportBatch,
+  buildLogDataImportRequests,
+  LogDataImportBatch,
+} from "@/lib/log-data-import";
+import { deleteMwdData, filterMwdDataForSession, getMwdData, MwdDataInput, MwdDataRecord, postRawMwdData } from "@/lib/mwd-data-api";
 import {
   applyCopyMwdDepth,
   applyMoveMwdDepth,
@@ -88,7 +94,6 @@ import {
 import { getWitsConfig, getWitsDataValues, WitsDataValue } from "@/lib/api/wits";
 import { logSecurityError } from "@/lib/security/errors";
 import { formatConfiguredWitsId } from "@/lib/wits-config-store";
-import { getWitsDescription } from "@/lib/wits-map";
 import { DepthRange, LogDataRecord, RescaleMode, RescalePreview, RescaleRequest, RescaleResultSummary } from "@/types/monitoring";
 import { PolarisWitsId } from "@/types/polaris";
 import { cn } from "@/lib/utils";
@@ -101,6 +106,41 @@ function formatRescaleMode(mode: RescaleMode) {
   return mode === "example-value" ? "Example value" : "Percentage";
 }
 
+function waitForImportPacing(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function postRawMwdDataWithRetry(
+  token: string,
+  input: MwdDataInput,
+  options: {
+    maxAttempts: number;
+    onRetry?: (retry: { attempt: number; maxAttempts: number; delayMs: number }) => void;
+  },
+) {
+  let attempt = 0;
+
+  while (true) {
+    attempt += 1;
+
+    try {
+      await postRawMwdData(token, input);
+      return;
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.status !== 429 || attempt >= options.maxAttempts) {
+        throw error;
+      }
+
+      const delayMs = error.retryAfterMs ?? Math.min(1_000 * attempt, 5_000);
+      options.onRetry?.({ attempt, maxAttempts: options.maxAttempts, delayMs });
+      await waitForImportPacing(delayMs);
+    }
+  }
+}
+
+const LOG_IMPORT_POST_PACING_MS = 250;
+const LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS = 15_000;
+
 type LogDataViewMode = "list" | "detail";
 
 type LogDataActionDialog = "import" | "memory" | "batch" | "delete-range" | "export";
@@ -112,6 +152,22 @@ type ActiveEditPreview = {
   kind: EditPreviewKind;
   request: MwdEditMoveDepthApplyPayload | MwdEditCopyDepthPayload | MwdEditRescalePayload;
   result: MwdEditPreviewResult;
+};
+
+type LogImportCommitResult = {
+  importedValues: number;
+  failedValues: number;
+  postedRequests: number;
+  totalRequests: number;
+  fileErrors: Array<{ fileName: string; row: number; reason: string }>;
+};
+
+type LogImportProgress = {
+  phase: "idle" | "preparing" | "importing" | "retrying" | "refreshing" | "complete";
+  message: string;
+  currentRequest: number;
+  totalRequests: number;
+  importedValues: number;
 };
 
 type GroupedLogChannel = {
@@ -301,7 +357,8 @@ export default function LogDataPage({
 }) {
   const router = useRouter();
   const { token, user } = useAuth();
-  const { activeMwdSessionId, refreshMwdData, refreshWitsDataValues } = useApp();
+  const { activeMwdSessionId, refreshMwdData, refreshWitsDataValues, beginBackendImportActivity, endBackendImportActivity } = useApp();
+  const folderImportInputRef = useRef<HTMLInputElement | null>(null);
   const [records, setRecords] = useState<LogDataRecord[]>([]);
   const [configuredWitsIds, setConfiguredWitsIds] = useState<PolarisWitsId[]>([]);
   const [mwdDataRecords, setMwdDataRecords] = useState<MwdDataRecord[]>([]);
@@ -334,6 +391,18 @@ export default function LogDataPage({
   const [desiredExampleValue, setDesiredExampleValue] = useState(95);
   const [rescalePercentage, setRescalePercentage] = useState(10);
   const [importFileName, setImportFileName] = useState("");
+  const [logImportBatch, setLogImportBatch] = useState<LogDataImportBatch | null>(null);
+  const [logImportError, setLogImportError] = useState("");
+  const [logImportScanning, setLogImportScanning] = useState(false);
+  const [logImportCommitting, setLogImportCommitting] = useState(false);
+  const [logImportCommitResult, setLogImportCommitResult] = useState<LogImportCommitResult | null>(null);
+  const [logImportProgress, setLogImportProgress] = useState<LogImportProgress>({
+    phase: "idle",
+    message: "",
+    currentRequest: 0,
+    totalRequests: 0,
+    importedValues: 0,
+  });
   const [exportFileType, setExportFileType] = useState("LAS");
   const [exportScope, setExportScope] = useState("selected");
   const [exportIncludeHidden, setExportIncludeHidden] = useState(false);
@@ -357,7 +426,7 @@ export default function LogDataPage({
     const [configResult, mwdResult, valuesResult] = await Promise.allSettled([
       getWitsConfig(token),
       getMwdData(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}),
-      getWitsDataValues(token, activeMwdSessionId ? { sessionId: activeMwdSessionId } : {}),
+      getWitsDataValues(token, activeMwdSessionId ? { sessionId: activeMwdSessionId, limit: 5000 } : { limit: 5000 }),
     ]);
 
     let nextConfigs: PolarisWitsId[] = [];
@@ -824,6 +893,226 @@ export default function LogDataPage({
     ]);
   };
 
+  const refreshAfterLogImport = async () => {
+    if (!token) return;
+
+    setWitsValuesLoading(true);
+    setWitsValuesError("");
+    try {
+      const values = await getWitsDataValues(
+        token,
+        activeMwdSessionId ? { sessionId: activeMwdSessionId, limit: 5000 } : { limit: 5000 }
+      );
+      const configByWitsId = new Map(
+        configuredWitsIds.map((config) => [formatConfiguredWitsId(config.numericId), config])
+      );
+      const scopedValues = activeMwdSessionId
+        ? values.filter((value) => !value.sessionId || value.sessionId === activeMwdSessionId)
+        : values;
+
+      setWitsDataValues(scopedValues);
+      setRecords(scopedValues.map((value) => witsDataValueToLogRecord(value, configByWitsId.get(value.witsId))));
+      setSelectedWitsId((current) => {
+        if (current && scopedValues.some((value) => value.witsId === current)) return current;
+        return scopedValues[0]?.witsId ?? current;
+      });
+    } catch (error) {
+      logSecurityError("Unable to refresh WITS data values after import.", error);
+      setWitsValuesError("Gagal memuat ulang data import dari backend.");
+    } finally {
+      setWitsValuesLoading(false);
+    }
+  };
+
+  const handleLogDataImportSelection = async (input: FileList | File[], preferredWitsId?: string) => {
+    const files = Array.from(input);
+    setImportFileName(files.map((file) => file.name).join(", "));
+    setLogImportBatch(null);
+    setLogImportCommitResult(null);
+    setLogImportProgress({
+      phase: "idle",
+      message: "",
+      currentRequest: 0,
+      totalRequests: 0,
+      importedValues: 0,
+    });
+    setLogImportError("");
+
+    if (files.length === 0) return;
+
+    setLogImportScanning(true);
+    try {
+      const batch = await buildLogDataImportBatch(files, configuredWitsIds, { preferredWitsId });
+      setLogImportBatch(batch);
+
+      if (batch.totalImportableValues === 0) {
+        toast.warning("No importable WITS values found.", {
+          description: "Review unmapped/skipped files before importing.",
+        });
+      } else {
+        toast.success("CSV source scan complete", {
+          description: `${batch.mappedFiles.length} mapped file(s), ${batch.totalImportableValues} importable value(s).`,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to scan selected import sources.";
+      setLogImportError(message);
+      toast.error("Unable to scan import sources", { description: message });
+    } finally {
+      setLogImportScanning(false);
+    }
+  };
+
+  const openFolderImportPicker = () => {
+    const input = folderImportInputRef.current;
+    if (!input) return;
+    input.setAttribute("webkitdirectory", "");
+    input.click();
+  };
+
+  const handleCommitLogDataImport = async () => {
+    if (!token) {
+      toast.error("Sign in before importing Log Data.");
+      return;
+    }
+    if (!activeMwdSessionId) {
+      toast.error("Select an active MWD session before importing Log Data.");
+      return;
+    }
+    if (!logImportBatch || logImportBatch.totalImportableValues === 0) {
+      toast.error("No mapped CSV rows are ready to import.");
+      return;
+    }
+
+    setLogImportCommitting(true);
+    setLogImportError("");
+    setLogImportCommitResult(null);
+    beginBackendImportActivity();
+    const fileErrors: LogImportCommitResult["fileErrors"] = [];
+    let importedValues = 0;
+    let postedRequests = 0;
+
+    try {
+      setLogImportProgress({
+        phase: "preparing",
+        message: "Preparing grouped WITS import requests...",
+        currentRequest: 0,
+        totalRequests: 0,
+        importedValues: 0,
+      });
+
+      const requests = buildLogDataImportRequests(activeMwdSessionId, logImportBatch);
+      setLogImportProgress({
+        phase: "importing",
+        message: `Processing grouped import request 1 of ${requests.length}.`,
+        currentRequest: requests.length > 0 ? 1 : 0,
+        totalRequests: requests.length,
+        importedValues: 0,
+      });
+
+      for (const [index, request] of requests.entries()) {
+        const currentRequest = index + 1;
+
+        setLogImportProgress((current) => ({
+          ...current,
+          phase: "importing",
+          message: `Processing grouped import request ${currentRequest} of ${requests.length}.`,
+          currentRequest,
+          totalRequests: requests.length,
+        }));
+
+        try {
+          await postRawMwdDataWithRetry(token, request.payload, {
+            maxAttempts: 8,
+            onRetry: ({ attempt, maxAttempts, delayMs }) => {
+              setLogImportProgress((current) => ({
+                ...current,
+                phase: "retrying",
+                message: `Backend rate limit reached. Retrying request ${currentRequest} of ${requests.length} in ${Math.ceil(delayMs / 1000)}s (${attempt}/${maxAttempts}).`,
+                currentRequest,
+                totalRequests: requests.length,
+              }));
+            },
+          });
+          postedRequests += 1;
+          importedValues += request.entries.length;
+          setLogImportProgress((current) => ({
+            ...current,
+            phase: "importing",
+            importedValues,
+            message: `Imported ${importedValues} of ${logImportBatch.totalImportableValues} WITS value(s).`,
+          }));
+          if (currentRequest < requests.length) {
+            await waitForImportPacing(LOG_IMPORT_POST_PACING_MS);
+          }
+        } catch (error) {
+          for (const entry of request.entries) {
+            fileErrors.push({
+              fileName: entry.file.source.fileName,
+              row: entry.value.sourceRow,
+              reason: error instanceof Error ? error.message : "Backend import failed.",
+            });
+          }
+          if (error instanceof ApiClientError && error.status === 429 && currentRequest < requests.length) {
+            setLogImportProgress((current) => ({
+              ...current,
+              phase: "retrying",
+              message: `Backend is still rate limiting. Cooling down for ${Math.ceil(LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS / 1000)}s before continuing.`,
+              currentRequest,
+              totalRequests: requests.length,
+            }));
+            await waitForImportPacing(LOG_IMPORT_RATE_LIMIT_COOLDOWN_MS);
+          }
+        }
+      }
+
+      const failedValues = logImportBatch.totalImportableValues - importedValues;
+      setLogImportCommitResult({ importedValues, failedValues, postedRequests, totalRequests: requests.length, fileErrors });
+
+      if (importedValues > 0) {
+        setLogImportProgress({
+          phase: "refreshing",
+          message: "Finalizing import and refreshing WITS values...",
+          currentRequest: requests.length,
+          totalRequests: requests.length,
+          importedValues,
+        });
+        await refreshAfterLogImport();
+        setLogImportProgress({
+          phase: "complete",
+          message: `Completed ${postedRequests} backend request(s) for ${importedValues} WITS value(s).`,
+          currentRequest: requests.length,
+          totalRequests: requests.length,
+          importedValues,
+        });
+        if (failedValues === 0) {
+          toast.success("Import completed", {
+            description: `All ${importedValues} WITS value(s) were sent through ${postedRequests} grouped request(s).`,
+          });
+        } else {
+          toast.warning("Import partially completed", {
+            description: `${importedValues} value(s) sent, ${failedValues} value(s) failed. Review import result details.`,
+          });
+        }
+      } else {
+        setLogImportProgress({
+          phase: "complete",
+          message: "Import finished without stored WITS values. Review failed rows.",
+          currentRequest: requests.length,
+          totalRequests: requests.length,
+          importedValues,
+        });
+        toast.error("Log Data import failed", {
+          description: "No WITS values were stored. Review import result details.",
+        });
+      }
+
+    } finally {
+      endBackendImportActivity();
+      setLogImportCommitting(false);
+    }
+  };
+
   const handleHideRange = async () => {
     if (!requireEditToolApplyAccess()) return;
     const payload = buildDepthRangePayload("bad sensor interval");
@@ -1027,6 +1316,17 @@ export default function LogDataPage({
 
   const content = (
     <div className="space-y-4 sm:space-y-6">
+      <input
+        ref={folderImportInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-hidden="true"
+        onChange={(event) => {
+          void handleLogDataImportSelection(Array.from(event.currentTarget.files ?? []), selectedChannel?.witsId);
+          event.currentTarget.value = "";
+        }}
+      />
       {logDataViewMode === "list" ? (
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
@@ -1064,7 +1364,7 @@ export default function LogDataPage({
                 <>
                   <DropdownMenuItem onClick={() => openActionDialog("import")}>
                     <FileUp className="mr-2 size-4" />
-                    Import data from CSV or LAS file
+                    Import data from CSV
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => openActionDialog("memory")}>
                     <GitCompare className="mr-2 size-4" />
@@ -1468,8 +1768,16 @@ export default function LogDataPage({
               <TabsContent value="import" className="space-y-4">
                 <LogDataMemoryImportPanel
                   selectedChannel={selectedChannel}
-                  channels={allChannels}
-                  onNavigate={onNavigate}
+                  importBatch={logImportBatch}
+                  importFileName={importFileName}
+                  importError={logImportError}
+                  importScanning={logImportScanning}
+                  importCommitting={logImportCommitting}
+                  importProgress={logImportProgress}
+                  importResult={logImportCommitResult}
+                  onImportSelection={(files) => void handleLogDataImportSelection(files, selectedChannel?.witsId)}
+                  onFolderImport={openFolderImportPicker}
+                  onCommitImport={() => void handleCommitLogDataImport()}
                 />
               </TabsContent>
 
@@ -1965,7 +2273,7 @@ export default function LogDataPage({
                 <Card className="rounded-2xl border-dashed p-4">
                   <h2 className="text-lg font-semibold">Batch operations</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Backend-connected edit tools remain available in their own tabs. Import and memory actions route to explicit backend or unavailable states.
+                    Backend-connected edit tools remain available in their own tabs. Import and memory actions route to explicit backend workflows.
                   </p>
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
                     {[
@@ -1980,13 +2288,17 @@ export default function LogDataPage({
                           {actionLabel === "Memory Correlation Editor"
                             ? "Open the dedicated backend memory workflow."
                             : actionLabel === "Import data from CSV/LAS"
-                              ? "Blocked until a backend CSV/LAS import endpoint is available."
+                              ? "Open the active CSV/ZIP import flow that writes mapped WITS values through POST /api/mwd-data."
                               : "Backend integration is not available from this batch surface yet."}
                         </div>
                         <Button
                           variant="outline"
                           className="mt-3"
                           onClick={() => {
+                            if (actionLabel === "Import data from CSV/LAS") {
+                              openActionDialog("import");
+                              return;
+                            }
                             if (actionLabel === "Memory Correlation Editor") {
                               onNavigate?.("data-management-memory-import");
                               return;
@@ -2076,46 +2388,32 @@ export default function LogDataPage({
         onOpenChange={(open) => !open && setActiveActionDialog(null)}
       >
         {activeActionDialog === "import" ? (
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100dvh-3rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
             <DialogHeader>
-              <DialogTitle>Import data from CSV or LAS file</DialogTitle>
+              <DialogTitle>Import data from CSV / ZIP dump</DialogTitle>
               <DialogDescription>
-                CSV/LAS import requires a backend endpoint before operational data can be loaded into MWD/WITS storage.
+                Import single CSV, multiple CSV files, selected folders, or ZIP folder dumps into the active Log Data WITS-value pipeline.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="rounded-xl border border-dashed p-4">
-                <Label htmlFor="log-data-import-file">Source file</Label>
-                <Input
-                  id="log-data-import-file"
-                  type="file"
-                  accept=".csv,.las,.txt"
-                  className="mt-2"
-                  onChange={(event) => setImportFileName(event.target.files?.[0]?.name ?? "")}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  File selection is review-only. Selected channel: {selectedChannel?.witsId ?? "none"}.
-                </p>
-              </div>
-              {importFileName ? (
-                <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                  Selected file: <span className="font-medium">{importFileName}</span>
-                </div>
-              ) : null}
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Endpoint backend untuk import CSV/LAS belum tersedia. Frontend tidak membuat fallback local import.
-              </div>
-            </div>
+            <ScrollArea className="min-h-0 pr-3">
+              <LogDataMemoryImportPanel
+                selectedChannel={selectedChannel}
+                importBatch={logImportBatch}
+                importFileName={importFileName}
+                importError={logImportError}
+                importScanning={logImportScanning}
+                importCommitting={logImportCommitting}
+                importProgress={logImportProgress}
+                importResult={logImportCommitResult}
+                onImportSelection={(files) => void handleLogDataImportSelection(files, selectedChannel?.witsId)}
+                onFolderImport={openFolderImportPicker}
+                onCommitImport={() => void handleCommitLogDataImport()}
+              />
+            </ScrollArea>
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="outline">Close</Button>
+                <Button variant="outline" disabled={logImportCommitting}>Close</Button>
               </DialogClose>
-              <Button
-                disabled
-                title="CSV/LAS import endpoint is not available yet."
-              >
-                Import endpoint unavailable
-              </Button>
             </DialogFooter>
           </DialogContent>
         ) : null}

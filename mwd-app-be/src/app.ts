@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import { corsOptions } from "./config/cors.js";
 import auditLogRoutes from "./routes/audit-log.route.js";
 import authRoutes from "./routes/auth.route.js";
 import connectionStatusRoutes from "./routes/connection-status.route.js";
@@ -24,6 +25,13 @@ import userRoutes from "./routes/user.route.js";
 import witsConfigRoutes from "./routes/wits-config.route.js";
 import { witsAlarmRouter, witsDataRouter } from "./routes/wits-data.route.js";
 import witsOutputRoutes from "./routes/wits-output.route.js";
+import { prisma } from "./lib/prisma.js";
+import { getEspWebSocketGatewayStatus } from "./services/esp-websocket.service.js";
+import { getSerialGatewayStatus } from "./services/serial-gateway.service.js";
+import {
+  getConnectedClientCount,
+  getWebSocketInstance,
+} from "./services/websocket.service.js";
 import {
   csrfProtection,
   rateLimit,
@@ -33,13 +41,27 @@ import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js
 import { validateSecurityEnvironment } from "./utils/security-env.js";
 
 const app = express();
-const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const allowedCorsOrigins = new Set(corsOrigins);
 
 validateSecurityEnvironment();
+
+const envPositiveInt = (name: string, fallback: number) => {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const testAwarePositiveInt = (
+  name: string,
+  normalDefault: number,
+  testDefault: number,
+  testName = `TEST_${name}`,
+) =>
+  process.env.NODE_ENV === "test"
+    ? envPositiveInt(testName, envPositiveInt(name, testDefault))
+    : envPositiveInt(name, normalDefault);
+
+const resolveServerPort = () => envPositiveInt("PORT", 5001);
 
 const isDecimalLike = (value: unknown): value is { toString: () => string } => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -87,31 +109,131 @@ const normalizeJsonValue = (value: unknown): unknown => {
   return value;
 };
 
+const getGatewayHealthStatus = (gateway: {
+  enabled: boolean;
+  connected: boolean;
+  reconnecting: boolean;
+}) => {
+  if (!gateway.enabled) return "disabled";
+  if (gateway.connected) return "connected";
+  return "disconnected";
+};
+
+const getSystemHealth = async () => {
+  const checkedAt = new Date().toISOString();
+  const databaseStartedAt = Date.now();
+  let databaseStatus = "ok";
+  let databaseLatencyMs: number | null = null;
+  let databaseName: string | null = null;
+  let databaseError: string | undefined;
+
+  try {
+    const databaseInfo = await prisma.$queryRaw<Array<{ database_name: string }>>`
+      SELECT current_database() AS database_name
+    `;
+    databaseName = databaseInfo[0]?.database_name ?? null;
+    databaseLatencyMs = Date.now() - databaseStartedAt;
+  } catch (error: unknown) {
+    databaseStatus = "error";
+    databaseError = error instanceof Error ? error.message : "Database health check failed";
+  }
+
+  const serial = getSerialGatewayStatus();
+  const espWebSocket = getEspWebSocketGatewayStatus();
+  const serialStatus = getGatewayHealthStatus(serial);
+  const espWebSocketStatus = getGatewayHealthStatus(espWebSocket);
+  const hardwareDegraded =
+    (serial.enabled && !serial.connected) ||
+    (espWebSocket.enabled && !espWebSocket.connected);
+  const websocketRunning = Boolean(getWebSocketInstance());
+  const status =
+    databaseStatus === "error" ? "error" : hardwareDegraded ? "degraded" : "ok";
+
+  return {
+    status,
+    timestamp: checkedAt,
+    checkedAt,
+    uptimeSeconds: Math.round(process.uptime()),
+    environment: process.env.NODE_ENV ?? "development",
+    version: process.env.npm_package_version ?? "local",
+    service: "mwd-app-be",
+    server: {
+      port: resolveServerPort(),
+      nodeEnv: process.env.NODE_ENV ?? "development",
+    },
+    api: {
+      status: "ok",
+    },
+    database: {
+      status: databaseStatus,
+      connected: databaseStatus === "ok",
+      name: databaseName,
+      latencyMs: databaseLatencyMs,
+      ...(databaseError ? { error: databaseError } : {}),
+    },
+    websocket: {
+      status: websocketRunning ? "ok" : "error",
+      path: "/ws",
+      clientCount: getConnectedClientCount(),
+    },
+    gateways: {
+      serial: {
+        enabled: serial.enabled,
+        status: serialStatus,
+        port: serial.path,
+        lastError: serial.lastError,
+      },
+      espWebSocket: {
+        enabled: espWebSocket.enabled,
+        status: espWebSocketStatus,
+        url: espWebSocket.url,
+        lastError: espWebSocket.lastError,
+      },
+    },
+    dependencies: [
+      {
+        name: "Backend API",
+        status: "ok",
+      },
+      {
+        name: "Database",
+        status: databaseStatus,
+        ...(databaseError ? { message: databaseError } : {}),
+      },
+      {
+        name: "Realtime WebSocket",
+        status: websocketRunning ? "ok" : "error",
+        message: "/ws",
+      },
+      {
+        name: "Serial Gateway",
+        status: serialStatus,
+        message: serial.lastError ?? serial.path ?? undefined,
+      },
+      {
+        name: "ESP WebSocket",
+        status: espWebSocketStatus,
+        message: espWebSocket.lastError ?? espWebSocket.url ?? undefined,
+      },
+    ],
+  };
+};
+
 app.set("json replacer", (_key: string, value: unknown) =>
   typeof value === "bigint" ? value.toString() : value,
 );
 app.set("trust proxy", 1);
 
 app.use(securityHeaders);
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedCorsOrigins.has(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(null, false);
-    },
-    credentials: true,
-  }),
-);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(
   "/api/auth/login",
   rateLimit({
     keyPrefix: "auth-login",
     windowMs: 15 * 60 * 1000,
-    max: 10,
+    max: testAwarePositiveInt("AUTH_LOGIN_RATE_LIMIT_MAX", 10, 100),
     message: "Too many login attempts. Please try again later.",
   }),
 );
@@ -119,8 +241,8 @@ app.use(
   "/api/gateway",
   rateLimit({
     keyPrefix: "gateway",
-    windowMs: 60 * 1000,
-    max: 120,
+    windowMs: testAwarePositiveInt("GATEWAY_RATE_LIMIT_WINDOW_MS", 60 * 1000, 60 * 1000),
+    max: testAwarePositiveInt("GATEWAY_RATE_LIMIT_MAX", 120, 5_000),
     message: "Too many gateway requests. Please slow down.",
   }),
 );
@@ -129,7 +251,7 @@ app.use(
   rateLimit({
     keyPrefix: "api",
     windowMs: 60 * 1000,
-    max: 600,
+    max: testAwarePositiveInt("API_RATE_LIMIT_MAX", 600, 10_000),
   }),
 );
 app.use("/api", csrfProtection);
@@ -148,6 +270,44 @@ app.get("/", (_req, res) => {
     name: "MWD Monitoring API",
     status: "ok",
   });
+});
+
+app.get("/health", (_req, res) => {
+  res.json({
+    name: "MWD Monitoring API",
+    status: "ok",
+    checkedAt: new Date().toISOString(),
+  });
+});
+
+app.get("/api/health", async (_req, res, next) => {
+  try {
+    const health = await getSystemHealth();
+    res.status(health.status === "error" ? 503 : 200).json(health);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/readiness", async (_req, res, next) => {
+  try {
+    const health = await getSystemHealth();
+    const ready = health.database.connected;
+
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "ok" : "error",
+      service: health.service,
+      timestamp: health.checkedAt,
+      server: health.server,
+      database: {
+        connected: health.database.connected,
+        name: health.database.name,
+        latencyMs: health.database.latencyMs,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use("/api/auth", authRoutes);

@@ -6,11 +6,11 @@ import { startEspWebSocketGateway } from './services/esp-websocket.service.js'
 import { startSerialGateway } from './services/serial-gateway.service.js'
 import { syncSystemRoles } from './services/role.service.js'
 
-const portFromEnv = Number(process.env.PORT)
+const portFromEnv = Number(process.env.PORT || process.env.BACKEND_PORT)
 const PORT =
   Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : 5001
 
-const HOST = process.env.HOST || '0.0.0.0'
+const HOST = process.env.HOST || process.env.BACKEND_HOST || '127.0.0.1'
 
 const startServer = async () => {
   await syncSystemRoles()
@@ -23,7 +23,7 @@ const startServer = async () => {
 
   httpServer.listen(PORT, HOST, () => {
     console.log(`Express server running on http://${HOST}:${PORT}`)
-    startEspWebSocketGateway()
+    void startEspWebSocketGateway()
     void startSerialGateway()
   })
 }

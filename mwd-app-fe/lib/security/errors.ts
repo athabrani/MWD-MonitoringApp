@@ -93,6 +93,7 @@ export function redactSensitive(value: unknown, depth = 0): unknown {
 
 export function logSecurityDebug(label: string, data?: unknown) {
   if (process.env.NODE_ENV !== "development") return;
+  if (process.env.NEXT_PUBLIC_DEBUG_MWD !== "true") return;
   if (typeof console === "undefined") return;
 
   if (typeof data === "undefined") {

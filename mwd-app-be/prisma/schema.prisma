@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -16,33 +10,32 @@ datasource db {
 model Role {
   id        Int      @id @default(autoincrement())
   name      String   @unique @db.VarChar(50)
-  users     User[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  users     User[]
 
   @@map("Role")
 }
 
 model User {
-  id           Int       @id @default(autoincrement())
-  roleId       Int
-  username     String    @unique @db.VarChar(100)
-  email        String    @unique @db.VarChar(150)
-  passwordHash String    @db.VarChar(255)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  role          Role            @relation(fields: [roleId], references: [id], onUpdate: Cascade)
-  sessions      MWDSession[]
-  exportRecords ExportRecord[]
-  dataEditOperations MWDDataEditOperation[]
-  memoryFilesImported MemoryFile[] @relation("MemoryFileImportedBy")
-  memoryCorrelations MemoryCorrelation[] @relation("MemoryCorrelationBy")
-  reportEmailLogs ReportEmailLog[] @relation("ReportEmailSentBy")
-  acknowledgedWitsAlarms WitsAlarmEvent[] @relation("WitsAlarmAcknowledgedBy")
-  auditLogs AuditLog[]
+  id                     Int                    @id @default(autoincrement())
+  roleId                 Int
+  username               String                 @unique @db.VarChar(100)
+  email                  String                 @unique @db.VarChar(150)
+  passwordHash           String                 @db.VarChar(255)
+  isActive               Boolean                @default(true)
+  lastLoginAt            DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  auditLogs              AuditLog[]
+  exportRecords          ExportRecord[]
+  dataEditOperations     MWDDataEditOperation[]
+  sessions               MWDSession[]
+  memoryCorrelations     MemoryCorrelation[]    @relation("MemoryCorrelationBy")
+  memoryFilesImported    MemoryFile[]           @relation("MemoryFileImportedBy")
+  reportEmailLogs        ReportEmailLog[]       @relation("ReportEmailSentBy")
+  role                   Role                   @relation(fields: [roleId], references: [id])
+  acknowledgedWitsAlarms WitsAlarmEvent[]       @relation("WitsAlarmAcknowledgedBy")
 
   @@index([roleId])
   @@map("User")
@@ -52,11 +45,10 @@ model AuditLog {
   id        BigInt   @id @default(autoincrement())
   userId    Int?
   action    String   @db.VarChar(100)
-  details   String?  @db.Text
+  details   String?
   metadata  Json?
   createdAt DateTime @default(now())
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([action])
@@ -65,15 +57,14 @@ model AuditLog {
 }
 
 model ConnectionStatus {
-  id            Int       @id @default(autoincrement())
-  source        String    @db.VarChar(100)
-  status        String    @db.VarChar(30)
-  description   String?   @db.Text
-  checkedAt     DateTime  @default(now())
-  responseMs    Int?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
+  id             Int             @id @default(autoincrement())
+  source         String          @db.VarChar(100)
+  status         String          @db.VarChar(30)
+  description    String?
+  checkedAt      DateTime        @default(now())
+  responseMs     Int?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   failoverEvents FailoverEvent[]
   sessions       MWDSession[]
   websockets     Websocket[]
@@ -84,16 +75,15 @@ model ConnectionStatus {
 }
 
 model FailoverEvent {
-  id                  Int       @id @default(autoincrement())
-  connectionStatusId  Int
-  fromNode            String?   @db.VarChar(100)
-  toNode              String?   @db.VarChar(100)
-  reason              String?   @db.Text
-  eventAt             DateTime  @default(now())
-  resolvedAt          DateTime?
-  createdAt           DateTime  @default(now())
-
-  connectionStatus ConnectionStatus @relation(fields: [connectionStatusId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                 Int              @id @default(autoincrement())
+  connectionStatusId Int
+  fromNode           String?          @db.VarChar(100)
+  toNode             String?          @db.VarChar(100)
+  reason             String?
+  eventAt            DateTime         @default(now())
+  resolvedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  connectionStatus   ConnectionStatus @relation(fields: [connectionStatusId], references: [id])
 
   @@index([connectionStatusId])
   @@index([eventAt])
@@ -101,45 +91,44 @@ model FailoverEvent {
 }
 
 model MWDSession {
-  id                  Int       @id @default(autoincrement())
-  userId              Int
-  connectionStatusId  Int?
-  sessionCode         String    @unique @db.VarChar(100)
-  company             String?   @db.VarChar(150)
-  wellName            String?   @db.VarChar(150)
-  wellId              String?   @db.VarChar(100)
-  rigName             String?   @db.VarChar(150)
-  fieldName           String?   @db.VarChar(150)
-  jobNumber           String?   @db.VarChar(100)
-  province            String?   @db.VarChar(150)
-  countyParish        String?   @db.VarChar(150)
-  country             String?   @db.VarChar(150)
-  location            String?   @db.VarChar(255)
-  latitude            Decimal?  @db.Decimal(10, 7)
-  longitude           Decimal?  @db.Decimal(10, 7)
-  notes               String?   @db.Text
-  startedAt           DateTime  @default(now())
-  endedAt             DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  user             User              @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  connectionStatus ConnectionStatus? @relation(fields: [connectionStatusId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  mwdData          MWDData[]
-  witsDataValues   WitsDataValue[]
-  witsAlarmEvents  WitsAlarmEvent[]
-  surveyStations   SurveyStation[]
-  exportRecords    ExportRecord[]
-  dataEditOperations MWDDataEditOperation[]
-  memoryFiles       MemoryFile[]
-  memoryDataPoints  MemoryDataPoint[]
-  memoryCorrelations MemoryCorrelation[]
-  reportEmailLogs   ReportEmailLog[]
-  depthTrackingState DepthTrackingState?
+  id                   Int                    @id @default(autoincrement())
+  userId               Int
+  connectionStatusId   Int?
+  sessionCode          String                 @unique @db.VarChar(100)
+  wellName             String?                @db.VarChar(150)
+  rigName              String?                @db.VarChar(150)
+  startedAt            DateTime               @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  company              String?                @db.VarChar(150)
+  wellId               String?                @db.VarChar(100)
+  fieldName            String?                @db.VarChar(150)
+  jobNumber            String?                @db.VarChar(100)
+  province             String?                @db.VarChar(150)
+  countyParish         String?                @db.VarChar(150)
+  country              String?                @db.VarChar(150)
+  location             String?                @db.VarChar(255)
+  latitude             Decimal?               @db.Decimal(10, 7)
+  longitude            Decimal?               @db.Decimal(10, 7)
+  notes                String?
   depthTrackingSamples DepthTrackingSample[]
-  witsOutputMessages WitsOutputMessage[]
+  depthTrackingState   DepthTrackingState?
+  exportRecords        ExportRecord[]
   gatewayRawPacketLogs GatewayRawPacketLog[]
-  surveyConfig     SurveyConfig?
+  mwdData              MWDData[]
+  dataEditOperations   MWDDataEditOperation[]
+  connectionStatus     ConnectionStatus?      @relation(fields: [connectionStatusId], references: [id])
+  user                 User                   @relation(fields: [userId], references: [id])
+  memoryCorrelations   MemoryCorrelation[]
+  memoryDataPoints     MemoryDataPoint[]
+  memoryFiles          MemoryFile[]
+  reportEmailLogs      ReportEmailLog[]
+  surveyConfig         SurveyConfig?
+  surveyStations       SurveyStation[]
+  witsAlarmEvents      WitsAlarmEvent[]
+  witsDataValues       WitsDataValue[]
+  witsOutputMessages   WitsOutputMessage[]
 
   @@index([userId])
   @@index([connectionStatusId])
@@ -148,55 +137,53 @@ model MWDSession {
 }
 
 model SurveyConfig {
-  id                      Int      @id @default(autoincrement())
-  sessionId               Int      @unique
-  wellName                String?  @db.VarChar(150)
-  rigName                 String?  @db.VarChar(150)
-  companyName             String?  @db.VarChar(150)
-  fieldName               String?  @db.VarChar(150)
-  location                String?  @db.VarChar(255)
-  units                   String?  @db.VarChar(50)
-  proposedAzimuth         Decimal? @db.Decimal(8, 4)
-  surveyDepthOffset       Decimal? @db.Decimal(12, 4)
-  northReference          String?  @db.VarChar(80)
-  declination             Decimal? @db.Decimal(8, 4)
-  latitude                Decimal? @db.Decimal(10, 7)
-  longitude               Decimal? @db.Decimal(10, 7)
-  northingOrigin          Decimal? @db.Decimal(12, 4)
-  eastingOrigin           Decimal? @db.Decimal(12, 4)
-  elevationKb             Decimal? @db.Decimal(12, 4)
-  elevationDf             Decimal? @db.Decimal(12, 4)
-  elevationGl             Decimal? @db.Decimal(12, 4)
-  sectionType             String?  @db.VarChar(80)
-  plotTemplateId          Int?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-
-  session      MWDSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  plotTemplate PlotTemplate? @relation(fields: [plotTemplateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id                Int           @id @default(autoincrement())
+  sessionId         Int           @unique
+  wellName          String?       @db.VarChar(150)
+  rigName           String?       @db.VarChar(150)
+  companyName       String?       @db.VarChar(150)
+  fieldName         String?       @db.VarChar(150)
+  location          String?       @db.VarChar(255)
+  units             String?       @db.VarChar(50)
+  proposedAzimuth   Decimal?      @db.Decimal(8, 4)
+  surveyDepthOffset Decimal?      @db.Decimal(12, 4)
+  northReference    String?       @db.VarChar(80)
+  declination       Decimal?      @db.Decimal(8, 4)
+  latitude          Decimal?      @db.Decimal(10, 7)
+  longitude         Decimal?      @db.Decimal(10, 7)
+  northingOrigin    Decimal?      @db.Decimal(12, 4)
+  eastingOrigin     Decimal?      @db.Decimal(12, 4)
+  elevationKb       Decimal?      @db.Decimal(12, 4)
+  elevationDf       Decimal?      @db.Decimal(12, 4)
+  elevationGl       Decimal?      @db.Decimal(12, 4)
+  sectionType       String?       @db.VarChar(80)
+  plotTemplateId    Int?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  plotTemplate      PlotTemplate? @relation(fields: [plotTemplateId], references: [id])
+  session           MWDSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([plotTemplateId])
   @@map("Survey_Config")
 }
 
 model GatewayRawPacketLog {
-  id               BigInt   @id @default(autoincrement())
+  id               BigInt      @id @default(autoincrement())
   sessionId        Int?
-  channel          String   @db.VarChar(30)
-  source           String   @db.VarChar(100)
-  messageType      String?  @db.VarChar(50)
-  rawMessage       String   @db.Text
+  channel          String      @db.VarChar(30)
+  source           String      @db.VarChar(100)
+  messageType      String?     @db.VarChar(50)
+  rawMessage       String
   payload          Json?
-  sequence         String?  @db.VarChar(100)
-  rssi             Decimal? @db.Decimal(10, 4)
-  snr              Decimal? @db.Decimal(10, 4)
-  receivedAt       DateTime @default(now())
-  ingested         Boolean  @default(false)
-  selectedByFusion Boolean  @default(false)
-  reason           String?  @db.Text
-  createdAt        DateTime @default(now())
-
-  session MWDSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  sequence         String?     @db.VarChar(100)
+  rssi             Decimal?    @db.Decimal(10, 4)
+  snr              Decimal?    @db.Decimal(10, 4)
+  receivedAt       DateTime    @default(now())
+  ingested         Boolean     @default(false)
+  selectedByFusion Boolean     @default(false)
+  reason           String?
+  createdAt        DateTime    @default(now())
+  session          MWDSession? @relation(fields: [sessionId], references: [id])
 
   @@index([sessionId])
   @@index([channel])
@@ -208,17 +195,16 @@ model GatewayRawPacketLog {
 }
 
 model ExportRecord {
-  id             Int       @id @default(autoincrement())
-  sessionId      Int
-  exportedById   Int
-  fileName       String    @db.VarChar(255)
-  fileType       String    @db.VarChar(50)
-  filePath       String?   @db.VarChar(500)
-  rowCount       Int?
-  exportedAt     DateTime  @default(now())
-
-  session        MWDSession @relation(fields: [sessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  exportedBy     User       @relation(fields: [exportedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id           Int        @id @default(autoincrement())
+  sessionId    Int
+  exportedById Int
+  fileName     String     @db.VarChar(255)
+  fileType     String     @db.VarChar(50)
+  filePath     String?    @db.VarChar(500)
+  rowCount     Int?
+  exportedAt   DateTime   @default(now())
+  exportedBy   User       @relation(fields: [exportedById], references: [id])
+  session      MWDSession @relation(fields: [sessionId], references: [id])
 
   @@index([sessionId])
   @@index([exportedById])
@@ -227,13 +213,13 @@ model ExportRecord {
 }
 
 model PlotTemplate {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique @db.VarChar(150)
-  description String?  @db.Text
-  config      Json
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            Int            @id @default(autoincrement())
+  name          String         @unique @db.VarChar(150)
+  description   String?
+  config        Json
+  isDefault     Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   surveyConfigs SurveyConfig[]
 
   @@index([isDefault])
@@ -241,103 +227,105 @@ model PlotTemplate {
 }
 
 model MWDData {
-  id                    BigInt    @id @default(autoincrement())
-  sessionId             Int
-  measuredAt            DateTime
-  toolRunTime           Decimal?  @db.Decimal(12, 4)
-  slideIndicator        Decimal?  @db.Decimal(10, 4)
-  depthMd               Decimal?  @db.Decimal(12, 4)
-  hole_depth            Decimal?  @db.Decimal(12, 4)
-  inclination           Decimal?  @db.Decimal(8, 4)
-  continuousInclination Decimal?  @db.Decimal(8, 4)
-  azimuth               Decimal?  @db.Decimal(8, 4)
-  continuousAzimuth     Decimal?  @db.Decimal(8, 4)
-  verticalSection       Decimal?  @db.Decimal(12, 4)
-  rawSensorAx           Decimal?  @db.Decimal(12, 4)
-  rawSensorAy           Decimal?  @db.Decimal(12, 4)
-  rawSensorAz           Decimal?  @db.Decimal(12, 4)
-  rawSensorMx           Decimal?  @db.Decimal(12, 4)
-  rawSensorMy           Decimal?  @db.Decimal(12, 4)
-  rawSensorMz           Decimal?  @db.Decimal(12, 4)
-  magneticToolface      Decimal?  @db.Decimal(8, 4)
-  gravityToolface       Decimal?  @db.Decimal(8, 4)
-  totalGravity          Decimal?  @db.Decimal(12, 4)
-  dipAngle              Decimal?  @db.Decimal(8, 4)
-  magneticField         Decimal?  @db.Decimal(12, 4)
-  gammaRay              Decimal?  @db.Decimal(10, 4)
-  temperature           Decimal?  @db.Decimal(10, 4)
-  batteryVoltage        Decimal?  @db.Decimal(10, 4)
-  battery2OnOff         Decimal?  @db.Decimal(10, 4)
-  rotationSpeed         Decimal?  @db.Decimal(10, 4)
-  downholeRpm           Decimal?  @db.Decimal(10, 4)
-  rotaryTorque          Decimal?  @db.Decimal(10, 4)
-  shock                 Decimal?  @db.Decimal(10, 4)
-  shockAxial            Decimal?  @db.Decimal(10, 4)
-  shockLateral          Decimal?  @db.Decimal(10, 4)
-  vibration             Decimal?  @db.Decimal(10, 4)
-  vibrationAxial        Decimal?  @db.Decimal(10, 4)
-  vibrationLateral      Decimal?  @db.Decimal(10, 4)
-  genericVariable0      Decimal?  @db.Decimal(12, 4)
-  genericVariable1      Decimal?  @db.Decimal(12, 4)
-  genericVariable2      Decimal?  @db.Decimal(12, 4)
-  genericVariable3      Decimal?  @db.Decimal(12, 4)
-  genericVariable4      Decimal?  @db.Decimal(12, 4)
-  genericVariable5      Decimal?  @db.Decimal(12, 4)
-  genericVariable6      Decimal?  @db.Decimal(12, 4)
-  genericVariable7      Decimal?  @db.Decimal(12, 4)
-  rop                   Decimal?  @db.Decimal(10, 4)
-  hookLoad              Decimal?  @db.Decimal(10, 4)
-  hookPosition          Decimal?  @db.Decimal(12, 4)
-  standpipePressure     Decimal?  @db.Decimal(10, 4)
-  flowOut               Decimal?  @db.Decimal(10, 4)
-  flowIn                Decimal?  @db.Decimal(10, 4)
-  gasAverage            Decimal?  @db.Decimal(10, 4)
-  annularPressure       Decimal?  @db.Decimal(10, 4)
-  borePressure          Decimal?  @db.Decimal(10, 4)
-  mwdPressure           Decimal?  @db.Decimal(10, 4)
-  kpwd2                 Decimal?  @db.Decimal(10, 4)
-  differentialPressure  Decimal?  @db.Decimal(10, 4)
-  annularDifferentialPressure Decimal? @db.Decimal(10, 4)
-  mudWeight             Decimal?  @db.Decimal(10, 4)
-  ecd                   Decimal?  @db.Decimal(10, 4)
-  ecd2                  Decimal?  @db.Decimal(10, 4)
-  ecdTvd                Decimal?  @db.Decimal(10, 4)
-  ecdDd                 Decimal?  @db.Decimal(10, 4)
-  ssi                   Decimal?  @db.Decimal(10, 4)
-  tvdCalc               Decimal?  @db.Decimal(12, 4)
-  confidence            Decimal?  @db.Decimal(10, 4)
-  pulseAmplitude        Decimal?  @db.Decimal(10, 4)
-  decoderPressure       Decimal?  @db.Decimal(10, 4)
-  avo                   Decimal?  @db.Decimal(10, 4)
-  shallowResistivity    Decimal?  @db.Decimal(12, 4)
-  isHidden              Boolean   @default(false)
-  hiddenAt              DateTime?
-  hiddenById            Int?
-  editNote              String?   @db.Text
-  createdAt             DateTime  @default(now())
-
-  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id                          BigInt     @id @default(autoincrement())
+  sessionId                   Int
+  measuredAt                  DateTime
+  depthMd                     Decimal?   @db.Decimal(12, 4)
+  inclination                 Decimal?   @db.Decimal(8, 4)
+  azimuth                     Decimal?   @db.Decimal(8, 4)
+  gammaRay                    Decimal?   @db.Decimal(10, 4)
+  rop                         Decimal?   @db.Decimal(10, 4)
+  hookLoad                    Decimal?   @db.Decimal(10, 4)
+  standpipePressure           Decimal?   @db.Decimal(10, 4)
+  createdAt                   DateTime   @default(now())
+  continuousInclination       Decimal?   @db.Decimal(8, 4)
+  continuousAzimuth           Decimal?   @db.Decimal(8, 4)
+  rawSensorAx                 Decimal?   @db.Decimal(12, 4)
+  rawSensorAy                 Decimal?   @db.Decimal(12, 4)
+  rawSensorAz                 Decimal?   @db.Decimal(12, 4)
+  rawSensorMx                 Decimal?   @db.Decimal(12, 4)
+  rawSensorMy                 Decimal?   @db.Decimal(12, 4)
+  rawSensorMz                 Decimal?   @db.Decimal(12, 4)
+  magneticToolface            Decimal?   @db.Decimal(8, 4)
+  gravityToolface             Decimal?   @db.Decimal(8, 4)
+  totalGravity                Decimal?   @db.Decimal(12, 4)
+  dipAngle                    Decimal?   @db.Decimal(8, 4)
+  magneticField               Decimal?   @db.Decimal(12, 4)
+  batteryVoltage              Decimal?   @db.Decimal(10, 4)
+  battery2OnOff               Decimal?   @db.Decimal(10, 4)
+  rotationSpeed               Decimal?   @db.Decimal(10, 4)
+  shock                       Decimal?   @db.Decimal(10, 4)
+  vibration                   Decimal?   @db.Decimal(10, 4)
+  genericVariable0            Decimal?   @db.Decimal(12, 4)
+  genericVariable1            Decimal?   @db.Decimal(12, 4)
+  genericVariable2            Decimal?   @db.Decimal(12, 4)
+  genericVariable3            Decimal?   @db.Decimal(12, 4)
+  genericVariable4            Decimal?   @db.Decimal(12, 4)
+  genericVariable5            Decimal?   @db.Decimal(12, 4)
+  genericVariable6            Decimal?   @db.Decimal(12, 4)
+  genericVariable7            Decimal?   @db.Decimal(12, 4)
+  temperature                 Decimal?   @db.Decimal(10, 4)
+  downholeRpm                 Decimal?   @db.Decimal(10, 4)
+  shockAxial                  Decimal?   @db.Decimal(10, 4)
+  shockLateral                Decimal?   @db.Decimal(10, 4)
+  vibrationAxial              Decimal?   @db.Decimal(10, 4)
+  vibrationLateral            Decimal?   @db.Decimal(10, 4)
+  hookPosition                Decimal?   @db.Decimal(12, 4)
+  annularPressure             Decimal?   @db.Decimal(10, 4)
+  borePressure                Decimal?   @db.Decimal(10, 4)
+  differentialPressure        Decimal?   @db.Decimal(10, 4)
+  annularDifferentialPressure Decimal?   @db.Decimal(10, 4)
+  mudWeight                   Decimal?   @db.Decimal(10, 4)
+  ecd                         Decimal?   @db.Decimal(10, 4)
+  ecd2                        Decimal?   @db.Decimal(10, 4)
+  ecdTvd                      Decimal?   @db.Decimal(10, 4)
+  ssi                         Decimal?   @db.Decimal(10, 4)
+  tvdCalc                     Decimal?   @db.Decimal(12, 4)
+  toolRunTime                 Decimal?   @db.Decimal(12, 4)
+  slideIndicator              Decimal?   @db.Decimal(10, 4)
+  verticalSection             Decimal?   @db.Decimal(12, 4)
+  rotaryTorque                Decimal?   @db.Decimal(10, 4)
+  flowOut                     Decimal?   @db.Decimal(10, 4)
+  flowIn                      Decimal?   @db.Decimal(10, 4)
+  gasAverage                  Decimal?   @db.Decimal(10, 4)
+  mwdPressure                 Decimal?   @db.Decimal(10, 4)
+  kpwd2                       Decimal?   @db.Decimal(10, 4)
+  ecdDd                       Decimal?   @db.Decimal(10, 4)
+  confidence                  Decimal?   @db.Decimal(10, 4)
+  pulseAmplitude              Decimal?   @db.Decimal(10, 4)
+  decoderPressure             Decimal?   @db.Decimal(10, 4)
+  avo                         Decimal?   @db.Decimal(10, 4)
+  shallowResistivity          Decimal?   @db.Decimal(12, 4)
+  isHidden                    Boolean    @default(false)
+  hiddenAt                    DateTime?
+  hiddenById                  Int?
+  editNote                    String?
+  hole_depth                  Decimal?   @db.Decimal(12, 4)
+  gatewaySequence             String?    @db.VarChar(100)
+  session                     MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+  @@index([sessionId, measuredAt])
+  @@index([sessionId, depthMd])
   @@index([measuredAt])
   @@index([isHidden])
+  @@index([gatewaySequence])
   @@map("MWD_Data")
 }
 
 model MWDDataEditOperation {
-  id             BigInt   @id @default(autoincrement())
-  sessionId      Int
-  editedById     Int
-  operation      String   @db.VarChar(50)
-  depthMin       Decimal? @db.Decimal(12, 4)
-  depthMax       Decimal? @db.Decimal(12, 4)
-  affectedCount  Int      @default(0)
-  parameters     Json?
-  note           String?  @db.Text
-  createdAt      DateTime @default(now())
-
-  session  MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  editedBy User       @relation(fields: [editedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id            BigInt     @id @default(autoincrement())
+  sessionId     Int
+  editedById    Int
+  operation     String     @db.VarChar(50)
+  depthMin      Decimal?   @db.Decimal(12, 4)
+  depthMax      Decimal?   @db.Decimal(12, 4)
+  affectedCount Int        @default(0)
+  parameters    Json?
+  note          String?
+  createdAt     DateTime   @default(now())
+  editedBy      User       @relation(fields: [editedById], references: [id])
+  session       MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
   @@index([editedById])
@@ -347,23 +335,22 @@ model MWDDataEditOperation {
 }
 
 model MemoryFile {
-  id              Int      @id @default(autoincrement())
+  id              Int                 @id @default(autoincrement())
   sessionId       Int
   importedById    Int
-  fileName        String   @db.VarChar(255)
-  source          String   @default("memory_file") @db.VarChar(100)
-  depthField      String?  @db.VarChar(100)
-  measuredAtField String?  @db.VarChar(100)
+  fileName        String              @db.VarChar(255)
+  source          String              @default("memory_file") @db.VarChar(100)
+  depthField      String?             @db.VarChar(100)
+  measuredAtField String?             @db.VarChar(100)
   columns         Json?
   fieldMappings   Json?
-  rowCount        Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  session      MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  importedBy   User       @relation("MemoryFileImportedBy", fields: [importedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  dataPoints   MemoryDataPoint[]
-  correlations MemoryCorrelation[]
+  rowCount        Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @default(now()) @updatedAt
+  correlations    MemoryCorrelation[]
+  dataPoints      MemoryDataPoint[]
+  importedBy      User                @relation("MemoryFileImportedBy", fields: [importedById], references: [id])
+  session         MWDSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
   @@index([importedById])
@@ -372,17 +359,16 @@ model MemoryFile {
 }
 
 model MemoryDataPoint {
-  id           BigInt   @id @default(autoincrement())
+  id           BigInt     @id @default(autoincrement())
   memoryFileId Int
   sessionId    Int
   rowNumber    Int
   measuredAt   DateTime?
-  depthMd      Decimal? @db.Decimal(12, 4)
+  depthMd      Decimal?   @db.Decimal(12, 4)
   values       Json
-  createdAt    DateTime @default(now())
-
-  memoryFile MemoryFile @relation(fields: [memoryFileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  session    MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt    DateTime   @default(now())
+  memoryFile   MemoryFile @relation(fields: [memoryFileId], references: [id], onDelete: Cascade)
+  session      MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([memoryFileId])
   @@index([sessionId])
@@ -392,22 +378,21 @@ model MemoryDataPoint {
 }
 
 model MemoryCorrelation {
-  id                  BigInt   @id @default(autoincrement())
+  id                  BigInt     @id @default(autoincrement())
   memoryFileId        Int
   sessionId           Int
   correlatedById      Int
-  mode                String   @db.VarChar(30)
-  depthOffset         Decimal? @db.Decimal(12, 4)
+  mode                String     @db.VarChar(30)
+  depthOffset         Decimal?   @db.Decimal(12, 4)
   measuredAtOffsetMs  Int?
-  maxDepthDifference  Decimal? @db.Decimal(12, 4)
+  maxDepthDifference  Decimal?   @db.Decimal(12, 4)
   maxTimeDifferenceMs Int?
   fieldMappings       Json?
-  affectedCount       Int      @default(0)
-  createdAt           DateTime @default(now())
-
-  memoryFile   MemoryFile @relation(fields: [memoryFileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  session      MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  correlatedBy User       @relation("MemoryCorrelationBy", fields: [correlatedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  affectedCount       Int        @default(0)
+  createdAt           DateTime   @default(now())
+  correlatedBy        User       @relation("MemoryCorrelationBy", fields: [correlatedById], references: [id])
+  memoryFile          MemoryFile @relation(fields: [memoryFileId], references: [id], onDelete: Cascade)
+  session             MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([memoryFileId])
   @@index([sessionId])
@@ -418,25 +403,24 @@ model MemoryCorrelation {
 }
 
 model ReportEmailLog {
-  id              BigInt    @id @default(autoincrement())
-  sessionId       Int?
-  sentById        Int
-  toRecipients    Json
-  ccRecipients    Json?
-  bccRecipients   Json?
-  subject         String    @db.VarChar(255)
-  message         String?   @db.Text
-  status          String    @db.VarChar(30)
-  dryRun          Boolean   @default(false)
-  attachmentTypes Json?
-  attachments     Json?
-  errorMessage    String?   @db.Text
-  providerMessageId String? @db.VarChar(255)
-  sentAt          DateTime?
-  createdAt       DateTime  @default(now())
-
-  session MWDSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  sentBy  User        @relation("ReportEmailSentBy", fields: [sentById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                BigInt      @id @default(autoincrement())
+  sessionId         Int?
+  sentById          Int
+  toRecipients      Json
+  ccRecipients      Json?
+  bccRecipients     Json?
+  subject           String      @db.VarChar(255)
+  message           String?
+  status            String      @db.VarChar(30)
+  dryRun            Boolean     @default(false)
+  attachmentTypes   Json?
+  attachments       Json?
+  errorMessage      String?
+  providerMessageId String?     @db.VarChar(255)
+  sentAt            DateTime?
+  createdAt         DateTime    @default(now())
+  sentBy            User        @relation("ReportEmailSentBy", fields: [sentById], references: [id])
+  session           MWDSession? @relation(fields: [sessionId], references: [id])
 
   @@index([sessionId])
   @@index([sentById])
@@ -447,22 +431,21 @@ model ReportEmailLog {
 }
 
 model DepthTrackingState {
-  id             Int      @id @default(autoincrement())
-  sessionId      Int      @unique
-  mode           String   @default("bit_depth") @db.VarChar(50)
-  bitDepth       Decimal? @db.Decimal(12, 4)
-  holeDepth      Decimal? @db.Decimal(12, 4)
-  blockDepth     Decimal? @db.Decimal(12, 4)
-  rop            Decimal? @db.Decimal(10, 4)
-  status         String   @default("unknown") @db.VarChar(50)
-  source         String   @default("manual") @db.VarChar(100)
+  id             Int                   @id @default(autoincrement())
+  sessionId      Int                   @unique
+  mode           String                @default("bit_depth") @db.VarChar(50)
+  bitDepth       Decimal?              @db.Decimal(12, 4)
+  holeDepth      Decimal?              @db.Decimal(12, 4)
+  blockDepth     Decimal?              @db.Decimal(12, 4)
+  rop            Decimal?              @db.Decimal(10, 4)
+  status         String                @default("unknown") @db.VarChar(50)
+  source         String                @default("manual") @db.VarChar(100)
   lastMeasuredAt DateTime?
   settings       Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  samples DepthTrackingSample[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @default(now()) @updatedAt
+  samples        DepthTrackingSample[]
+  session        MWDSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([lastMeasuredAt])
   @@index([status])
@@ -470,21 +453,20 @@ model DepthTrackingState {
 }
 
 model DepthTrackingSample {
-  id             BigInt   @id @default(autoincrement())
-  sessionId      Int
-  stateId        Int?
-  measuredAt     DateTime
-  bitDepth       Decimal? @db.Decimal(12, 4)
-  holeDepth      Decimal? @db.Decimal(12, 4)
-  blockDepth     Decimal? @db.Decimal(12, 4)
-  rop            Decimal? @db.Decimal(10, 4)
-  status         String   @default("unknown") @db.VarChar(50)
-  source         String   @default("manual") @db.VarChar(100)
-  raw            Json?
-  createdAt      DateTime @default(now())
-
-  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  state   DepthTrackingState? @relation(fields: [stateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id         BigInt              @id @default(autoincrement())
+  sessionId  Int
+  stateId    Int?
+  measuredAt DateTime
+  bitDepth   Decimal?            @db.Decimal(12, 4)
+  holeDepth  Decimal?            @db.Decimal(12, 4)
+  blockDepth Decimal?            @db.Decimal(12, 4)
+  rop        Decimal?            @db.Decimal(10, 4)
+  status     String              @default("unknown") @db.VarChar(50)
+  source     String              @default("manual") @db.VarChar(100)
+  raw        Json?
+  createdAt  DateTime            @default(now())
+  session    MWDSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  state      DepthTrackingState? @relation(fields: [stateId], references: [id])
 
   @@index([sessionId])
   @@index([stateId])
@@ -494,21 +476,20 @@ model DepthTrackingSample {
 }
 
 model WitsOutputMessage {
-  id          BigInt    @id @default(autoincrement())
-  sessionId   Int
-  targetPort  String    @db.VarChar(20)
-  witsId      String    @db.VarChar(4)
-  measuredAt  DateTime
-  depthMd     Decimal?  @db.Decimal(12, 4)
-  value       Decimal?  @db.Decimal(16, 6)
-  payload     String    @db.Text
-  status      String    @default("queued") @db.VarChar(30)
-  reason      String?   @db.Text
-  sentAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id         BigInt     @id @default(autoincrement())
+  sessionId  Int
+  targetPort String     @db.VarChar(20)
+  witsId     String     @db.VarChar(4)
+  measuredAt DateTime
+  depthMd    Decimal?   @db.Decimal(12, 4)
+  value      Decimal?   @db.Decimal(16, 6)
+  payload    String
+  status     String     @default("queued") @db.VarChar(30)
+  reason     String?
+  sentAt     DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @default(now()) @updatedAt
+  session    MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
   @@index([targetPort])
@@ -520,60 +501,58 @@ model WitsOutputMessage {
 }
 
 model WitsConfig {
-  id                 Int       @id @default(autoincrement())
-  witsId             String    @unique @db.VarChar(4)
-  name               String    @db.VarChar(150)
-  units              String?   @db.VarChar(50)
-  mappedField        String?   @db.VarChar(100)
-  decimalPlaces      Int       @default(2)
-  scaleFactor        Decimal   @default(1) @db.Decimal(12, 6)
-  biasOffset         Decimal   @default(0) @db.Decimal(12, 6)
-  sensorToBitSpacing Decimal?  @db.Decimal(12, 4)
-  plotScaleLeft      Decimal?  @db.Decimal(16, 6)
-  plotScaleRight     Decimal?  @db.Decimal(16, 6)
-  lineColor          String?   @db.VarChar(20)
-  wrapColor          String?   @db.VarChar(20)
-  depthTrackingMode  String    @default("bit_depth") @db.VarChar(50)
-  depthTrackingField String    @default("depth") @db.VarChar(100)
-  enableLogging      Boolean   @default(true)
-  alarmEnabled       Boolean   @default(false)
-  alarmMin           Decimal?  @db.Decimal(16, 6)
-  alarmMax           Decimal?  @db.Decimal(16, 6)
-  customDepthWitsId  String?   @db.VarChar(4)
-  dataSource         String    @default("serial_port_wits") @db.VarChar(100)
-  dataInputValue     Decimal?  @db.Decimal(16, 6)
-  sendToAuxPort      Boolean   @default(false)
-  sendToRigWitsPort  Boolean   @default(false)
-  doNotRepeat        Boolean   @default(false)
-  lasTag             String?   @db.VarChar(32)
-  lasDescription     String?   @db.VarChar(255)
-  lasFilter          Decimal?  @db.Decimal(10, 4)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  values WitsDataValue[]
-  alarms WitsAlarmEvent[]
+  id                 Int              @id @default(autoincrement())
+  witsId             String           @unique @db.VarChar(4)
+  name               String           @db.VarChar(150)
+  units              String?          @db.VarChar(50)
+  mappedField        String?          @db.VarChar(100)
+  decimalPlaces      Int              @default(2)
+  scaleFactor        Decimal          @default(1) @db.Decimal(12, 6)
+  biasOffset         Decimal          @default(0) @db.Decimal(12, 6)
+  sensorToBitSpacing Decimal?         @db.Decimal(12, 4)
+  enableLogging      Boolean          @default(true)
+  alarmEnabled       Boolean          @default(false)
+  alarmMin           Decimal?         @db.Decimal(16, 6)
+  alarmMax           Decimal?         @db.Decimal(16, 6)
+  customDepthWitsId  String?          @db.VarChar(4)
+  dataSource         String           @default("serial_port_wits") @db.VarChar(100)
+  sendToAuxPort      Boolean          @default(false)
+  sendToRigWitsPort  Boolean          @default(false)
+  doNotRepeat        Boolean          @default(false)
+  lasTag             String?          @db.VarChar(32)
+  lasDescription     String?          @db.VarChar(255)
+  lasFilter          Decimal?         @db.Decimal(10, 4)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @default(now()) @updatedAt
+  plotScaleLeft      Decimal?         @db.Decimal(16, 6)
+  plotScaleRight     Decimal?         @db.Decimal(16, 6)
+  lineColor          String?          @db.VarChar(20)
+  wrapColor          String?          @db.VarChar(20)
+  depthTrackingMode  String           @default("bit_depth") @db.VarChar(50)
+  depthTrackingField String           @default("depth") @db.VarChar(100)
+  dataInputValue     Decimal?         @db.Decimal(16, 6)
+  alarms             WitsAlarmEvent[]
+  values             WitsDataValue[]
 
   @@index([enableLogging])
   @@map("WITS_Config")
 }
 
 model WitsDataValue {
-  id           BigInt    @id @default(autoincrement())
+  id           BigInt      @id @default(autoincrement())
   sessionId    Int
   witsConfigId Int?
-  witsId       String    @db.VarChar(4)
+  witsId       String      @db.VarChar(4)
   measuredAt   DateTime
-  depthMd      Decimal?  @db.Decimal(12, 4)
-  rawValue     Decimal?  @db.Decimal(16, 6)
-  rawText      String?   @db.Text
-  rawLine      String?   @db.Text
-  rawBlock     String?   @db.Text
-  value        Decimal?  @db.Decimal(16, 6)
-  createdAt    DateTime  @default(now())
-
-  session    MWDSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  witsConfig WitsConfig? @relation(fields: [witsConfigId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  depthMd      Decimal?    @db.Decimal(12, 4)
+  rawValue     Decimal?    @db.Decimal(16, 6)
+  value        Decimal?    @db.Decimal(16, 6)
+  createdAt    DateTime    @default(now())
+  rawText      String?
+  rawLine      String?
+  rawBlock     String?
+  session      MWDSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  witsConfig   WitsConfig? @relation(fields: [witsConfigId], references: [id])
 
   @@index([sessionId])
   @@index([witsId])
@@ -583,23 +562,22 @@ model WitsDataValue {
 }
 
 model WitsAlarmEvent {
-  id               BigInt    @id @default(autoincrement())
+  id               BigInt      @id @default(autoincrement())
   sessionId        Int
   witsConfigId     Int?
-  witsId           String    @db.VarChar(4)
+  witsId           String      @db.VarChar(4)
   measuredAt       DateTime
-  value            Decimal   @db.Decimal(16, 6)
-  limitType        String    @db.VarChar(10)
-  limitValue       Decimal   @db.Decimal(16, 6)
-  message          String?   @db.Text
+  value            Decimal     @db.Decimal(16, 6)
+  limitType        String      @db.VarChar(10)
+  limitValue       Decimal     @db.Decimal(16, 6)
+  message          String?
   acknowledgedById Int?
   acknowledgedAt   DateTime?
   resolvedAt       DateTime?
-  createdAt        DateTime  @default(now())
-
-  session        MWDSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  witsConfig     WitsConfig? @relation(fields: [witsConfigId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  acknowledgedBy User?       @relation("WitsAlarmAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdAt        DateTime    @default(now())
+  acknowledgedBy   User?       @relation("WitsAlarmAcknowledgedBy", fields: [acknowledgedById], references: [id])
+  session          MWDSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  witsConfig       WitsConfig? @relation(fields: [witsConfigId], references: [id])
 
   @@index([sessionId])
   @@index([witsId])
@@ -609,29 +587,28 @@ model WitsAlarmEvent {
 }
 
 model SurveyStation {
-  id                     BigInt    @id @default(autoincrement())
+  id                     BigInt     @id @default(autoincrement())
   sessionId              Int
-  stationType            String    @default("actual") @db.VarChar(30)
-  measuredDepth          Decimal   @db.Decimal(12, 4)
-  inclination            Decimal   @db.Decimal(8, 4)
-  azimuth                Decimal   @db.Decimal(8, 4)
-  tvd                    Decimal?  @db.Decimal(12, 4)
-  northing               Decimal?  @db.Decimal(12, 4)
-  easting                Decimal?  @db.Decimal(12, 4)
-  verticalSection        Decimal?  @db.Decimal(12, 4)
-  doglegSeverity         Decimal?  @db.Decimal(10, 4)
-  buildRate              Decimal?  @db.Decimal(10, 4)
-  turnRate               Decimal?  @db.Decimal(10, 4)
-  closureDistance        Decimal?  @db.Decimal(12, 4)
-  closureAzimuth         Decimal?  @db.Decimal(8, 4)
-  courseLength           Decimal?  @db.Decimal(12, 4)
-  verticalSectionAzimuth Decimal?  @db.Decimal(8, 4)
-  source                 String    @default("manual") @db.VarChar(50)
-  notes                  String?   @db.Text
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-
-  session MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  stationType            String     @default("actual") @db.VarChar(30)
+  measuredDepth          Decimal    @db.Decimal(12, 4)
+  inclination            Decimal    @db.Decimal(8, 4)
+  azimuth                Decimal    @db.Decimal(8, 4)
+  tvd                    Decimal?   @db.Decimal(12, 4)
+  northing               Decimal?   @db.Decimal(12, 4)
+  easting                Decimal?   @db.Decimal(12, 4)
+  verticalSection        Decimal?   @db.Decimal(12, 4)
+  doglegSeverity         Decimal?   @db.Decimal(10, 4)
+  buildRate              Decimal?   @db.Decimal(10, 4)
+  turnRate               Decimal?   @db.Decimal(10, 4)
+  closureDistance        Decimal?   @db.Decimal(12, 4)
+  closureAzimuth         Decimal?   @db.Decimal(8, 4)
+  courseLength           Decimal?   @db.Decimal(12, 4)
+  verticalSectionAzimuth Decimal?   @db.Decimal(8, 4)
+  source                 String     @default("manual") @db.VarChar(50)
+  notes                  String?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @default(now()) @updatedAt
+  session                MWDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, stationType, measuredDepth])
   @@index([sessionId])
@@ -641,18 +618,17 @@ model SurveyStation {
 }
 
 model Websocket {
-  id                  Int       @id @default(autoincrement())
-  connectionStatusId  Int?
-  clientId            String?   @db.VarChar(120)
-  channel             String?   @db.VarChar(100)
-  isConnected         Boolean   @default(false)
-  connectedAt         DateTime?
-  disconnectedAt      DateTime?
-  lastPingAt          DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  connectionStatus ConnectionStatus? @relation(fields: [connectionStatusId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id                 Int               @id @default(autoincrement())
+  connectionStatusId Int?
+  clientId           String?           @db.VarChar(120)
+  channel            String?           @db.VarChar(100)
+  isConnected        Boolean           @default(false)
+  connectedAt        DateTime?
+  disconnectedAt     DateTime?
+  lastPingAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  connectionStatus   ConnectionStatus? @relation(fields: [connectionStatusId], references: [id])
 
   @@index([connectionStatusId])
   @@index([clientId])

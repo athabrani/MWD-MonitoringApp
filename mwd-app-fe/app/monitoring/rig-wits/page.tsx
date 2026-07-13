@@ -42,6 +42,39 @@ function buildPacketStreamText(packets: WitsPacketLog[]) {
   return ["&&", ...rawPackets].join("\n");
 }
 
+function formatReceivedPayload(value: string) {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(JSON.parse(trimmedValue), null, 2);
+  } catch {
+    return trimmedValue;
+  }
+}
+
+function buildReceivedPacketText(packets: WitsPacketLog[]) {
+  const visiblePackets = packets.slice(-50);
+
+  if (visiblePackets.length === 0) {
+    return "No WITS data received yet.";
+  }
+
+  return visiblePackets
+    .map((packet, index) => {
+      const timestamp = packet.timestamp ? format(new Date(packet.timestamp), "HH:mm:ss") : "Unknown time";
+      const witsId = packet.witsId ? `WITS ${packet.witsId}` : "WITS";
+      const header = `#${index + 1} - ${timestamp} - ${witsId}`;
+      const payload = formatReceivedPayload(packet.rawPacket);
+
+      return `${header}\n${payload}`;
+    })
+    .join("\n\n");
+}
+
 function PacketStream({
   packets,
 }: {
@@ -50,6 +83,28 @@ function PacketStream({
   return (
     <pre className="min-h-full w-full whitespace-pre-wrap break-words bg-background px-4 py-3 font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere] sm:text-sm sm:leading-6">
       {buildPacketStreamText(packets)}
+    </pre>
+  );
+}
+
+function ReceivedPacketStream({
+  packets,
+}: {
+  packets: WitsPacketLog[];
+}) {
+  const formattedReceivedData = buildReceivedPacketText(packets);
+
+  if (packets.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center px-5 py-8 text-center text-sm text-muted-foreground">
+        No WITS data received yet.
+      </div>
+    );
+  }
+
+  return (
+    <pre className="m-0 min-h-full w-full whitespace-pre-wrap break-words px-5 py-4 font-mono text-xs leading-relaxed text-foreground [overflow-wrap:anywhere] sm:text-sm sm:leading-6">
+      {formattedReceivedData}
     </pre>
   );
 }
@@ -340,13 +395,7 @@ export default function RigWitsPage({
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
             {mode === "raw" ? (
-              receivedPackets.length > 0 ? (
-                <PacketStream packets={receivedPackets} />
-              ) : (
-                <div className="flex h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
-                  Belum ada received data untuk session ini.
-                </div>
-              )
+              <ReceivedPacketStream packets={receivedPackets} />
             ) : (
               <Table className="min-w-[620px] table-fixed">
                 <TableHeader>
@@ -367,8 +416,13 @@ export default function RigWitsPage({
                         <div className="font-medium">{packet.label}</div>
                       </TableCell>
                       <TableCell>{packet.parsedValue}</TableCell>
-                      <TableCell className="truncate font-mono text-xs" title={packet.rawPacket}>
-                        {packet.rawPacket}
+                      <TableCell className="max-w-[320px] align-top">
+                        <code
+                          className="block max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2 font-mono text-xs leading-relaxed [overflow-wrap:anywhere]"
+                          title={packet.rawPacket}
+                        >
+                          {formatReceivedPayload(packet.rawPacket)}
+                        </code>
                       </TableCell>
                     </TableRow>
                   ))}

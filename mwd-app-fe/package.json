@@ -4,8 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:port-3001": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
+    "start:central": "next start -H 0.0.0.0 -p 3000",
+    "start:central:local": "next start -H 127.0.0.1 -p 3000",
+    "start:central:lan": "next start -H 0.0.0.0 -p 3000",
+    "start:port-3001": "next start -p 3001",
     "lint": "eslint"
   },
   "dependencies": {

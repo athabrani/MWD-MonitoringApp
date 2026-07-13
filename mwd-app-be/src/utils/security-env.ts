@@ -8,6 +8,18 @@ const requireLongSecret = (key: string) => {
   }
 };
 
+const getCookieSameSiteEnv = () => {
+  const configured =
+    process.env.AUTH_COOKIE_SAME_SITE ?? process.env.COOKIE_SAME_SITE ?? "";
+  return configured.trim().toLowerCase();
+};
+
+const getCookieSecureEnv = () => {
+  const configured =
+    process.env.AUTH_COOKIE_SECURE ?? process.env.COOKIE_SECURE ?? "";
+  return configured.trim().toLowerCase();
+};
+
 export const validateSecurityEnvironment = () => {
   if (process.env.NODE_ENV !== "production") {
     return;
@@ -35,9 +47,9 @@ export const validateSecurityEnvironment = () => {
     throw new Error("AUTH_EXPOSE_TOKEN must be disabled in production");
   }
 
-  if (process.env.AUTH_COOKIE_SAME_SITE === "None") {
+  if (getCookieSameSiteEnv() === "none") {
     const secureCookie = ["1", "true", "yes", "on"].includes(
-      process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase() ?? "",
+      getCookieSecureEnv(),
     );
 
     if (!secureCookie) {

@@ -69,7 +69,7 @@ export type MemoryFileFieldMapping = {
 
 export type MemoryFileCorrelationPayload = {
   sessionId: string | number;
-  mode: "depth" | "time";
+  mode: "depth" | "timestamp";
   dryRun: boolean;
   fieldMappings: MemoryFileFieldMapping[];
   depthOffset?: number;
@@ -137,6 +137,7 @@ function unwrapCorrelationRows(response: BackendRecord) {
     response.rows,
     response.items,
     response.results,
+    response.sample,
   ];
 
   for (const candidate of candidates) {
@@ -165,19 +166,29 @@ function normalizeMemoryFile(record: BackendRecord, index = 0): MemoryFileRecord
     fileName: readString(record, ["fileName", "file_name", "name", "originalName", "original_name"]) ?? id,
     status: readString(record, ["status", "state"]),
     uploadedAt: readString(record, ["uploadedAt", "uploaded_at", "createdAt", "created_at"]),
-    pointCount: readNumber(record, ["pointCount", "point_count", "totalRows", "total_rows", "count"]),
+    pointCount: readNumber(record, ["pointCount", "point_count", "rowCount", "row_count", "totalRows", "total_rows", "importedCount", "imported_count", "count"]),
     fieldName: readString(record, ["fieldName", "field_name", "field", "mappedField", "mapped_field"]),
     raw: record,
   };
 }
 
+function readPointValues(record: BackendRecord) {
+  const value = record.values;
+  return isRecord(value) ? value : {};
+}
+
 function normalizeMemoryPoint(record: BackendRecord, index = 0): MemoryFilePoint {
+  const values = readPointValues(record);
+  const fieldName =
+    readString(record, ["fieldName", "field_name", "field", "mappedField", "mapped_field"]) ??
+    Object.keys(values).find((key) => readNumber(values, [key]) !== undefined);
+
   return {
     id: readString(record, ["id", "_id", "pointId", "memoryPointId"]) ?? `memory-point-${index}`,
     timestamp: readString(record, ["timestamp", "time", "measuredAt", "measured_at", "createdAt", "created_at"]),
-    depth: readNumber(record, ["depth", "md", "measuredDepth", "measured_depth"]),
-    value: readNumber(record, ["value", "rawValue", "raw_value"]),
-    fieldName: readString(record, ["fieldName", "field_name", "field", "mappedField", "mapped_field"]),
+    depth: readNumber(record, ["depth", "depthMd", "depth_md", "md", "measuredDepth", "measured_depth"]),
+    value: fieldName ? readNumber(values, [fieldName]) ?? readNumber(record, ["value", "rawValue", "raw_value"]) : readNumber(record, ["value", "rawValue", "raw_value"]),
+    fieldName,
     raw: record,
   };
 }
@@ -186,11 +197,11 @@ function normalizeCorrelation(record: BackendRecord, index = 0): MemoryFileCorre
   const id = readString(record, ["id", "_id", "correlationId"]) ?? `memory-correlation-${index}`;
   const fileName = readString(record, ["fileName", "file_name", "name"]);
   const fieldName = readString(record, ["fieldName", "field_name", "field"]);
-  const affectedRows = readNumber(record, ["affectedRows", "affected_rows", "pointCount", "point_count", "count"]);
+  const affectedRows = readNumber(record, ["affectedRows", "affected_rows", "affectedCount", "affected_count", "pointCount", "point_count", "count"]);
   const matchedCount = readNumber(record, ["matchedCount", "matched_count", "matches"]);
   const skippedCount = readNumber(record, ["skippedCount", "skipped_count", "skipped"]);
   const unmatchedCount = readNumber(record, ["unmatchedCount", "unmatched_count"]) ?? skippedCount;
-  const updatedCount = readNumber(record, ["updatedCount", "updated_count"]);
+  const updatedCount = readNumber(record, ["updatedCount", "updated_count", "affectedCount", "affected_count"]);
   const message = readString(record, ["message", "summary", "description"]);
 
   return {

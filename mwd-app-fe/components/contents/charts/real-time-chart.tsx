@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,7 @@ import {
   filterChartDataByTimeWindow,
   getSafeChartData,
   getTimestampMs,
+  downsampleChartData,
   normalizeChartDataForParameters,
   type ChartTimeWindow,
   type ChartValueMode,
@@ -77,7 +78,7 @@ function ChartLegend({
   );
 }
 
-export const RealTimeChart: React.FC<RealTimeChartProps> = ({
+const RealTimeChartComponent: React.FC<RealTimeChartProps> = ({
   data,
   title,
   availableParameters,
@@ -94,34 +95,44 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
   );
   const [scaleLocked, setScaleLocked] = useState(false);
 
-  const toggleParameter = (key: string) => {
+  const toggleParameter = useCallback((key: string) => {
     setSelectedParams(prev => 
       prev.includes(key) 
         ? prev.filter(p => p !== key)
         : [...prev, key]
     );
-  };
+  }, []);
 
-  const safeData = getSafeChartData(data);
-  const getFilteredData = () =>
-    disableTimeWindowFilter ? safeData : filterChartDataByTimeWindow(safeData, timeWindow);
+  const safeData = useMemo(() => getSafeChartData(data), [data]);
+  const filteredData = useMemo(
+    () => (disableTimeWindowFilter ? safeData : filterChartDataByTimeWindow(safeData, timeWindow)),
+    [disableTimeWindowFilter, safeData, timeWindow]
+  );
 
-  const formatTime = (value: unknown, pattern: string) => {
+  const formatTime = useCallback((value: unknown, pattern: string) => {
     const timestamp = value instanceof Date ? value : new Date(value as string | number);
     return Number.isNaN(timestamp.getTime()) ? '' : format(timestamp, pattern);
-  };
+  }, []);
 
-  const filteredData = getFilteredData();
-  const visibleChartData = filteredData.filter((point) =>
-    selectedParams.some((key) => {
-      const value = point[key];
-      return typeof value === 'number' && Number.isFinite(value);
-    })
+  const visibleChartData = useMemo(
+    () =>
+      filteredData.filter((point) =>
+        selectedParams.some((key) => {
+          const value = point[key];
+          return typeof value === 'number' && Number.isFinite(value);
+        })
+      ),
+    [filteredData, selectedParams]
   );
-  const chartDataForRender =
-    valueMode === 'normalized'
-      ? normalizeChartDataForParameters(visibleChartData, selectedParams)
-      : visibleChartData;
+  const chartDataForRender = useMemo(
+    () => {
+      const sampledData = downsampleChartData(visibleChartData, 1000);
+      return valueMode === 'normalized'
+        ? normalizeChartDataForParameters(sampledData, selectedParams)
+        : sampledData;
+    },
+    [selectedParams, valueMode, visibleChartData]
+  );
   const chartEmptyMessage =
     safeData.length > 0 && visibleChartData.length === 0
       ? 'Data historis tersedia, tetapi tidak ada nilai untuk parameter terpilih pada window ini.'
@@ -292,3 +303,5 @@ export const RealTimeChart: React.FC<RealTimeChartProps> = ({
     </Card>
   );
 };
+
+export const RealTimeChart = React.memo(RealTimeChartComponent);

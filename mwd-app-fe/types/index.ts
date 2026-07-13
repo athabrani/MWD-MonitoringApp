@@ -61,7 +61,8 @@ export interface KPIData {
 export interface ChartDataPoint {
   timestamp: Date;
   depth?: number;
-  [key: string]: number | Date | undefined;
+  sessionId?: string;
+  [key: string]: number | Date | string | undefined;
 }
 
 // Events and Alarms

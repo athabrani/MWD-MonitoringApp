@@ -738,7 +738,10 @@ export const importWellPlanCsv = async (req: Request, res: Response) => {
       sessionId,
       csv,
       replace,
-      stationType: normalizeStationType(body.stationType, "well_plan"),
+      stationType: normalizeStationType(
+        body.stationType ?? req.query.stationType,
+        "well_plan",
+      ),
     };
 
     if (verticalSectionAzimuth.value !== undefined) {
